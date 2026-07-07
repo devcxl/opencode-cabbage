@@ -1,0 +1,5 @@
+node_modules/
+dist/
+
+# OpenCode plugin — parallel development worktrees
+.worktree/

@@ -201,7 +201,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
             mode: agent.mode,
             color: agent.color,
             prompt: agent.prompt,
-            tools: { read: true, bash: true, write: true, edit: true },
+            tools: agent.tools ?? { read: true, bash: true, write: true, edit: true },
           }
         }
 
@@ -210,6 +210,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
             mode: "subagent",
             description: "Goal verification agent. Verifies completion independently.",
             prompt: verifyAgentPrompt(),
+            tools: { read: true, bash: true, write: false, edit: false },
           }
         }
       },

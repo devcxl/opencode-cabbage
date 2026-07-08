@@ -1,11 +1,12 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs"
 import path from "node:path"
+import { parse as parseYaml } from "yaml"
 
-interface AgentMeta {
-  name: string
-  description?: string
-  mode?: "subagent" | "primary" | "all"
-  color?: string
+export interface AgentTools {
+  read?: boolean
+  bash?: boolean
+  write?: boolean
+  edit?: boolean
 }
 
 export interface AgentEntry {
@@ -13,6 +14,7 @@ export interface AgentEntry {
   description?: string
   mode?: "subagent" | "primary" | "all"
   color?: string
+  tools?: AgentTools
   prompt: string
 }
 
@@ -24,24 +26,34 @@ function parseAgentFile(filePath: string): AgentEntry | null {
   const frontmatterStr = match[1]
   const body = match[2].trim()
 
-  const meta: Record<string, string> = {}
-  for (const line of frontmatterStr.split("\n")) {
-    const colonIdx = line.indexOf(":")
-    if (colonIdx > 0) {
-      const key = line.slice(0, colonIdx).trim()
-      const value = line.slice(colonIdx + 1).trim().replace(/^["']|["']$/g, "")
-      meta[key] = value
-    }
+  let parsed: Record<string, unknown>
+  try {
+    parsed = parseYaml(frontmatterStr) as Record<string, unknown>
+  } catch {
+    return null
   }
 
-  const name = meta.name
+  if (!parsed || typeof parsed !== "object") return null
+  const name = String(parsed.name ?? "")
   if (!name) return null
+
+  const toolsRaw = parsed.tools
+  const tools: AgentTools | undefined =
+    toolsRaw && typeof toolsRaw === "object" && !Array.isArray(toolsRaw)
+      ? {
+          read: Boolean((toolsRaw as Record<string, unknown>).read),
+          bash: Boolean((toolsRaw as Record<string, unknown>).bash),
+          write: Boolean((toolsRaw as Record<string, unknown>).write),
+          edit: Boolean((toolsRaw as Record<string, unknown>).edit),
+        }
+      : undefined
 
   return {
     key: name,
-    description: meta.description,
-    mode: meta.mode as AgentMeta["mode"],
-    color: meta.color,
+    description: parsed.description as string | undefined,
+    mode: parsed.mode as AgentEntry["mode"],
+    color: parsed.color as string | undefined,
+    tools,
     prompt: body,
   }
 }
@@ -49,7 +61,6 @@ function parseAgentFile(filePath: string): AgentEntry | null {
 export function loadAgents(agentsDir: string): AgentEntry[] {
   const result: AgentEntry[] = []
 
-  // Load primary agents from agentsDir root
   if (existsSync(agentsDir)) {
     for (const entry of readdirSync(agentsDir, { withFileTypes: true })) {
       if (entry.isFile() && entry.name.endsWith(".md")) {
@@ -59,7 +70,6 @@ export function loadAgents(agentsDir: string): AgentEntry[] {
     }
   }
 
-  // Load team/subagents from agentsDir/team/
   const teamDir = path.join(agentsDir, "team")
   if (existsSync(teamDir)) {
     for (const entry of readdirSync(teamDir, { withFileTypes: true })) {

@@ -5,7 +5,7 @@ mode: subagent
 color: '#e91e63'
 tools:
   read: true
-  bash: true
+  bash: false
   write: false
   edit: false
 ---

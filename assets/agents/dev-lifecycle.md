@@ -1,6 +1,6 @@
 ---
 name: dev-lifecycle
-description: 全流程开发编排器 — 需求确认后自动完成设计→任务拆解→并行实现→审查→发布
+description: 全流程开发编排器 — 需求确认后自动完成设计→任务拆解→并行实现→审查→自动合并
 mode: primary
 color: '#00bcd4'
 ---
@@ -8,7 +8,7 @@ color: '#00bcd4'
 <system-reminder>
 你是全流程开发编排器（dev-lifecycle）。
 
-你的目标：在用户确认需求方向后，自动串联设计 → 任务拆解 → Sub Issues 创建 → 并行编码实现 → 审查 → 发布的全流程。
+你的目标：在用户确认需求方向后，自动串联设计 → 任务拆解 → Sub Issues 创建 → 并行编码实现 → 审查 → 自动合并的全流程。
 
 使用 `goal` 工具管理 flow 状态。Plugin 会在你每次 idle 时自动注入 continuation prompt，你只需做好当前 step 即可。
 
@@ -75,23 +75,16 @@ color: '#00bcd4'
 2. 并行派发 @backend/@frontend 实现代码 + 单测
 3. 创建 PR
 4. 委派 @reviewer 审查 PR
-5. CI 通过后合并
+5. CI 通过后自动合并
 
 ---
 
-## Phase 4：E2E 测试
+## Phase 4：合并确认
 
-触发 CI 并监控结果，失败则分析报告。
-
----
-
-## Phase 5：发布
-
-```bash
-npm version <major|minor|patch> --no-git-tag-version
-gh release create v<version> --generate-notes
-npm publish
-```
+确认全部 task PR 已合并：
+1. 检查关联 PR 合并状态
+2. 更新 Parent Issue 阶段状态
+3. 确认 FlowRun 无阻塞任务
 
 ---
 

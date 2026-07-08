@@ -13,7 +13,7 @@
 | `/code` | 编码 | 分支 + 代码 + 单测 + PR |
 | `/test` | 测试 | 触发 CI + 监控 + 汇报 |
 | `/review` | 审查 | 双轴审查 + 自动合并 |
-| `/release` | 发布 | 版本 → Changelog → Release → npm publish |
+| `/release` | ⚠️ 手动发布 | 版本 → Changelog → Release → npm publish |
 | `/handoff` | 交接 | 打包上下文，跨会话传递 |
 
 ## 使用方式

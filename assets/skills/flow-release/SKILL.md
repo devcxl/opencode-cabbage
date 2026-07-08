@@ -1,6 +1,8 @@
 # flow-release
 
-自动版本号 → Changelog → GitHub Release → npm publish。
+⚠️ **此阶段仅限人工执行**，不在无人自动流程中。
+
+版本号更新 → Changelog → GitHub Release → npm publish。
 
 ## Prerequisites
 - main 分支最新，所有 PR 已合并

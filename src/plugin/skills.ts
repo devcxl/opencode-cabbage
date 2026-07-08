@@ -18,7 +18,9 @@ export async function setupSkillsDir(sourceSkillsDir: string, contextDir?: strin
   await cp(sourceSkillsDir, destDir, { recursive: true })
 
   if (contextDir) {
-    await cp(contextDir, path.join(destDir, "_context"), { recursive: true })
+    try {
+      await cp(contextDir, path.join(destDir, "_context"), { recursive: true })
+    } catch {}
   }
 
   async function processDir(dir: string) {

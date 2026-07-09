@@ -24,7 +24,7 @@ function withStage(run: FlowRun, stage: FlowStage, status: string): FlowRun {
 function withTask(run: FlowRun, task: Record<string, unknown>): FlowRun {
   return {
     ...run,
-    tasks: { ...run.tasks, [task.id as string]: task },
+    tasks: { ...run.tasks, [task.id as string]: task as any },
   }
 }
 

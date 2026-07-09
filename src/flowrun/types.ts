@@ -53,6 +53,7 @@ export interface TaskState {
   expectedFiles: string[]
   testCommands: string[]
   acceptance: string
+  parallelSafe: boolean
   prNumber: number | null
   prCheckpoints: PRCheckpoints | null
   blockedReason: string | null

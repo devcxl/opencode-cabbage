@@ -1,8 +1,25 @@
 # @devcxl/opencode-cabbage
 
-全流程开发 OpenCode 插件。覆盖需求→设计→任务→编码→测试→审查→发布完整生命周期，支持自动编排与并行 Subagent。
+全流程开发 OpenCode 插件 — 覆盖需求→设计→任务→编码→测试→审查→发布完整开发生命周期，支持自动编排与并行 Subagent。
 
-## 命令
+[![npm version](https://img.shields.io/npm/v/@devcxl/opencode-cabbage)](https://www.npmjs.com/package/@devcxl/opencode-cabbage)
+[![CI](https://github.com/devcxl/opencode-cabbage/actions/workflows/ci.yml/badge.svg)](https://github.com/devcxl/opencode-cabbage/actions/workflows/ci.yml)
+[![GitHub Pages](https://github.com/devcxl/opencode-cabbage/actions/workflows/pages.yml/badge.svg)](https://devcxl.github.io/opencode-cabbage)
+
+---
+
+## 安装
+
+```json
+// opencode.json
+{
+  "plugin": ["@devcxl/opencode-cabbage"]
+}
+```
+
+插件启动后自动注入 9 个 slash command、9 个 flow skill、5 个 agent。
+
+## 命令一览
 
 | 命令 | 阶段 | 产出 |
 |------|------|------|
@@ -16,24 +33,23 @@
 | `/release` | ⚠️ 手动发布 | 版本 → Changelog → Release → npm publish |
 | `/handoff` | 交接 | 打包上下文，跨会话传递 |
 
-## 使用方式
+## 快速开始
 
-**手动模式：** 按顺序逐一执行命令。
-**自动模式：** 需求确认后输入 `@dev-lifecycle`，全自动完成剩余流程。
+```bash
+# 1. 安装
+npm install @devcxl/opencode-cabbage
 
-## 安装
+# 2. 在 opencode.json 中添加
+# { "plugin": ["@devcxl/opencode-cabbage"] }
 
-```json
-// opencode.json
-{
-  "plugin": ["@devcxl/opencode-cabbage"]
-}
+# 3. 在 OpenCode 中执行
+# /setup → /requirements → @dev-lifecycle
 ```
 
-插件启动时自动注入：
-- 9 个 slash command
-- 9 个 flow-* skills
-- 5 个 agent（`@dev-lifecycle`、`@architect`、`@backend`、`@frontend`、`@reviewer`）
+## 两种模式
+
+- **手动模式** — 按顺序逐一执行命令，适合精细控制
+- **自动模式** — 需求确认后输入 `@dev-lifecycle`，全自动完成剩余流程
 
 ## 架构
 
@@ -53,21 +69,20 @@ assets/                       # 运行时资源
 ├── commands/                 # 9 个 slash command
 ├── skills/                   # 9 个 flow-* skill
 ├── agents/                   # 5 个 agent 定义
-├── context/疯狂学疯狂学。.md        # 领域词汇表
+├── context/                  # 领域词汇表
 └── prompts/                  # 引导提示词 + 模板
 ```
 
-## 文档目录
+## 文档
 
-```
-docs/
-├── prd/       # 产品需求文档
-├── adr/       # 架构决策记录
-└── dev/       # 开发文档
-    ├── specs/
-    ├── tasks/
-    ├── api/
-    ├── db/
-    ├── guides/
-    └── handoff/
-```
+| 文档 | 链接 |
+|------|------|
+| 快速开始 | [docs/guides/quickstart.md](docs/guides/quickstart.md) |
+| 配置指南 | [docs/guides/configuration.md](docs/guides/configuration.md) |
+| 使用指南 | [docs/guides/usage.md](docs/guides/usage.md) |
+| 架构概览 | [docs/guides/architecture.md](docs/guides/architecture.md) |
+| 贡献指南 | [docs/dev/guides/contributing.md](docs/dev/guides/contributing.md) |
+
+## 许可
+
+MIT

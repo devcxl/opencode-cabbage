@@ -1,15 +1,16 @@
 ---
 name: flow-code
-description: 分支 → 编码 + 单测 → PR 提交
+description: 分支 → 编码 + 单测 → PR 提交（Worktree 模式）
 ---
 
 # flow-code
 
-认领 Sub Issue，创建分支，实现代码+单测，提交 PR。
+认领 Sub Issue，创建 worktree，实现代码+单测，提交 PR。
 
 ## Prerequisites
 - `/tasks` 已完成 → Sub Issues 就绪
 - 阅读 `docs/adr/` 确保实现与 ADR 兼容
+- 确认 task 的 `worktree_root` 字段（来自 task 文件 frontmatter）
 
 ## Workflow
 
@@ -19,14 +20,29 @@ description: 分支 → 编码 + 单测 → PR 提交
 ### 2. 检查 ADR 约束
 阅读相关 ADR，确保实现方案不违反已有架构决策。
 
-### 3. 分支 → 编码 → 单测
+### 3. 创建/复用 Worktree
 ```bash
-git checkout -b feat/<task-slug>
+# 检查 worktree 是否已存在
+if [ ! -d ".worktree/<task-slug>" ]; then
+  git worktree add .worktree/<task-slug> feat/<task-slug>
+fi
+
+# 进入 worktree
+cd .worktree/<task-slug>
+```
+
+### 4. 安装依赖
+```bash
+npm install
+```
+
+### 5. 编码 + 单测
+```bash
 # 实现代码 + 单元测试
 npm test
 ```
 
-### 4. 文档同步检查
+### 6. 文档同步检查
 完成编码后，逐项检查以下文档是否需要同步更新：
 
 ```
@@ -42,19 +58,23 @@ npm test
 - 需要修改的文档随代码一起提交到同一个 PR
 - PR body 中列出已同步的文档
 
-### 5. 提交 PR
+### 7. 提交 PR
 ```bash
+# 在 worktree 内执行
+git add .
 git commit -m "feat(<scope>): <title>"
+git push origin feat/<task-slug>
 mkdir -p docs/dev/handoff
 echo "Closes #<issue-num>" > docs/dev/handoff/pr-body.md
 gh pr create --title "<title>" --body-file docs/dev/handoff/pr-body.md
 ```
 
-### 6. 更新开发文档
+### 8. 更新开发文档
 如涉及 API 变更 → 更新 `docs/dev/api/`
 如涉及数据模型变更 → 更新 `docs/dev/db/`
 
 ## Output
+- Worktree 已创建/复用（`.worktree/<task-slug>/`）
 - 代码已推送
 - PR 已创建并关联 Sub Issue（PR body 含 `Closes #<issue-num>`）
 - 文档同步 checklist 已完成

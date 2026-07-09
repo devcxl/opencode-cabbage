@@ -28,6 +28,33 @@ function getSidebar(): DefaultTheme.Sidebar {
           link: `/${dir}/${name}`,
         })
       } else if (statSync(fullPath).isDirectory()) {
+        // Special handling for dev/tasks/ — feature subdirectories with date prefix
+        if (dir === 'dev' && entry === 'tasks') {
+          const featureDirs = readdirSync(fullPath).sort().filter(e => {
+            if (e.startsWith('.')) return false
+            return statSync(join(fullPath, e)).isDirectory()
+          })
+          if (featureDirs.length > 0) {
+            const taskItems: DefaultTheme.SidebarItem[] = featureDirs.map(fd => {
+              const fdPath = join(fullPath, fd)
+              const fdFiles = readdirSync(fdPath).sort().filter(e => e.endsWith('.md'))
+              const displayName = fd
+                .replace(/^\d{4}-\d{2}-\d{2}-\d{3}-/, '')
+                .replace(/-/g, ' ')
+                .replace(/\b\w/g, c => c.toUpperCase())
+              return {
+                text: displayName,
+                collapsed: true,
+                items: fdFiles.map(f => ({
+                  text: f.replace('.md', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+                  link: `/${dir}/${entry}/${fd}/${f.replace('.md', '')}`,
+                })),
+              }
+            })
+            items.push({ text: 'Tasks', collapsed: false, items: taskItems })
+          }
+          continue
+        }
         const subEntries = readdirSync(fullPath).sort().filter(e => e.endsWith('.md'))
         if (subEntries.length > 0) {
           items.push({

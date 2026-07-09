@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "docs/.vitepress/**"
       - "package.json"
       - ".github/workflows/pages.yml"
   workflow_dispatch:

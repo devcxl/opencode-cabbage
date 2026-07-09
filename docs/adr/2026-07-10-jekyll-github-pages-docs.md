@@ -1,6 +1,6 @@
 # ADR 0002: 使用 Jekyll + GitHub Pages 部署文档站点
 
-**状态:** Accepted
+**状态:** Superseded（被 [ADR 0003](/adr/2026-07-10-jekyll-to-vitepress) 替代）
 **日期:** 2026-07-10
 
 ## 背景

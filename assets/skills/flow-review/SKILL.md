@@ -43,9 +43,16 @@ gh pr checks <pr-number> --watch
 gh pr merge <pr-number> --squash --delete-branch
 ```
 
+### 6. 关闭关联 Sub Issue
+如果 PR body 未包含 `Closes #<num>`（或 PR 合并后 GitHub 未自动关闭），手动关闭：
+```bash
+gh issue close <issue-num> --comment "已完成，已合并至 main"
+```
+
 ## Output
 - PR 已审查
 - PR 已合并（条件满足时）
+- 关联 Sub Issue 已关闭
 
 ## 后续
 - **/release** — 发布（如所有 PR 已合并）

@@ -55,5 +55,13 @@ gh issue create \
 - `docs/dev/tasks/*.md` — 独立任务文件
 - GitHub Sub Issues 已创建（依赖关系在 body 中声明）
 
+## Sub Issue 关闭时机
+Sub Issue 不在 `/tasks` 阶段关闭，而是在对应 PR 合并后自动关闭：
+
+| 阶段 | 动作 |
+|------|------|
+| `/code` | PR body 含 `Closes #<issue-num>`，合并后 GitHub 自动关闭 |
+| `/review` | 如 PR 未自动关闭 Sub Issue，reviewer 手动 `gh issue close <num>` |
+
 ## 后续
 - **/code** — 认领 Sub Issue 开始编码

@@ -31,7 +31,7 @@ gh pr create --title "<title>" --body-file docs/dev/handoff/pr-body.md
 
 ## Output
 - 代码已推送
-- PR 已创建并关联 Sub Issue
+- PR 已创建并关联 Sub Issue（PR body 含 `Closes #<issue-num>`）
 - dev docs 已更新
 
 ## 上下文管理

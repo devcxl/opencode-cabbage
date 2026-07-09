@@ -53,8 +53,10 @@
   },
   "devDependencies": {
     "@types/node": "^24.6.0",
+    "mermaid": "^11.16.0",
     "typescript": "^5.9.3",
     "vitepress": "^1.6.4",
+    "vitepress-plugin-mermaid": "^2.0.17",
     "vitest": "^3.2.4"
   }
 }

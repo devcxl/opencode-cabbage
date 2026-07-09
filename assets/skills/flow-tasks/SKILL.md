@@ -21,6 +21,17 @@ description: DAG 任务拆解 → Sub Issues 创建
 - 无依赖的任务标记为可并行
 - 任务粒度以"一个人可独立完成"为标准
 
+DAG 使用 Mermaid 语法绘制，示例：
+
+```mermaid
+graph TD
+  A["Task A（无依赖）"] --> B["Task B（依赖 A）"]
+  A --> C["Task C（依赖 A）"]
+  D["Task D（无依赖）"]
+```
+
+保存为 `docs/dev/tasks/<YYYY-MM-DD-NNN-slug>/DAG.md`。
+
 ### 2. 创建任务文件
 每个任务 `docs/dev/tasks/<task-name>.md`：
 

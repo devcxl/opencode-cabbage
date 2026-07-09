@@ -2,6 +2,7 @@ import { defineConfig } from 'vitepress'
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DefaultTheme } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
 function getSidebar(): DefaultTheme.Sidebar {
   const docsDir = join(import.meta.dirname, '..')
@@ -76,7 +77,7 @@ function getSidebar(): DefaultTheme.Sidebar {
   return sidebar
 }
 
-export default defineConfig({
+export default withMermaid(defineConfig({
   title: 'opencode-cabbage',
   description: '全流程开发 OpenCode 插件 — 需求→设计→任务→编码→测试→审查→自动合并',
   srcDir: '.',
@@ -165,4 +166,4 @@ export default defineConfig({
       next: '下一页',
     },
   },
-})
+}))

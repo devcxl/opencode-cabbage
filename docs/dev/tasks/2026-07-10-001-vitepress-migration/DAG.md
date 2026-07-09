@@ -6,13 +6,13 @@ parent: "https://github.com/devcxl/opencode-cabbage/issues/17"
 
 ## DAG 拓扑
 
-```
-A (VitePress 初始化)
-├── B (首页配置)
-├── C (内容迁移)
-├── D (侧边栏与导航栏)
-└── E (CI/CD 更新)
-     └── F (Jekyll 清理)
+```mermaid
+graph TD
+  A["A. VitePress 初始化"] --> B["B. 首页配置"]
+  A --> C["C. 内容迁移"]
+  A --> D["D. 侧边栏与导航栏"]
+  A --> E["E. CI/CD 更新"]
+  E --> F["F. Jekyll 清理"]
 ```
 
 ## 任务列表

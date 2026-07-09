@@ -6,11 +6,12 @@ parent: "https://github.com/devcxl/opencode-cabbage/issues/25"
 
 ## DAG 拓扑
 
-```
-A (目录重组) ─── B (getSidebar 适配)
-C (changelog 创建)
-D (flow-code 更新)
-E (flow-review 更新)
+```mermaid
+graph TD
+  A["A. 目录重组"] --> B["B. getSidebar 适配"]
+  C["C. changelog 创建"]
+  D["D. flow-code 更新"]
+  E["E. flow-review 更新"]
 ```
 
 ## 任务列表

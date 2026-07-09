@@ -86,7 +86,7 @@ describe("validateFlowRun", () => {
   })
 
   it("rejects invalid stage status", () => {
-    const obj = validFlowRun()
+    const obj = validFlowRun() as any
     obj.stages.requirements.status = "invalid"
     const { errors } = validateFlowRun(obj)
     expect(errors.some(e => e.path.startsWith("stages."))).toBe(true)
@@ -99,7 +99,7 @@ describe("validateFlowRun", () => {
   })
 
   it("validates task status", () => {
-    const obj = validFlowRun()
+    const obj = validFlowRun() as any
     obj.tasks = {
       "task-1": {
         id: "task-1",

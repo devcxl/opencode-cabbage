@@ -80,6 +80,12 @@ function validateStage(stageKey: string, stage: Record<string, unknown>, errors:
   if (typeof stage.completedAt !== "string" && stage.completedAt !== null) {
     errors.push({ path: `stages.${stageKey}.completedAt`, message: "Must be string or null" })
   }
+  if (!Array.isArray(stage.checks)) {
+    errors.push({ path: `stages.${stageKey}.checks`, message: "Required array" })
+  }
+  if (!Array.isArray(stage.evidence)) {
+    errors.push({ path: `stages.${stageKey}.evidence`, message: "Required array" })
+  }
 }
 
 function validateTasks(tasks: unknown, errors: ValidationError[]): boolean {
@@ -113,5 +119,8 @@ function validateTask(taskKey: string, task: Record<string, unknown>, errors: Va
   }
   if (!Array.isArray(task.expectedFiles)) {
     errors.push({ path: `tasks.${taskKey}.expectedFiles`, message: "Required array" })
+  }
+  if (!Array.isArray(task.testCommands)) {
+    errors.push({ path: `tasks.${taskKey}.testCommands`, message: "Required array" })
   }
 }

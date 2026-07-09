@@ -67,6 +67,17 @@ gh pr merge <pr-number> --squash --delete-branch
 gh issue close <issue-num> --comment "已完成，已合并至 main"
 ```
 
+### 9. 清理 Worktree
+PR 合并后，清理对应的 worktree 和分支：
+
+```bash
+# 从主仓库执行
+git worktree remove .worktree/<task-slug> --force
+git branch -D feat/<task-slug>
+```
+
+> 清理时机：PR 合并后立即执行。`--force` 确保即使 worktree 有未提交变更也能清理（代码已合并到 main，worktree 内变更已无意义）。如清理失败（如进程占用），记录警告但不阻塞流程。
+
 ## Output
 - PR 已审查
 - PR 已合并（条件满足时）

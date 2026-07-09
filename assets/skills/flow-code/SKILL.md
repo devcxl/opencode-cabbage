@@ -1,3 +1,8 @@
+---
+name: flow-code
+description: 分支 → 编码 + 单测 → PR 提交
+---
+
 # flow-code
 
 认领 Sub Issue，创建分支，实现代码+单测，提交 PR。

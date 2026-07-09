@@ -1,3 +1,8 @@
+---
+name: flow-setup
+description: 初始化项目文档结构，验证开发环境
+---
+
 # flow-setup
 
 初始化项目文档结构，验证开发环境。

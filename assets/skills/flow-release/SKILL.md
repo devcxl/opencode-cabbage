@@ -1,3 +1,8 @@
+---
+name: flow-release
+description: 版本 → Changelog → Release → npm publish（仅人工）
+---
+
 # flow-release
 
 ⚠️ **此阶段仅限人工执行**，不在无人自动流程中。

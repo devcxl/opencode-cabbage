@@ -1,3 +1,8 @@
+---
+name: flow-handoff
+description: 打包上下文，跨会话传递进度
+---
+
 # flow-handoff
 
 当上下文窗口压力过大或需要跨会话传递进度时使用。

@@ -1,3 +1,8 @@
+---
+name: flow-review
+description: 双轴审查（规范 + 规格）→ 自动合并
+---
+
 # flow-review
 
 沿两条轴线审查 PR 代码：规范（是否符合编码标准）和规格（是否实现了原始需求）。

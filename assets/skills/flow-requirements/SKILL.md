@@ -1,3 +1,8 @@
+---
+name: flow-requirements
+description: 需求访谈 → PRD 输出 → GitHub Issue 创建
+---
+
 # flow-requirements
 
 通过采访式对话澄清需求，输出 PRD 文档并创建 GitHub Issue。

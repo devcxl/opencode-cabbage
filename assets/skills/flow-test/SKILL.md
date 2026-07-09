@@ -1,3 +1,8 @@
+---
+name: flow-test
+description: 触发 CI → 监控 → 测试结果汇报
+---
+
 # flow-test
 
 触发 CI 运行 E2E 测试，监控结果并汇报。

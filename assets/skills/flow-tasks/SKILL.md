@@ -1,3 +1,8 @@
+---
+name: flow-tasks
+description: DAG 任务拆解 → Sub Issues 创建
+---
+
 # flow-tasks
 
 将设计方案拆解为 DAG（有向无环图）任务，创建 GitHub Sub Issues。

@@ -1,3 +1,8 @@
+---
+name: flow-design
+description: 技术方案设计 → 方案文档 + ADR 输出
+---
+
 # flow-design
 
 基于 PRD 进行技术方案设计，输出方案文档和 ADR。

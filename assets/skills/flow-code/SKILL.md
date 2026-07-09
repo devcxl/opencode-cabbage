@@ -20,7 +20,9 @@ git checkout -b feat/<task-slug>
 # 实现代码 + 单元测试
 npm test
 git commit -m "feat(<scope>): <title>"
-gh pr create --title "<title>" --body "Closes #<issue-num>"
+mkdir -p docs/dev/handoff
+echo "Closes #<issue-num>" > docs/dev/handoff/pr-body.md
+gh pr create --title "<title>" --body-file docs/dev/handoff/pr-body.md
 ```
 
 ### 4. 更新开发文档

@@ -31,8 +31,19 @@ ADR 至少记录：
 
 ### 4. 附到 GitHub Issue
 ```bash
-gh issue comment <issue-number> \
-  --body "## 技术方案\n\n...（摘要）\n\n## ADR\n\n...（ADR 列表）\n\n完整文档：docs/dev/specs/<title>.md"
+mkdir -p docs/dev/handoff
+cat > docs/dev/handoff/design-comment.md << 'EOF'
+## 技术方案
+
+...（摘要）
+
+## ADR
+
+...（ADR 列表）
+
+完整文档：docs/dev/specs/<title>.md
+EOF
+gh issue comment <issue-number> --body-file docs/dev/handoff/design-comment.md
 ```
 
 ## Output

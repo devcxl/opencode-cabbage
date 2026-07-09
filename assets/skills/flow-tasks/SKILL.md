@@ -36,11 +36,19 @@ labels: ["backend"]
 ### 3. 创建 Sub Issues
 
 ```bash
+mkdir -p docs/dev/handoff
+cat > docs/dev/handoff/task-issue-body.md << 'EOF'
+## 依赖
+前置任务: <列表>
+
+## 描述
+...
+EOF
 gh issue create \
   --title "<task-name>" \
   --label "task" \
   --parent <parent-number> \
-  --body "## 依赖\n前置任务: <列表>\n\n## 描述\n..."
+  --body-file docs/dev/handoff/task-issue-body.md
 ```
 
 ## Output

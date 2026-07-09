@@ -47,8 +47,8 @@ gh pr view <pr-number> --json title,body,files
 ```
 
 ### 4. 审查结论
-- Critical/High 存在 → `--request-changes`，**不可调 goal({op:"complete"})**
-- 无 Critical/High → `--approve`，然后调 `goal({op:"complete"})` 完成验证
+- Critical/High 存在 → 先将审查报告写入 `docs/dev/handoff/review-report.md`，然后 `gh pr review <pr-number> --request-changes --body-file docs/dev/handoff/review-report.md`，**不可调 goal({op:"complete"})**
+- 无 Critical/High → 写入 `docs/dev/handoff/review-report.md` 后 `gh pr review <pr-number> --approve --body-file docs/dev/handoff/review-report.md`，然后调 `goal({op:"complete"})` 完成验证
 
 ## 原则
 - 不修改代码

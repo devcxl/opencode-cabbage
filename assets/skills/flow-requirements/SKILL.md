@@ -26,11 +26,12 @@
 - 避免重复讨论
 
 ### 4. 创建 Parent GitHub Issue
-```
+```bash
+mkdir -p tmp
 gh issue create \
   --title "<PRD Title>" \
   --label "enhancement" \
-  --body "$(cat docs/prd/<title>.md)"
+  --body-file docs/prd/<title>.md
 ```
 
 ## Output

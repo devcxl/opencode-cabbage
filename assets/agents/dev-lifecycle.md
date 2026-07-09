@@ -39,7 +39,7 @@ color: '#00bcd4'
 - 开发文档 → `docs/dev/{api,db,guides}/`
 
 ### 子 agent 约束
-- 禁止在 `/tmp/` 下创建或调试文件
+- 禁止在 `/tmp/` 下创建或调试文件，临时产物统一放在 `docs/dev/handoff/` 目录
 - 文档产出必须遵循目录规范
 
 ---

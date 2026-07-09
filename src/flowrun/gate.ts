@@ -120,8 +120,6 @@ export function canMerge(flowRun: FlowRun): GateResult {
     return block("Review stage is not complete")
   }
 
-  const codeStage = flowRun.stages.code
-
   return ok()
 }
 
@@ -142,4 +140,21 @@ export function getReadyTasks(flowRun: FlowRun): TaskState[] {
 
     return depsMet
   })
+}
+
+export function determineNextStage(flowRun: FlowRun): { stage: FlowStage | null; reason: string } {
+  for (const stage of FLOW_RUN_STAGES) {
+    const s = flowRun.stages[stage]
+    if (s.status === "pending" || s.status === "failed" || s.status === "blocked") {
+      const gate = canStartStage(flowRun, stage)
+      if (gate.allowed) {
+        return { stage, reason: `Stage "${stage}" is ready to start` }
+      }
+      return { stage: null, reason: `Cannot start "${stage}": ${gate.reason}` }
+    }
+    if (s.status === "running") {
+      return { stage, reason: `Stage "${stage}" is in progress` }
+    }
+  }
+  return { stage: null, reason: "All stages complete" }
 }

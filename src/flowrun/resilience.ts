@@ -1,13 +1,5 @@
-import { exec } from "node:child_process"
-import { promisify } from "node:util"
 import { type FlowRun, DEFAULT_MAX_RUNTIME_MS, FLOW_RUN_STAGES } from "./types.js"
-import { canStartStage } from "./gate.js"
-
-const execAsync = promisify(exec)
-
-function gh(args: string): Promise<{ stdout: string; stderr: string }> {
-  return execAsync(`gh ${args}`, { timeout: 15_000 })
-}
+import { gh } from "../util/gh.js"
 
 export function getRuntimeMs(flowRun: FlowRun): number {
   if (!flowRun.startedAt) return 0
@@ -106,21 +98,4 @@ export function buildContinuationContext(flowRun: FlowRun): string {
   }
 
   return parts.join("\n")
-}
-
-export function determineNextStage(flowRun: FlowRun): { stage: string | null; reason: string } {
-  for (const stage of FLOW_RUN_STAGES) {
-    const s = flowRun.stages[stage]
-    if (s.status === "pending" || s.status === "failed" || s.status === "blocked") {
-      const gate = canStartStage(flowRun, stage)
-      if (gate.allowed) {
-        return { stage, reason: `Stage "${stage}" is ready to start` }
-      }
-      return { stage: null, reason: `Cannot start "${stage}": ${gate.reason}` }
-    }
-    if (s.status === "running") {
-      return { stage, reason: `Stage "${stage}" is in progress` }
-    }
-  }
-  return { stage: null, reason: "All stages complete" }
 }

@@ -1,5 +1,5 @@
-import { exec } from "node:child_process"
-import { promisify } from "node:util"
+import { gh } from "../util/gh.js"
+import { escapeShellArg } from "../util/shell.js"
 import {
   type FlowRun,
   CABINET_START_MARKER,
@@ -7,12 +7,6 @@ import {
   CURRENT_SCHEMA_VERSION,
 } from "./types.js"
 import { validateFlowRun } from "./validator.js"
-
-const execAsync = promisify(exec)
-
-function gh(args: string): Promise<{ stdout: string; stderr: string }> {
-  return execAsync(`gh ${args}`, { timeout: 30_000 })
-}
 
 function buildFlowRunBlock(flowRun: FlowRun): string {
   const json = JSON.stringify(flowRun, null, 2)
@@ -66,8 +60,7 @@ export async function writeFlowRun(issueNumber: number, flowRun: FlowRun): Promi
     const body = stdout
     const newBody = replaceFlowRunInBody(body, flowRun)
 
-    const escaped = newBody
-      .replace(/'/g, "'\\''")
+    const escaped = escapeShellArg(newBody)
 
     await gh(`issue edit ${issueNumber} --body '${escaped}'`)
     return { success: true }
@@ -99,7 +92,7 @@ export async function writeFlowRunWithLock(
     }
 
     const newBody = replaceFlowRunInBody(stdout, flowRun)
-    const escaped = newBody.replace(/'/g, "'\\''")
+    const escaped = escapeShellArg(newBody)
     await gh(`issue edit ${issueNumber} --body '${escaped}'`)
     return { success: true, conflict: false }
   } catch (err) {

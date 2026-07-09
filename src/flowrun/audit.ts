@@ -1,16 +1,10 @@
-import { exec } from "node:child_process"
-import { promisify } from "node:util"
-import type { FlowRun, TaskState } from "./types.js"
-
-const execAsync = promisify(exec)
-
-function gh(args: string): Promise<{ stdout: string; stderr: string }> {
-  return execAsync(`gh ${args}`, { timeout: 30_000 })
-}
+import type { FlowRun, FlowStage, TaskState } from "./types.js"
+import { gh } from "../util/gh.js"
+import { escapeShellArg } from "../util/shell.js"
 
 export async function postAuditComment(issueNumber: number, body: string): Promise<boolean> {
   try {
-    const escaped = body.replace(/'/g, "'\\''")
+    const escaped = escapeShellArg(body)
     await gh(`issue comment ${issueNumber} --body '${escaped}'`)
     return true
   } catch {
@@ -20,7 +14,7 @@ export async function postAuditComment(issueNumber: number, body: string): Promi
 
 export async function postPRComment(prNumber: number, body: string): Promise<boolean> {
   try {
-    const escaped = body.replace(/'/g, "'\\''")
+    const escaped = escapeShellArg(body)
     await gh(`pr comment ${prNumber} --body '${escaped}'`)
     return true
   } catch {
@@ -28,8 +22,8 @@ export async function postPRComment(prNumber: number, body: string): Promise<boo
   }
 }
 
-export function buildStageAudit(flowRun: FlowRun, stage: string): string {
-  const s = flowRun.stages[stage as keyof typeof flowRun.stages]
+export function buildStageAudit(flowRun: FlowRun, stage: FlowStage): string {
+  const s = flowRun.stages[stage]
   if (!s) return `Stage "${stage}" not found`
 
   const lines: string[] = [

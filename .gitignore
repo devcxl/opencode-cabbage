@@ -1,5 +1,5 @@
 node_modules/
 dist/
-.worktree/
+.worktree/  # git worktree 并行开发目录
 .vitepress-dist/
 .opencode

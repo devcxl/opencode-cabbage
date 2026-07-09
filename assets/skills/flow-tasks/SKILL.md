@@ -40,6 +40,7 @@ graph TD
 name: "<task-name>"
 depends_on: ["<前置任务>"]
 labels: ["backend"]
+worktree_root: ".worktree/<task-name>/"
 ---
 
 ## 目标
@@ -47,6 +48,12 @@ labels: ["backend"]
 ## 实现要点
 
 ## 验收标准
+
+## Worktree
+- 路径: `.worktree/<task-name>/`
+- 分支: `feat/<task-name>`
+- 创建时机: `/code` 阶段首次执行时自动创建
+- 清理时机: PR 合并后自动删除
 ```
 
 ### 3. 创建 Sub Issues
@@ -56,6 +63,10 @@ mkdir -p docs/dev/handoff
 cat > docs/dev/handoff/task-issue-body.md << 'EOF'
 ## 依赖
 前置任务: <列表>
+
+## Worktree
+- 路径: `.worktree/<task-name>/`
+- 分支: `feat/<task-name>`
 
 ## 描述
 ...

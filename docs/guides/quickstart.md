@@ -53,6 +53,6 @@
 
 ## 下一步
 
-- [配置指南](configuration.md) — 了解所有配置选项
-- [使用指南](usage.md) — 命令详解与最佳实践
-- [架构概览](architecture.md) — 了解插件工作原理
+- [配置指南](/guides/configuration) — 了解所有配置选项
+- [使用指南](/guides/usage) — 命令详解与最佳实践
+- [架构概览](/guides/architecture) — 了解插件工作原理

@@ -1,12 +1,12 @@
-name: Deploy docs to GitHub Pages
+name: Deploy VitePress to GitHub Pages
 
 on:
   push:
     branches: [main]
     paths:
       - "docs/**"
-      - "README.md"
-      - "_config.yml"
+      - "package.json"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
@@ -26,17 +26,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Build with Jekyll
-        uses: actions/jekyll-build-pages@v1
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          source: ./docs
-          destination: ./_site
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build VitePress
+        run: npm run docs:build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
+        with:
+          path: .vitepress-dist
 
   deploy:
     environment:

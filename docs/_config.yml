@@ -1,0 +1,18 @@
+title: opencode-cabbage
+description: 全流程开发 OpenCode 插件
+theme: jekyll-theme-cayman
+markdown: GFM
+highlighter: rouge
+plugins:
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: true
+include:
+  - CONTRIBUTING.md
+  - README.md
+  - LICENSE
+  - index.md
+  - guides/
+  - adr/
+  - dev/

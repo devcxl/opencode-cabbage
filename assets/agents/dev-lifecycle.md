@@ -69,13 +69,34 @@ color: '#00bcd4'
 
 ## Phase 3：并行编码实现
 
-按 DAG 拓扑排序逐 batch 处理：
+按 DAG 拓扑排序逐 batch 处理。
 
-1. 创建分支 `feat/<task-slug>`
-2. 并行派发 @backend/@frontend 实现代码 + 单测
-3. 创建 PR
-4. 委派 @reviewer 审查 PR
-5. CI 通过后自动合并
+每个 batch 内，无依赖的 task 使用独立 worktree 并行开发：
+
+```
+For each batch:
+  For each task in batch (可并行):
+    1. 检查 worktree 是否存在
+       - 不存在 → git worktree add .worktree/<task-slug> feat/<task-slug>
+       - 存在（串行复用）→ 跳过
+    2. 并行派发 @backend/@frontend 到各 worktree 路径
+    3. 每个 agent 在 worktree 内:
+       - npm install（如未安装）
+       - 编码 + 单测
+       - 提交 + push + 创建 PR
+    4. 等待 batch 内所有 task 完成
+    5. 委派 @reviewer 审查各 PR
+    6. CI 通过后自动合并
+    7. 合并后清理 worktree（git worktree remove --force）
+
+串行 task（有依赖关系）使用清理后重建策略：
+  上一 task 合并 → git worktree remove → git worktree add 新 task
+```
+
+约束：
+- 并行 task 使用不同分支名 `feat/<task-slug>`，避免 `git worktree add` 的分支冲突
+- 每个 agent 启动时显式 `cd .worktree/<task-slug>` 并验证 `pwd`
+- 分支冲突时暂停并提示用户手动清理
 
 ---
 

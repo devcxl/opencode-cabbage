@@ -20,19 +20,19 @@ export {
 
 export {
   canStartStage, canCompleteStage, canStartTask, canCompleteTask,
-  canMerge, allTasksComplete, getReadyTasks,
+  canMerge, allTasksComplete, getReadyTasks, determineNextStage,
   type GateResult,
 } from "./gate.js"
 
 export {
   checkBranchProtection, validateCheckpoint, validatePRCheckpoints,
   canAutoMergeTask, mergePR, createRevertPR,
-  type BranchProtectionStatus, type MergeGateResult,
+  type MergeGateResult,
 } from "./merge.js"
 
 export {
   checkRuntime, hasRuntimeExpired, getRuntimeMs,
-  checkBackpressure, buildContinuationContext, determineNextStage,
+  checkBackpressure, buildContinuationContext,
   type RuntimeCheckResult, type BackpressureStatus,
 } from "./resilience.js"
 

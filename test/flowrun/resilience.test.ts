@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest"
 import {
   getRuntimeMs, hasRuntimeExpired, checkRuntime,
-  buildContinuationContext, determineNextStage,
+  buildContinuationContext,
 } from "../../src/flowrun/resilience.js"
+import { determineNextStage } from "../../src/flowrun/gate.js"
 import { createInitialFlowRun } from "../../src/flowrun/github.js"
 import type { FlowRun } from "../../src/flowrun/types.js"
 
@@ -70,7 +71,7 @@ describe("buildContinuationContext", () => {
   it("includes tasks when present", () => {
     const run = createInitialFlowRun("flow-o/r-1", "o/r", 1) as FlowRun
     run.tasks = {
-      "task-1": { id: "task-1", status: "running", name: "T1", dependsOn: [], area: "b", expectedFiles: [], testCommands: [], acceptance: "", prNumber: 5, prCheckpoints: null, blockedReason: null, startedAt: "now", parallelSafe: true },
+      "task-1": { id: "task-1", status: "running", name: "T1", dependsOn: [], area: "b", expectedFiles: [], testCommands: [], acceptance: "", parallelSafe: true, prNumber: 5, prCheckpoints: null, blockedReason: null, startedAt: "now" },
     }
     const ctx = buildContinuationContext(run)
     expect(ctx).toContain("task-1")

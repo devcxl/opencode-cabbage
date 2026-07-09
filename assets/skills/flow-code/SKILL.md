@@ -31,7 +31,11 @@ fi
 cd .worktree/<task-slug>
 ```
 
+> **串行 task 说明**：当 DAG 存在依赖关系时，flow-review 会在上一 task 合并后自动清理其 worktree。
+> 因此下一 task 执行时 worktree 不存在，会触发新建流程，天然实现"清理后重建"策略。
+> 无需额外处理，worktree 创建逻辑对串行/并行场景透明。
 ### 4. 安装依赖
+
 ```bash
 npm install
 ```

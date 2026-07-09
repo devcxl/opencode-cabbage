@@ -20,9 +20,9 @@
 ```
 docs/dev/tasks/
 ├── 2026-07-09-001-docs-and-pages/
-│   ├── DAG.md
 │   ├── architecture-doc.md
 │   ├── configuration-guide.md
+│   ├── pages-deployment-workflow.md
 │   ├── quickstart-guide.md
 │   ├── readme-update.md
 │   ├── site-index-and-config.md

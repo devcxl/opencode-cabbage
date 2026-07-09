@@ -140,7 +140,7 @@ const ABORTED_SESSION_CLEANUP_INTERVAL = 1000 * 60 * 30
 let abortedCleanupTimer: ReturnType<typeof setInterval> | null = null
 
 function startPeriodicCleanup() {
-  if (abortedCleanupTimer) return
+  if (abortedCleanupTimer) clearInterval(abortedCleanupTimer)
   abortedCleanupTimer = setInterval(() => {
     abortedSessions.clear()
     errorRetryCount.clear()

@@ -54,6 +54,7 @@ export default defineConfig({
   description: '全流程开发 OpenCode 插件 — 需求→设计→任务→编码→测试→审查→自动合并',
   srcDir: '.',
   outDir: '../.vitepress-dist',
+  base: '/opencode-cabbage/',
   lastUpdated: true,
   cleanUrls: true,
 

@@ -76,6 +76,11 @@ color: '#00bcd4'
 ```
 For each batch:
   For each task in batch (可并行):
+    0. 安全检查：提交设计阶段可能遗留的未提交文档
+       if [ -n "$(git status --short docs/)" ]; then
+         git add docs/ && git commit -m "docs: 提交设计阶段未提交的文档"
+         git push origin main
+       fi
     1. 检查 worktree 是否存在
        - 不存在 → git worktree add .worktree/<task-slug> feat/<task-slug>
        - 存在（串行复用）→ 跳过

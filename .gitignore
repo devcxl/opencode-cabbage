@@ -3,3 +3,4 @@ dist/
 .worktree/  # git worktree 并行开发目录
 .vitepress-dist/
 .opencode
+docs/dev/handoff/  # 临时产物（handoff、issue body 等）

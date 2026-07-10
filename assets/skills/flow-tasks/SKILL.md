@@ -78,9 +78,19 @@ gh issue create \
   --body-file docs/dev/handoff/task-issue-body.md
 ```
 
+### 4. 提交任务文件
+任务定义文件是设计阶段产物，直接提交到 main，确保后续 worktree 创建时能读取：
+
+```bash
+git add docs/dev/tasks/<YYYY-MM-DD-NNN-slug>/
+git commit -m "docs: <title> — 任务定义"
+git push origin main
+```
+
 ## Output
 - `docs/dev/tasks/*.md` — 独立任务文件
 - GitHub Sub Issues 已创建（依赖关系在 body 中声明）
+- 任务文件已提交到 main
 
 ## Sub Issue 关闭时机
 Sub Issue 不在 `/tasks` 阶段关闭，而是在对应 PR 合并后自动关闭：

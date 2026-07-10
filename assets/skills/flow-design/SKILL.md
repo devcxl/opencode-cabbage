@@ -51,10 +51,20 @@ EOF
 gh issue comment <issue-number> --body-file docs/dev/handoff/design-comment.md
 ```
 
+### 5. 提交文档
+设计文档和 ADR 是设计阶段产物，直接提交到 main，确保后续 worktree 创建时能读取：
+
+```bash
+git add docs/dev/specs/<title>.md docs/adr/<date>-<slug>.md
+git commit -m "docs: <title> — 技术方案 + ADR"
+git push origin main
+```
+
 ## Output
 - `docs/dev/specs/<title>.md` — 技术方案
 - `docs/adr/<date>-<slug>.md` — ADR 决议
 - Parent Issue 收到设计评论
+- 文档已提交到 main
 
 ## 后续
 - **/tasks** — 基于设计方案拆解为 DAG 任务

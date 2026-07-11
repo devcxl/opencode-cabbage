@@ -109,8 +109,12 @@ For each batch:
 
 确认全部 task PR 已合并：
 1. 检查关联 PR 合并状态
-2. 更新 Parent Issue 阶段状态
-3. 确认 FlowRun 无阻塞任务
+2. 确认所有 Sub Issues 已自动关闭
+3. 关闭 Parent Issue：
+   ```bash
+   gh issue close <parent-number> --comment "已完成。全部 Sub Issue 已通过 PR 合并关闭。"
+   ```
+4. 确认 FlowRun 无阻塞任务
 
 ---
 

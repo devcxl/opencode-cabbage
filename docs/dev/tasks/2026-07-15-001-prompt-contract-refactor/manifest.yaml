@@ -1,0 +1,164 @@
+# manifest.yaml — 提示词 Contract-first 重构
+
+feature: prompt-contract-first-refactor
+parent_issue: 48
+base_branch: main
+
+tasks:
+  - id: pr1-role-goal
+    title: "角色权限与 Goal 门禁修复"
+    depends_on: []
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/pr1-role-goal/"
+    branch: "feat/pr1-role-goal"
+    expected_files:
+      - "src/plugin/goal.ts"
+      - "test/goal.test.ts"
+      - "assets/agents/team/reviewer.md"
+      - "assets/agents/team/backend.md"
+      - "assets/agents/team/frontend.md"
+      - "assets/agents/dev-lifecycle.md"
+    verify_commands:
+      - "npm test -- test/goal.test.ts test/agents.test.ts"
+      - "npm run typecheck"
+
+  - id: pr2-templates-refs
+    title: "模板与引用修复"
+    depends_on: [pr1-role-goal]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 3
+    worktree: ".worktree/pr2-templates-refs/"
+    branch: "feat/pr2-templates-refs"
+    expected_files:
+      - "src/plugin/prompts.ts"
+      - "assets/skills/flow-design/SKILL.md"
+      - "assets/skills/flow-requirements/SKILL.md"
+      - "assets/context/CONTEXT.md"
+    verify_commands:
+      - "npm test -- test/skills.test.ts test/prompts.test.ts"
+      - "npm run typecheck"
+
+  - id: pr3-worktree-safety
+    title: "Worktree 安全修复"
+    depends_on: [pr2-templates-refs]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/pr3-worktree-safety/"
+    branch: "feat/pr3-worktree-safety"
+    expected_files:
+      - "assets/skills/flow-code/SKILL.md"
+      - "assets/skills/flow-review/SKILL.md"
+      - "assets/agents/dev-lifecycle.md"
+    verify_commands:
+      - "npm test -- test/commands.test.ts test/skills.test.ts"
+      - "npm run typecheck"
+
+  - id: pr4-git-safety
+    title: "Git/GitHub 安全修复"
+    depends_on: []
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 3
+    worktree: ".worktree/pr4-git-safety/"
+    branch: "feat/pr4-git-safety"
+    expected_files:
+      - "assets/skills/flow-code/SKILL.md"
+      - "assets/skills/flow-design/SKILL.md"
+      - "assets/skills/flow-tasks/SKILL.md"
+      - "assets/agents/dev-lifecycle.md"
+    verify_commands:
+      - "npm test -- test/commands.test.ts test/skills.test.ts"
+      - "npm run typecheck"
+
+  - id: pr5-flowrun-spike
+    title: "FlowRun 接入 Spike + ADR"
+    depends_on: []
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 6
+    worktree: ".worktree/pr5-flowrun-spike/"
+    branch: "feat/pr5-flowrun-spike"
+    expected_files:
+      - "src/plugin/server.ts"
+      - "src/plugin/resilience.ts"
+      - "test/plugin/server-flowrun.test.ts"
+      - "docs/adr/2026-07-15-flowrun-spike.md"
+    verify_commands:
+      - "npm test -- test/flowrun test/plugin/"
+      - "npm run typecheck"
+
+  - id: pr6-contracts-stage1
+    title: "Stage Contract 迁移阶段 1（requirements/design/tasks）"
+    depends_on: [pr3-worktree-safety, pr4-git-safety]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/pr6-contracts-stage1/"
+    branch: "feat/pr6-contracts-stage1"
+    expected_files:
+      - "assets/skills/flow-requirements/SKILL.md"
+      - "assets/skills/flow-design/SKILL.md"
+      - "assets/skills/flow-tasks/SKILL.md"
+      - "assets/skills/flow-setup/SKILL.md"
+    verify_commands:
+      - "npm test -- test/skills.test.ts"
+      - "npm run typecheck"
+
+  - id: pr7-contracts-stage2
+    title: "Stage Contract 迁移阶段 2（code/test/review/release/handoff）"
+    depends_on: [pr3-worktree-safety, pr4-git-safety]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/pr7-contracts-stage2/"
+    branch: "feat/pr7-contracts-stage2"
+    expected_files:
+      - "assets/skills/flow-code/SKILL.md"
+      - "assets/skills/flow-test/SKILL.md"
+      - "assets/skills/flow-review/SKILL.md"
+      - "assets/skills/flow-release/SKILL.md"
+      - "assets/skills/flow-handoff/SKILL.md"
+    verify_commands:
+      - "npm test -- test/skills.test.ts"
+      - "npm run typecheck"
+
+  - id: pr8-prompt-lint
+    title: "Prompt 静态 Lint + CI 集成"
+    depends_on: [pr6-contracts-stage1, pr7-contracts-stage2]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/pr8-prompt-lint/"
+    branch: "feat/pr8-prompt-lint"
+    expected_files:
+      - "src/plugin/prompt-lint.ts"
+      - "test/plugin/prompt-lint.test.ts"
+      - "package.json"
+      - ".github/workflows/ci.yml"
+    verify_commands:
+      - "npm run prompt-lint"
+      - "npm test"
+      - "npm run typecheck"
+
+  - id: pr9-docs-sync
+    title: "文档同步 + Bootstrap 条件注入"
+    depends_on: [pr8-prompt-lint]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 3
+    worktree: ".worktree/pr9-docs-sync/"
+    branch: "feat/pr9-docs-sync"
+    expected_files:
+      - "src/plugin/server.ts"
+      - "docs/guides/architecture.md"
+      - "docs/guides/configuration.md"
+      - "docs/guides/usage.md"
+      - "assets/prompts/bootstrap.md"
+    verify_commands:
+      - "npm test"
+      - "npm run typecheck"
+      - "npm run docs:build"

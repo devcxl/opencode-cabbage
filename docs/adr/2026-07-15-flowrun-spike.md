@@ -1,6 +1,6 @@
 # ADR 0007: FlowRun 先做接入 Spike，再决定完整接入
 
-**状态:** Proposed
+**状态:** Accepted
 **日期:** 2026-07-15
 **上级:** [ADR 0001](/adr/0001-replace-openspec-with-full-flow)
 
@@ -59,3 +59,31 @@
 
 - Spike 中发现的不可逾越障碍可能导致 FlowRun 被放弃，700 行代码成为沉没成本
 - 如果选择重写后接入，需要额外的架构设计时间
+
+## Spike 结果与最终决策（2026-07-15）
+
+### Spike 验证结果
+
+- ✅ `canStartTask`: 正确基于依赖状态和 FlowRun 状态控制任务启动
+- ✅ `getReadyTasks`: 正确计算依赖全部 merged 且状态为 pending/ready 的任务
+- ✅ `canStartStage` / `canCompleteStage`: 正确按阶段顺序控制
+- ✅ `validatePRCheckpoints`: 正确验证 6 个检查点状态
+- ✅ `canAutoMergeTask`: 正确基于 FlowRun 状态 + PR Checkpoint + Branch Protection 判断
+- ✅ 141 个测试通过（16 个新增 + 125 个现有不回归）
+
+### 最终决策：阶段性接入 FlowRun（Option A）
+
+**接入范围**：
+1. Continuation Prompt 注入 FlowRun 状态摘要（替代仅 Goal 状态）
+2. PR 审查合并路径接入 `validatePRCheckpoints` 和 `canAutoMergeTask`
+3. 不修改 goal tool 对外 API
+
+**状态边界**：
+- Goal：管理会话存活（active/paused/complete）
+- FlowRun：管理阶段/任务/Gate/PR Checkpoint 细节
+- 两者共存，Goal 是 FlowRun 的上层控制器
+
+**不在本轮接入**：
+- FlowRun 替换 Goal 成为唯一状态机
+- 全自动阶段编排（由 Agent prompt 驱动阶段转换）
+- FlowRun Issue 持久化自动写入

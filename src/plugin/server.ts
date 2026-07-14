@@ -217,7 +217,6 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
       },
 
       "experimental.chat.messages.transform": async (_input, output) => {
-        const bootstrap = getBootstrapContent()
         if (!output.messages.length) return
 
         const firstUser = output.messages.find(m => m.info.role === "user")
@@ -225,7 +224,11 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
 
         if (firstUser.parts.some(p => p.type === "text" && p.text.includes("EXTREMELY_IMPORTANT"))) return
 
-        firstUser.parts.unshift({ type: "text", text: bootstrap } as typeof firstUser.parts[number])
+        // Only inject bootstrap for active flow: goal is active or user sent a flow command
+        const hasGoal = await readGoal(goalClient, output.messages[0].info.sessionID).then(r => r.goal?.status === "active").catch(() => false)
+        if (!hasGoal) return
+
+        firstUser.parts.unshift({ type: "text", text: getBootstrapContent() } as typeof firstUser.parts[number])
       },
 
       async event({ event }) {

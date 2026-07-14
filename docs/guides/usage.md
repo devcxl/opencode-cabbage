@@ -255,7 +255,7 @@ Flow 状态通过 `goal` tool 管理：
 - `goal({op:"cancel"})` — 取消 flow
 - `goal({op:"complete"})` — 完成 flow（需 goal-verify 子 agent 调用）
 
-> 只有 `@goal-verify` 子 agent 可以调用 `goal({op:"complete"})`，主 agent 调用会被 BLOCKED。
+> 只有 `@goal-verify` 子 agent 可以调用 `goal({op:"complete"})`，主 agent 和其他子 agent 调用会被 BLOCKED。
 
 ---
 

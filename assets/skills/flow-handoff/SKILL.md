@@ -45,3 +45,32 @@ description: 打包上下文，跨会话传递进度
 
 ## Output
 - `docs/dev/handoff-<date>.md`
+
+## Contract
+
+### Trigger
+由 `/handoff` 命令触发。上下文窗口接近极限或需跨会话传递进度时使用。
+
+### Inputs
+- 当前 Goal 状态（来源：Goal metadata）
+
+### Preconditions
+- 存在 Active Goal
+
+### Procedure
+1. 打包当前流程状态（阶段、任务、进度）
+2. 列出已完成和待完成项
+3. 确定下一步骤
+4. 保存到 handoff 文件
+
+### Outputs
+- `docs/dev/handoff-<date>.md` — 交接文件
+
+### Failure
+- 无 Goal → 仅输出当前会话摘要
+
+### Idempotency
+- 同一天多次执行 → 覆盖前一次 handoff
+
+### Prohibited Actions
+- 不修改代码或文档

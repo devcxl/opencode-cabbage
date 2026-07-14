@@ -123,3 +123,40 @@ gh pr create --title "<title>" --body-file docs/dev/handoff/pr-body.md
 ## 后续
 - **/test** — 触发 CI E2E 测试
 - **/review** — 审查 PR
+
+## Contract
+
+### Trigger
+由 `/code` 命令或 `@dev-lifecycle` Phase 3 触发。
+
+### Inputs
+- Sub Issue 编号（来源：`/tasks` 产出）
+- task 文件 frontmatter 中的 `worktree_root`（来源：task 文件）
+
+### Preconditions
+- `/tasks` 已完成 → Sub Issues 就绪
+- 前置依赖任务已合并
+
+### Procedure
+1. 选择依赖已满足的 Sub Issue
+2. 创建或复用 Worktree（`git worktree add -b`）
+3. 安装依赖 → 编码 + 单测 → commit + push
+4. 编排器创建 PR
+
+### Outputs
+- Worktree 已创建（`.worktree/<task-slug>/`）
+- 代码已推送
+- PR 已创建（Orchestrator 执行）
+
+### Failure
+- Worktree 创建失败 → 检查分支冲突或目录残留
+- 测试失败 → 修复后重试
+
+### Idempotency
+- Worktree 已存在 → 复用
+- 代码已提交 → 追加提交
+
+### Prohibited Actions
+- Worker 不创建 PR、不操作 Issue
+- 不使用 `git add .`
+- 不直接 push 到默认分支

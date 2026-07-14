@@ -121,3 +121,39 @@ fi
 
 ## 后续
 - **/release** — 发布（如所有 PR 已合并）
+
+## Contract
+
+### Trigger
+由 `/review` 命令或 `@dev-lifecycle` Phase 3 审查步骤触发。
+
+### Inputs
+- PR 编号（来源：`/code` 产出）
+
+### Preconditions
+- `/code` 已完成 → PR 已创建
+
+### Procedure
+1. 获取 PR diff 和元数据
+2. 双轴审查（规范轴 + 规格轴）
+3. 输出结构化审查报告
+4. 编排器发布审查结果
+5. 等待 CI 通过后合并
+6. 关闭关联 Sub Issue
+7. 安全清理 Worktree（Preflight）
+
+### Outputs
+- 结构化审查报告（APPROVED / CHANGES_REQUESTED）
+- PR 已合并（条件满足时）
+
+### Failure
+- Critical/High → Request Changes
+- Worktree 清理失败 → 记录警告，不阻塞
+
+### Idempotency
+- 已合并的 PR → 跳过
+- 已审查的 PR → 更新结论
+
+### Prohibited Actions
+- 不使用默认 --force 清理
+- 不直接执行 gh pr merge（Orchestrator 执行）

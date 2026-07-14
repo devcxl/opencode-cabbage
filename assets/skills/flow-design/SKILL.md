@@ -81,3 +81,39 @@ git checkout $BASE && git pull origin $BASE
 
 ## 后续
 - **/tasks** — 基于设计方案拆解为 DAG 任务
+
+## Contract
+
+### Trigger
+由 `/design` 命令或 `@dev-lifecycle` Phase 1 触发。
+
+### Inputs
+- `docs/prd/<title>.md` — 上游 PRD（来源：requirements 阶段产出）
+- Parent Issue 编号（来源：Goal metadata 或 `/requirements` 阶段产出）
+
+### Preconditions
+- `/requirements` 已完成 → `docs/prd/<title>.md` 存在
+- Parent Issue 存在
+
+### Procedure
+1. 阅读 PRD、已有 ADR、Out of Scope
+2. 输出技术方案到 `docs/dev/specs/<title>.md`
+3. 记录 ADR 到 `docs/adr/<YYYY-MM-DD>-<slug>.md`
+4. 附设计评论到 Parent Issue
+5. 通过 Planning PR 提交文档
+
+### Outputs
+- `docs/dev/specs/<title>.md` — 技术方案
+- `docs/adr/<date>-<slug>.md` — ADR 决议
+
+### Failure
+- ADR 与已有决策冲突 → 记录冲突并标注
+- Planning PR 合并失败 → 通知用户手动处理
+
+### Idempotency
+- 技术方案已存在 → 读取并更新
+- ADR 已存在 → 不重复创建
+
+### Prohibited Actions
+- 不直接 push 到默认分支
+- 不跳过 ADR 兼容性检查

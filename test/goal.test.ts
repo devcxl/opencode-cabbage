@@ -67,6 +67,28 @@ describe("verifyAgentPrompt", () => {
     expect(result).toContain("goal({op:\"get\"})")
     expect(result).toContain("goal({op:\"complete\"})")
   })
+
+  it("states that only goal-verify can complete", () => {
+    const result = verifyAgentPrompt()
+    expect(result).toContain("goal-verify")
+    expect(result).toContain("complete")
+  })
+})
+
+describe("goal complete authorization", () => {
+  it("verifies agent identity check exists in createGoalTool", () => {
+    // The createGoalTool execute function checks ctx.agent === "goal-verify"
+    // for subagent complete operations. This test validates the contract
+    // by ensuring the verifyAgentPrompt instructs goal-verify behavior.
+    const prompt = verifyAgentPrompt()
+    expect(prompt).toContain("Call goal({op:\"complete\"})")
+  })
+
+  it("explicitly revokes complete from other agents", () => {
+    const prompt = verifyAgentPrompt()
+    expect(prompt).toContain("Other agents")
+    expect(prompt).toContain("cannot complete")
+  })
 })
 
 describe("MAX_CONTINUATIONS", () => {

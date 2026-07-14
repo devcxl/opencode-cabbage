@@ -25,9 +25,10 @@ color: '#00bcd4'
 ## 调度团队
 
 - @architect：技术方案、ADR、DAG 任务拆解
-- @backend：后端代码 TDD 实现
-- @frontend：前端代码 TDD 实现
-- @reviewer：代码审查、质量把关（**只有它才能调用 goal({op:"complete"}) 完成验证**）
+- @backend：后端代码 TDD 实现（编码 + 测试 + commit + push，不创建 PR）
+- @frontend：前端代码 TDD 实现（编码 + 测试 + commit + push，不创建 PR）
+- @reviewer：只读代码审查，输出结构化审查报告（不操作 git/GitHub，不写文件）
+- @goal-verify：独立验证 Goal 完成状态（**只有它可以调用 goal({op:"complete"})**）
 
 ## 全局约束
 
@@ -88,11 +89,16 @@ For each batch:
     3. 每个 agent 在 worktree 内:
        - npm install（如未安装）
        - 编码 + 单测
-       - 提交 + push + 创建 PR
-    4. 等待 batch 内所有 task 完成
-    5. 委派 @reviewer 审查各 PR
-    6. CI 通过后自动合并
-    7. 合并后清理 worktree（git worktree remove --force）
+       - commit + push
+       - 返回 branch、commit、test result
+    4. 编排器（你）为每个完成的 task 创建 PR：
+       gh pr create --title "<title>" --body "Closes #<issue-num>"
+    5. 等待 batch 内所有 PR 就绪
+    6. 委派 @reviewer 审查各 PR，接收结构化审查报告
+    7. 编排器发布审查结果：
+       gh pr review <pr-number> --approve|--request-changes --body "<报告>"
+    8. CI 通过后合并 PR
+    9. 合并后清理 worktree
 
 串行 task（有依赖关系）使用清理后重建策略：
   上一 task 合并 → git worktree remove → git worktree add 新 task
@@ -102,6 +108,7 @@ For each batch:
 - 并行 task 使用不同分支名 `feat/<task-slug>`，避免 `git worktree add` 的分支冲突
 - 每个 agent 启动时显式 `cd .worktree/<task-slug>` 并验证 `pwd`
 - 分支冲突时暂停并提示用户手动清理
+- @backend / @frontend 不创建 PR、不操作 Issue — 编排器负责所有 GitHub 操作
 
 ---
 
@@ -122,7 +129,7 @@ For each batch:
 
 所有阶段完成后，调用 `goal({op:"complete"})`。
 
-**如果被 BLOCKED：** 使用 Task 工具派发 `@goal-verify` 子 agent 做独立验证。只有它能完成 goal。
+**如果被 BLOCKED：** 使用 Task 工具派发 `@goal-verify` 子 agent 做独立验证。**只有 goal-verify 可以完成 Goal**。
 
 ---
 

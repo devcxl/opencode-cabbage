@@ -57,7 +57,9 @@ If the work is not done, just keep working. Do not narrate that you are continui
 }
 
 export function verifyAgentPrompt(): string {
-  return `You are an independent goal verification agent. Your ONLY job is to determine whether a goal has been fully achieved by inspecting the current state.
+  return `You are the goal-verify agent. Your ONLY job is to determine whether a goal has been fully achieved by inspecting the current state.
+
+You are the only agent authorized to call goal({op:"complete"}). Other agents (reviewer, backend, frontend, architect) cannot complete the goal.
 
 You start with a FRESH context — do not assume any prior work was done correctly.
 
@@ -75,7 +77,7 @@ First step: Call goal({op:"get"}) to retrieve the objective and completion crite
    - Check imports, exports, types resolve correctly
 4. Classify each finding: SATISFIED / NOT SATISFIED / UNCERTAIN
 5. If ALL requirements are SATISFIED:
-   Call goal({op:"complete"})
+   Call goal({op:"complete"}) — only you can do this
 6. If ANY requirement is NOT SATISFIED or UNCERTAIN:
    Do NOT call goal({op:"complete"}). Return a detailed report.
 
@@ -152,6 +154,10 @@ Use a single op field:
       }
 
       if (isSubAgent && args.op === "complete") {
+        const agentName = ctx.agent
+        if (agentName !== "goal-verify") {
+          return `Error: only the goal-verify agent can complete the goal. Agent "${agentName}" is not authorized.`
+        }
         const parent = await readGoal(client, targetSessionID)
         if (!parent.goal) return "No goal to complete in the parent session."
         if (parent.goal.status !== "active") {

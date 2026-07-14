@@ -46,3 +46,37 @@ gh issue create \
 
 ## 下一阶段
 - **/design** — 基于此 PRD 进行技术设计
+
+## Contract
+
+### Trigger
+由 `/requirements` 命令或 `@dev-lifecycle` Phase 0 触发。
+
+### Inputs
+- 用户提供的功能描述（来自消息文本）
+
+### Preconditions
+- `/setup` 已完成（gh CLI 可用，docs 目录就绪）
+
+### Procedure
+1. 按 interview-guide 进行需求访谈
+2. 输出 PRD 到 `docs/prd/<title>.md`
+3. 记录 Out of Scope 到 `docs/dev/out-of-scope.md`
+4. 创建 Parent GitHub Issue
+
+### Outputs
+- `docs/prd/<title>.md` — PRD 文档
+- `docs/dev/out-of-scope.md` — 排除范围记录
+- GitHub Parent Issue
+
+### Failure
+- gh CLI 不可用 → 提示先执行 /setup
+- Issue 创建失败 → 记录错误，不阻塞 PRD 写入
+
+### Idempotency
+- 如果 PRD 文件已存在 → 更新而非覆盖
+- 如果 Parent Issue 已创建 → 追加评论而非重复创建
+
+### Prohibited Actions
+- 不跳过访谈直接输出 PRD
+- 不省略 Out of Scope 记录

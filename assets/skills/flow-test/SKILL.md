@@ -42,3 +42,34 @@ gh pr checks <pr-number> --watch
 
 ## 后续
 - **/review** — 审查 PR
+
+## Contract
+
+### Trigger
+由 `/test` 命令触发。在已创建的 PR 上运行 CI 测试。
+
+### Inputs
+- PR 编号（来源：`/code` 产出）
+
+### Preconditions
+- `/code` 已完成 → PR 已创建
+
+### Procedure
+1. 检查 CI 配置是否存在
+2. 触发 CI 运行
+3. 监控运行状态
+4. 汇报结果
+
+### Outputs
+- CI 运行结果摘要
+
+### Failure
+- CI 失败 → 分析日志并建议修复
+- 无 CI 配置 → 引导用户创建 .github/workflows/ci.yml
+
+### Idempotency
+- 重复触发同一 PR → 覆盖前一次运行
+
+### Prohibited Actions
+- 不修改 CI 配置
+- 不触发非当前 PR 的 CI

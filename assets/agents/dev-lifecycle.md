@@ -84,8 +84,8 @@ For each batch:
          git push origin $BASE
        fi
     1. 检查 worktree 是否存在
-       - 不存在 → git worktree add .worktree/<task-slug> feat/<task-slug>
-       - 存在（串行复用）→ 跳过
+       - 不存在 → git worktree add -b feat/<task-slug> .worktree/<task-slug> $BASE
+       - 存在 → 验证分支一致，一致则复用，不一致则报错
     2. 并行派发 @backend/@frontend 到各 worktree 路径
     3. 每个 agent 在 worktree 内（不创建 PR）:
        - npm install（如未安装）

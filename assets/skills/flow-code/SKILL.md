@@ -22,18 +22,39 @@ description: 分支 → 编码 + 单测 → PR 提交（Worktree 模式）
 
 ### 3. 创建/复用 Worktree
 ```bash
-# 检查 worktree 是否已存在
-if [ ! -d ".worktree/<task-slug>" ]; then
-  git worktree add .worktree/<task-slug> feat/<task-slug>
+# 探测默认分支
+BASE=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+
+# 检查和创建 worktree
+WORKTREE=".worktree/<task-slug>"
+BRANCH="feat/<task-slug>"
+
+if [ -d "$WORKTREE" ]; then
+  # Worktree 目录已存在 → 验证一致性
+  EXISTING=$(git -C "$WORKTREE" rev-parse --abbrev-ref HEAD 2>/dev/null)
+  if [ "$EXISTING" != "$BRANCH" ]; then
+    echo "ERROR: $WORKTREE exists but tracks branch '$EXISTING' (expected '$BRANCH')"
+    exit 1
+  fi
+  echo "Worktree 已存在，复用：$WORKTREE"
+else
+  # 检查分支是否已存在
+  if git show-ref --verify "refs/heads/$BRANCH" >/dev/null 2>&1; then
+    # 分支已存在，检查是否已合并
+    if git branch --merged "$BASE" | grep -q "$BRANCH"; then
+      git branch -D "$BRANCH"
+    else
+      echo "ERROR: 分支 '$BRANCH' 已存在，请先处理"
+      exit 1
+    fi
+  fi
+  # 创建 worktree + 分支
+  git worktree add -b "$BRANCH" "$WORKTREE" "$BASE"
 fi
 
 # 进入 worktree
-cd .worktree/<task-slug>
+cd "$WORKTREE"
 ```
-
-> **串行 task 说明**：当 DAG 存在依赖关系时，flow-review 会在上一 task 合并后自动清理其 worktree。
-> 因此下一 task 执行时 worktree 不存在，会触发新建流程，天然实现"清理后重建"策略。
-> 无需额外处理，worktree 创建逻辑对串行/并行场景透明。
 ### 4. 安装依赖
 
 ```bash

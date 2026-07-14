@@ -8,6 +8,14 @@ tools:
   bash: true
   write: true
   edit: true
+capabilities:
+  create_pr: false
+  merge_pr: false
+  modify_files: true
+  run_tests: true
+  push_branch: true
+  approve_review: false
+  complete_goal: false
 ---
 
 <system-reminder>

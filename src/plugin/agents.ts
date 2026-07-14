@@ -9,12 +9,23 @@ export interface AgentTools {
   edit?: boolean
 }
 
+export interface AgentCapabilities {
+  create_pr: boolean
+  merge_pr: boolean
+  modify_files: boolean
+  run_tests: boolean
+  push_branch: boolean
+  approve_review: boolean
+  complete_goal: boolean
+}
+
 export interface AgentEntry {
   key: string
   description?: string
   mode?: "subagent" | "primary" | "all"
   color?: string
   tools?: AgentTools
+  capabilities?: AgentCapabilities
   prompt: string
 }
 
@@ -48,12 +59,27 @@ function parseAgentFile(filePath: string): AgentEntry | null {
         }
       : undefined
 
+  const capabilitiesRaw = parsed.capabilities
+  const capabilities: AgentCapabilities | undefined =
+    capabilitiesRaw && typeof capabilitiesRaw === "object" && !Array.isArray(capabilitiesRaw)
+      ? {
+          create_pr: Boolean((capabilitiesRaw as Record<string, unknown>).create_pr),
+          merge_pr: Boolean((capabilitiesRaw as Record<string, unknown>).merge_pr),
+          modify_files: Boolean((capabilitiesRaw as Record<string, unknown>).modify_files),
+          run_tests: Boolean((capabilitiesRaw as Record<string, unknown>).run_tests),
+          push_branch: Boolean((capabilitiesRaw as Record<string, unknown>).push_branch),
+          approve_review: Boolean((capabilitiesRaw as Record<string, unknown>).approve_review),
+          complete_goal: Boolean((capabilitiesRaw as Record<string, unknown>).complete_goal),
+        }
+      : undefined
+
   return {
     key: name,
     description: parsed.description as string | undefined,
     mode: parsed.mode as AgentEntry["mode"],
     color: parsed.color as string | undefined,
     tools,
+    capabilities,
     prompt: body,
   }
 }

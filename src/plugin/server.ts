@@ -151,8 +151,9 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
   return async (ctx, _options) => {
     const sourceSkillsDir = path.join(packageRoot, "assets", "skills")
     const contextDir = path.join(packageRoot, "assets", "context")
+    const promptsDir = path.join(packageRoot, "assets", "prompts")
     const commandsDir = path.join(packageRoot, "assets", "commands")
-    const skillsDir = await setupSkillsDir(sourceSkillsDir, contextDir)
+    const skillsDir = await setupSkillsDir(sourceSkillsDir, contextDir, promptsDir)
 
     const projectDir = ctx.worktree || ctx.directory
     const v1Client = (ctx.client as unknown as V1ClientContainer)._client

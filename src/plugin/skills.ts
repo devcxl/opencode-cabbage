@@ -10,7 +10,7 @@ process.once("exit", () => {
   }
 })
 
-export async function setupSkillsDir(sourceSkillsDir: string, contextDir?: string): Promise<string> {
+export async function setupSkillsDir(sourceSkillsDir: string, contextDir?: string, promptsDir?: string): Promise<string> {
   const baseDir = await mkdtemp(path.join(tmpdir(), "opencode-cabbage-skills-"))
   _tempDirs.add(baseDir)
   const destDir = path.join(baseDir, "skills")
@@ -20,6 +20,12 @@ export async function setupSkillsDir(sourceSkillsDir: string, contextDir?: strin
   if (contextDir) {
     try {
       await cp(contextDir, path.join(destDir, "_context"), { recursive: true })
+    } catch {}
+  }
+
+  if (promptsDir) {
+    try {
+      await cp(promptsDir, path.join(destDir, "_prompts"), { recursive: true })
     } catch {}
   }
 

@@ -68,15 +68,50 @@ gh issue close <issue-num> --comment "已完成，已合并至 main"
 ```
 
 ### 9. 清理 Worktree
-PR 合并后，清理对应的 worktree 和分支：
+PR 合并后，安全清理对应的 worktree 和分支：
 
 ```bash
-# 从主仓库执行
-git worktree remove .worktree/<task-slug> --force
-git branch -D feat/<task-slug>
+WORKTREE=".worktree/<task-slug>"
+BRANCH="feat/<task-slug>"
+
+# Preflight 检查
+echo "=== Worktree 清理 Preflight ==="
+
+# 1. 确认 PR 已合并
+PR_NUM=<pr-number>
+if ! gh pr view "$PR_NUM" --json merged --jq '.merged' 2>/dev/null | grep -q true; then
+  echo "ERROR: PR #$PR_NUM 未合并，跳过清理"
+  exit 1
+fi
+
+# 2. 确认分支已推送到远程
+if git ls-remote --exit-code origin "$BRANCH" >/dev/null 2>&1; then
+  echo "分支 $BRANCH 已推送到远程"
+else
+  echo "WARNING: 分支 $BRANCH 未推送到远程，但 PR 已合并，继续清理"
+fi
+
+# 3. 检查 worktree 是否干净
+if [ -d "$WORKTREE" ]; then
+  DIRTY=$(git -C "$WORKTREE" status --porcelain)
+  if [ -n "$DIRTY" ]; then
+    echo "WARNING: Worktree 有未提交变更："
+    echo "$DIRTY"
+    echo "暂停。如需强制清理请手动执行 --force"
+    exit 1
+  fi
+
+  # 4. 全部通过 → 清理
+  git worktree remove "$WORKTREE"
+  git branch -D "$BRANCH" 2>/dev/null || true
+  echo "Worktree 已清理：$WORKTREE"
+else
+  echo "Worktree 不存在，跳过清理"
+fi
 ```
 
-> 清理时机：PR 合并后立即执行。`--force` 确保即使 worktree 有未提交变更也能清理（代码已合并到 main，worktree 内变更已无意义）。如清理失败（如进程占用），记录警告但不阻塞流程。
+> 清理前必须验证 PR 已合并、worktree 干净。只有在所有 preflight 检查通过后才删除。
+> 如果 PR 已合并但 worktree 仍有未提交变更，暂停并通知用户，不自动 --force。
 
 ## Output
 - PR 已审查

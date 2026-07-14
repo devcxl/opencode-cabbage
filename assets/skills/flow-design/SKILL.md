@@ -9,7 +9,7 @@ description: 技术方案设计 → 方案文档 + ADR 输出
 
 ## Prerequisites
 - `/requirements` 已完成 → `docs/prd/<title>.md` + Parent Issue 存在
-- 阅读 `../CONTEXT.md` 了解领域术语
+- 阅读 `../_context/CONTEXT.md` 了解领域术语
 
 ## Workflow
 
@@ -27,7 +27,7 @@ description: 技术方案设计 → 方案文档 + ADR 输出
 
 ### 3. 记录 ADR
 为每个关键决策记录 ADR 到 `docs/adr/<YYYY-MM-DD>-<slug>.md`。
-ADR 格式参考 `../_prompts/adr-format`。
+ADR 格式参考 `_prompts/adr-format` 中的格式要求。
 
 ADR 至少记录：
 - 技术选型决策

@@ -78,15 +78,16 @@ color: '#00bcd4'
 For each batch:
   For each task in batch (可并行):
     0. 安全检查：提交设计阶段可能遗留的未提交文档
+       BASE=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
        if [ -n "$(git status --short docs/)" ]; then
          git add docs/ && git commit -m "docs: 提交设计阶段未提交的文档"
-         git push origin main
+         git push origin $BASE
        fi
     1. 检查 worktree 是否存在
        - 不存在 → git worktree add .worktree/<task-slug> feat/<task-slug>
        - 存在（串行复用）→ 跳过
     2. 并行派发 @backend/@frontend 到各 worktree 路径
-    3. 每个 agent 在 worktree 内:
+    3. 每个 agent 在 worktree 内（不创建 PR）:
        - npm install（如未安装）
        - 编码 + 单测
        - commit + push

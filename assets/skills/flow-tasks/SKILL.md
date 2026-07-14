@@ -79,18 +79,23 @@ gh issue create \
 ```
 
 ### 4. 提交任务文件
-任务定义文件是设计阶段产物，直接提交到 main，确保后续 worktree 创建时能读取：
+任务定义文件通过 Planning PR 合入默认分支：
 
 ```bash
+# 探测默认分支
+BASE=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || echo "main")
+
+git checkout -b chore/plan-tasks-<slug> $BASE
 git add docs/dev/tasks/<YYYY-MM-DD-NNN-slug>/
 git commit -m "docs: <title> — 任务定义"
-git push origin main
+git push origin chore/plan-tasks-<slug>
+gh pr create --title "docs: <title> — 任务定义" --base $BASE
 ```
 
 ## Output
 - `docs/dev/tasks/*.md` — 独立任务文件
 - GitHub Sub Issues 已创建（依赖关系在 body 中声明）
-- 任务文件已提交到 main
+- 任务文件通过 Planning PR 合入默认分支
 
 ## Sub Issue 关闭时机
 Sub Issue 不在 `/tasks` 阶段关闭，而是在对应 PR 合并后自动关闭：

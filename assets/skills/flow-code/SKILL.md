@@ -65,7 +65,18 @@ npm test
 ### 7. 提交 PR
 ```bash
 # 在 worktree 内执行
-git add .
+
+# 根据 task 预期文件和 git status 确定待暂存文件
+# Task 文件通常包含 frontmatter expected_files 字段
+git status --short
+
+# 显式暂存任务相关文件（不是 git add .）
+# 示例：git add src/plugin/goal.ts test/goal.test.ts assets/agents/team/reviewer.md
+git add <file1> <file2> ...
+
+# 提交前检查：确保无密钥、无超大文件、无任务范围外文件
+git diff --cached --name-only
+
 git commit -m "feat(<scope>): <title>"
 git push origin feat/<task-slug>
 mkdir -p docs/dev/handoff

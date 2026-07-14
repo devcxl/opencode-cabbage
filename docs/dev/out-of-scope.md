@@ -26,3 +26,15 @@
 - specs/ 技术方案自动更新 — 设计阶段产物，代码阶段不改
 - adr/ 架构决策记录自动更新 — 设计偏离时单独更新
 - task 文件修改 — 保留原始设计意图，变更记入 changelog
+
+## 提示词 Contract-first 重构
+
+以下需求在访谈中明确排除，记录于此供后续参考：
+
+- 完整 FlowRun 接入上线 — 本轮仅 Spike + ADR，不做生产运行链修改
+- 行为场景测试（真实模型 API 端到端 Prompt 测试） — 本轮仅做静态 Lint，场景测试后续增强
+- 确定性引擎化（Git/GitHub/DAG/Gate 全部迁出 Prompt 到代码工具） — 方案 C 不在本轮
+- Release 流程（npm publish） — 始终为手动阶段
+- 新建独立 CLI 工具链
+- 非 opencode-cabbage 项目的 Prompt 规范制定
+- 当前 docs/ 目录下非 Skill/Agent/Command 文档的重构

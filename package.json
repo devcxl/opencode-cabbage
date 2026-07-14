@@ -42,6 +42,7 @@
     "prepublishOnly": "npm test && npm run typecheck && npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "prompt-lint": "vitest run test/plugin/prompt-lint.test.ts",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"

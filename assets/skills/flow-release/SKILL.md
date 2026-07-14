@@ -25,8 +25,9 @@ git log $(git describe --tags --abbrev=0)..HEAD --oneline
 npm version <major|minor|patch> --no-git-tag-version
 # 更新 CHANGELOG.md
 git commit -m "chore(release): v<version>"
+BASE=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
 git tag v<version>
-git push origin main --tags
+git push origin $BASE --tags
 ```
 
 ### 3. Release 草稿（自动）

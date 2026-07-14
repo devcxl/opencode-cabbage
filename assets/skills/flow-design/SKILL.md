@@ -51,20 +51,33 @@ EOF
 gh issue comment <issue-number> --body-file docs/dev/handoff/design-comment.md
 ```
 
-### 5. 提交文档
-设计文档和 ADR 是设计阶段产物，直接提交到 main，确保后续 worktree 创建时能读取：
+### 5. 提交文档（Planning PR）
+设计文档和 ADR 通过 Planning PR 合入，确保分支保护下也能正常工作：
 
 ```bash
+# 探测默认分支
+BASE=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || echo "main")
+
+# 创建 planning 分支
+git checkout -b chore/plan-<slug> $BASE
 git add docs/dev/specs/<title>.md docs/adr/<date>-<slug>.md
 git commit -m "docs: <title> — 技术方案 + ADR"
-git push origin main
+git push origin chore/plan-<slug>
+
+# 创建 PR
+gh pr create --title "docs: <title> — 技术方案 + ADR" \
+  --body "Planning PR：完整技术方案和架构决策记录" \
+  --base $BASE
+
+# 合并 PR 后切回 $BASE
+git checkout $BASE && git pull origin $BASE
 ```
 
 ## Output
 - `docs/dev/specs/<title>.md` — 技术方案
 - `docs/adr/<date>-<slug>.md` — ADR 决议
 - Parent Issue 收到设计评论
-- 文档已提交到 main
+- 文档通过 Planning PR 合入默认分支
 
 ## 后续
 - **/tasks** — 基于设计方案拆解为 DAG 任务

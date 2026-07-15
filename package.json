@@ -15,6 +15,9 @@
     "opencode-plugin"
   ],
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "main": "./dist/index.js",
   "oc-plugin": [
     "server"

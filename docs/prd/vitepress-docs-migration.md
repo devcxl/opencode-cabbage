@@ -51,7 +51,7 @@
 
 - 使用 VitePress 最新稳定版
 - 项目本身是 TypeScript 包，VitePress 构建与之兼容
-- Node.js >= 18
+- Node.js >= 24
 - 部署到 GitHub Pages（现有 Pages 配置上修改）
 - Jekyll 配置（`_config.yml`）需在构建前移除，否则 GitHub Pages 默认 Jekyll 会干扰
 

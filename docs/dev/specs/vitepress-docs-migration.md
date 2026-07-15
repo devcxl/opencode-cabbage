@@ -10,7 +10,7 @@
 npm install -D vitepress
 ```
 
-版本约束：`vitepress@^1`（最新稳定版 1.x），要求 Node.js >= 18。
+版本约束：`vitepress@^1`（最新稳定版 1.x），要求 Node.js >= 24。
 
 ## 2. package.json scripts
 
@@ -514,7 +514,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies

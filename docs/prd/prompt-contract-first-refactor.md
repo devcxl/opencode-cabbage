@@ -90,7 +90,7 @@
 ## 技术约束
 
 - 语言：TypeScript（插件代码）、Markdown + YAML Frontmatter（Prompt 资产）
-- 运行环境：Node.js ≥18
+- 运行环境：Node.js ≥24
 - 外部依赖：@opencode-ai/plugin ^1.3.7、gh CLI ≥2.0、Git ≥2.5
 - 测试框架：Vitest
 - 每个 PR 不超过 10 个文件

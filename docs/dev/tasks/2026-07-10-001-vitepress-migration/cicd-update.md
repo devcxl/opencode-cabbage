@@ -51,7 +51,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -82,5 +82,5 @@ jobs:
 
 - 仓库 Settings → Pages 需要设置 Source 为 "GitHub Actions"
 - 现有 trigger 条件 `paths: docs/**, README.md, _config.yml` 需移除（或改为通用触发），因为 `_config.yml` 将被删除
-- Node.js 版本使用 20（与项目 `engines` 约束一致）
+- Node.js 版本使用 24（与项目 `engines` 约束一致）
 - 使用 `npm ci` 而非 `npm install`（更快、更可靠）

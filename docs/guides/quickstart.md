@@ -5,7 +5,7 @@
 ## 前置条件
 
 - [OpenCode](https://opencode.ai) 已安装
-- Node.js >= 18
+- Node.js >= 24
 - [gh CLI](https://cli.github.com/) 已安装并登录 GitHub
 - Git 仓库已创建（本地或远程）
 

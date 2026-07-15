@@ -1,6 +1,6 @@
 {
   "name": "@devcxl/opencode-cabbage",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenCode 全流程开发插件 — 需求→设计→任务→编码→测试→审查→自动合并，支持自动编排与并行 Subagent",
   "repository": {
     "type": "git",

@@ -22,6 +22,25 @@ interface SessionGetResponse {
   data?: { parentID?: string | null; metadata?: Record<string, unknown> }
 }
 
+interface AgentToolConfig {
+  tools?: Record<string, boolean>
+}
+
+interface GoalToolConfig extends AgentToolConfig {
+  agent?: Record<string, unknown>
+}
+
+export function configureGoalTools(config: GoalToolConfig): void {
+  config.tools = { ...config.tools, goal: false }
+
+  for (const [agentName, agent] of Object.entries(config.agent ?? {})) {
+    if (!agent || typeof agent !== "object" || Array.isArray(agent)) continue
+    const agentConfig = agent as AgentToolConfig
+    const canUseGoal = agentName === "dev-lifecycle" || agentName === "goal-verify"
+    agentConfig.tools = { ...agentConfig.tools, goal: canUseGoal }
+  }
+}
+
 function sessionStatePath(projectDir: string) {
   return path.join(projectDir, ".opencode", "opencode-cabbage", "session-state.json")
 }
@@ -214,6 +233,8 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
             tools: { read: true, bash: true, write: false, edit: false },
           }
         }
+
+        configureGoalTools(config)
       },
 
       "experimental.chat.messages.transform": async (_input, output) => {

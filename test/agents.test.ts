@@ -127,3 +127,14 @@ describe("loadAgents", () => {
     expect(result).toHaveLength(0)
   })
 })
+
+describe("dev-lifecycle prompt", () => {
+  it("delegates completion verification without intentionally triggering BLOCKED", () => {
+    const agentsDir = path.resolve(import.meta.dirname || __dirname, "..", "assets", "agents")
+    const agent = loadAgents(agentsDir).find(entry => entry.key === "dev-lifecycle")
+
+    expect(agent?.prompt).toContain("直接使用 Task 工具派发 `@goal-verify`")
+    expect(agent?.prompt).not.toContain("如果被 BLOCKED")
+    expect(agent?.prompt).not.toContain("最终全部完成后调用 `goal({op:\"complete\"})`")
+  })
+})

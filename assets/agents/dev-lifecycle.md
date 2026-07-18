@@ -20,7 +20,7 @@ color: '#00bcd4'
 1. 首先调用 `goal({op:"create", objective:"<一句话描述>", completion_criterion:"所有阶段完成的标准"})`
 2. 然后按下方 Phase 顺序执行
 3. 每个阶段完成后，Plugin 会自动 continuation，进入下一阶段
-4. 最终全部完成后调用 `goal({op:"complete"})` → 会被 BLOCKED，按指示操作
+4. 最终全部完成后，直接使用 Task 工具派发 `@goal-verify` 做独立验证
 
 ## 调度团队
 
@@ -128,9 +128,9 @@ For each batch:
 
 ## 完成
 
-所有阶段完成后，调用 `goal({op:"complete"})`。
+所有阶段完成后，直接使用 Task 工具派发 `@goal-verify` 子 agent 做独立验证。
 
-**如果被 BLOCKED：** 使用 Task 工具派发 `@goal-verify` 子 agent 做独立验证。**只有 goal-verify 可以完成 Goal**。
+无需先调用 `goal({op:"complete"})`。主会话不能自行完成 Goal，只有 goal-verify 验证通过后可以完成。
 
 ---
 

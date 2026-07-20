@@ -3,6 +3,11 @@ import { readFlowRunWithLock, writeFlowRunWithLock as ghWriteFlowRunWithLock } f
 
 // ─── 类型 ───
 
+export interface BrokerCredentials {
+  /** 独立 GitHub API token（不传入 Agent shell） */
+  token: string
+}
+
 export interface MutateResult<R> {
   flowRun: FlowRun
   result: R
@@ -48,11 +53,56 @@ class KeyedMutex {
  * 1. 按 parentIssueNumber 的 keyed mutex 串行所有 FlowRun 写入
  * 2. read-modify-write 循环（乐观锁）
  * 3. 检测外部 body 变化 → PERSIST_CONFLICT
+ * 4. 持有独立 GitHub API 凭证，Agent shell 不可访问
  *
  * 所有 FlowRun/Task/Evidence 写入必须经过 broker，不直接暴露 GitHub API。
+ *
+ * 凭证安全：credentials 存储在闭包变量中，不挂载在 this 上，
+ * JSON.stringify / Object.keys 无法访问。
  */
 export class FlowBroker {
   private mutex = new KeyedMutex()
+  #credentials: BrokerCredentials | null
+
+  /**
+   * @param credentials  可选。独立 GitHub API 凭证。
+   *                     传入时：所有 gh 操作使用该 token，而非 ambient 环境。
+   *                     不传时：降级使用 ambient 环境变量（GH_TOKEN etc.）。
+   */
+  constructor(credentials?: BrokerCredentials) {
+    this.#credentials = credentials ?? null
+  }
+
+  /**
+   * 获取凭证对应的环境变量覆盖（仅内部使用）。
+   * 返回 undefined 表示无独立凭证，应使用 ambient 环境。
+   */
+  private get ghEnv(): Record<string, string> | undefined {
+    if (!this.#credentials) return undefined
+    return {
+      GH_TOKEN: this.#credentials.token,
+      GITHUB_TOKEN: this.#credentials.token,
+    }
+  }
+
+  /**
+   * 验证 broker 持有的 GitHub 凭证是否有效。
+   *
+   * 调用 `gh auth status` 检查 token 可用性。
+   * 无凭证时返回 ok: false。
+   */
+  async verifyCredentials(): Promise<{ ok: boolean; message: string }> {
+    if (!this.#credentials) {
+      return { ok: false, message: "No broker credentials configured" }
+    }
+    try {
+      const { gh } = await import("../util/gh.js")
+      await gh("auth status", 15_000, this.ghEnv)
+      return { ok: true, message: "Broker credentials are valid" }
+    } catch (err) {
+      return { ok: false, message: `Broker credentials verification failed: ${String(err)}` }
+    }
+  }
 
   /**
    * 将操作加入 keyed mutex 队列。
@@ -70,14 +120,15 @@ export class FlowBroker {
    * - shouldPersist=false 时跳过写入（如校验失败）
    * - 自动增加 revision 和时间戳
    * - body 不匹配时返回 PERSIST_CONFLICT
+   * - 使用 broker 独立凭证执行 gh 操作
    */
   async writeFlowRunWithLock<R>(
     issueNumber: number,
     handler: (flowRun: FlowRun) => MutateResult<R>,
   ): Promise<WriteResult<R>> {
     return this.mutex.runExclusive(issueNumber, async () => {
-      // ── 读取 ──
-      const { flowRunResult, currentBody } = await readFlowRunWithLock(issueNumber)
+      // ── 读取（broker 凭证） ──
+      const { flowRunResult, currentBody } = await readFlowRunWithLock(issueNumber, this.ghEnv)
       if (!flowRunResult.ok || currentBody === null) {
         return {
           ok: false as const,
@@ -98,11 +149,11 @@ export class FlowBroker {
         }
       }
 
-      // ── 写入（乐观锁） ──
+      // ── 写入（乐观锁，broker 凭证） ──
       updated.revision += 1
       updated.lastTickAt = new Date().toISOString()
 
-      const writeResult = await ghWriteFlowRunWithLock(issueNumber, updated, currentBody)
+      const writeResult = await ghWriteFlowRunWithLock(issueNumber, updated, currentBody, this.ghEnv)
       if (!writeResult.success) {
         return {
           ok: false as const,

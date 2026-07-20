@@ -65,33 +65,33 @@ export function replaceFlowRunInBody(body: string, flowRun: FlowRun): string {
   return body.slice(0, startIdx) + block + body.slice(endIdx + CABINET_END_MARKER.length)
 }
 
-export async function readFlowRun(issueNumber: number): Promise<FlowRunReadResult> {
+export async function readFlowRun(issueNumber: number, ghEnv?: Record<string, string>): Promise<FlowRunReadResult> {
   try {
-    const { stdout } = await gh(`issue view ${issueNumber} --json body --jq .body`)
+    const { stdout } = await gh(`issue view ${issueNumber} --json body --jq .body`, 30_000, ghEnv)
     return extractFlowRunFromBody(stdout)
   } catch {
     return { ok: false, code: "NOT_FOUND", errors: [{ path: "", message: "Failed to read issue body" }] }
   }
 }
 
-export async function writeFlowRun(issueNumber: number, flowRun: FlowRun): Promise<{ success: boolean; error?: string }> {
+export async function writeFlowRun(issueNumber: number, flowRun: FlowRun, ghEnv?: Record<string, string>): Promise<{ success: boolean; error?: string }> {
   try {
-    const { stdout } = await gh(`issue view ${issueNumber} --json body --jq .body`)
+    const { stdout } = await gh(`issue view ${issueNumber} --json body --jq .body`, 30_000, ghEnv)
     const body = stdout
     const newBody = replaceFlowRunInBody(body, flowRun)
 
     const escaped = escapeShellArg(newBody)
 
-    await gh(`issue edit ${issueNumber} --body '${escaped}'`)
+    await gh(`issue edit ${issueNumber} --body '${escaped}'`, 30_000, ghEnv)
     return { success: true }
   } catch (err) {
     return { success: false, error: String(err) }
   }
 }
 
-export async function readFlowRunWithLock(issueNumber: number): Promise<{ flowRunResult: FlowRunReadResult; currentBody: string | null }> {
+export async function readFlowRunWithLock(issueNumber: number, ghEnv?: Record<string, string>): Promise<{ flowRunResult: FlowRunReadResult; currentBody: string | null }> {
   try {
-    const { stdout } = await gh(`issue view ${issueNumber} --json body --jq .body`)
+    const { stdout } = await gh(`issue view ${issueNumber} --json body --jq .body`, 30_000, ghEnv)
     const flowRunResult = extractFlowRunFromBody(stdout)
     return { flowRunResult, currentBody: stdout }
   } catch {
@@ -103,9 +103,10 @@ export async function writeFlowRunWithLock(
   issueNumber: number,
   flowRun: FlowRun,
   previousBody: string,
+  ghEnv?: Record<string, string>,
 ): Promise<{ success: boolean; error?: string; conflict: boolean }> {
   try {
-    const { stdout } = await gh(`issue view ${issueNumber} --json body --jq .body`)
+    const { stdout } = await gh(`issue view ${issueNumber} --json body --jq .body`, 30_000, ghEnv)
 
     if (previousBody !== stdout) {
       return { success: false, error: "Conflict: body has changed since last read", conflict: true }
@@ -113,25 +114,25 @@ export async function writeFlowRunWithLock(
 
     const newBody = replaceFlowRunInBody(stdout, flowRun)
     const escaped = escapeShellArg(newBody)
-    await gh(`issue edit ${issueNumber} --body '${escaped}'`)
+    await gh(`issue edit ${issueNumber} --body '${escaped}'`, 30_000, ghEnv)
     return { success: true, conflict: false }
   } catch (err) {
     return { success: false, error: String(err), conflict: false }
   }
 }
 
-export async function applyLabel(issueNumber: number, label: string): Promise<boolean> {
+export async function applyLabel(issueNumber: number, label: string, ghEnv?: Record<string, string>): Promise<boolean> {
   try {
-    await gh(`issue edit ${issueNumber} --add-label '${label}'`)
+    await gh(`issue edit ${issueNumber} --add-label '${label}'`, 30_000, ghEnv)
     return true
   } catch {
     return false
   }
 }
 
-export async function removeLabel(issueNumber: number, label: string): Promise<boolean> {
+export async function removeLabel(issueNumber: number, label: string, ghEnv?: Record<string, string>): Promise<boolean> {
   try {
-    await gh(`issue edit ${issueNumber} --remove-label '${label}'`)
+    await gh(`issue edit ${issueNumber} --remove-label '${label}'`, 30_000, ghEnv)
     return true
   } catch {
     return false

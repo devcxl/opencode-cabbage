@@ -6,6 +6,7 @@ import {
   createIsolatedShellEnv,
   detectAmbientCredentials,
 } from "../../src/plugin/shell.js"
+import { FlowBroker, type BrokerCredentials } from "../../src/plugin/broker.js"
 import type { AgentEntry } from "../../src/plugin/agents.js"
 
 // ─── 辅助工厂 ───
@@ -326,5 +327,55 @@ describe("detectAmbientCredentials", () => {
       process.env.HOME = originalHome || ""
       fs.rmSync(tmpHome, { recursive: true, force: true })
     }
+  })
+})
+
+// ─── broker token 隔离测试 ───
+
+describe("broker token 与 Agent Shell 隔离", () => {
+  it("createIsolatedShellEnv 不包含 broker 使用的 token env var", () => {
+    const agent = makeWorkerAgent()
+    const env = createIsolatedShellEnv(agent)
+
+    // 确保隔离 shell 中没有 broker 凭证
+    expect(env.CABBAGE_BROKER_TOKEN).toBeUndefined()
+    // GH_TOKEN/GITHUB_TOKEN 已被显式清空
+    expect(env.GH_TOKEN || "").toBe("")
+    expect(env.GITHUB_TOKEN || "").toBe("")
+  })
+
+  it("broker token 不通过任何环境变量泄露到 agent shell", () => {
+    const agent = makeWorkerAgent()
+    const env = createIsolatedShellEnv(agent)
+
+    // 遍历所有 env key，确保不包含 token 格式的值
+    for (const val of Object.values(env)) {
+      if (typeof val === "string" && val.length > 0) {
+        // 不应出现任何 GitHub token 格式
+        expect(val).not.toMatch(/^ghp_/)
+        expect(val).not.toMatch(/^github_pat_/)
+      }
+    }
+  })
+
+  it("broker credentials 只存在于 FlowBroker 实例内存中", () => {
+    // 创建 broker 后检查 process.env 未被修改
+    const beforeEnv = { ...process.env }
+    const broker = new FlowBroker({ token: "ghp_memory_only" })
+
+    // process.env 不应被 broker 构造修改
+    expect(process.env.GH_TOKEN).toBe(beforeEnv.GH_TOKEN)
+    expect(process.env.GITHUB_TOKEN).toBe(beforeEnv.GITHUB_TOKEN)
+
+    // broker 实例本身不应在外部可枚举属性中暴露 token
+    expect(JSON.stringify(broker)).not.toContain("ghp_memory_only")
+  })
+
+  it("createIsolatedShellEnv 对 reviewer agent 同样不泄露 broker token", () => {
+    const agent = makeReviewerAgent()
+    const env = createIsolatedShellEnv(agent)
+
+    expect(env.GH_TOKEN || "").toBe("")
+    expect(env.GITHUB_TOKEN || "").toBe("")
   })
 })

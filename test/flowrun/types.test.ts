@@ -37,8 +37,8 @@ describe("constants", () => {
     expect(CHECKPOINT_STATUSES).toEqual(["pending", "pass", "fail"])
   })
 
-  it("CURRENT_SCHEMA_VERSION is 1", () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(1)
+  it("CURRENT_SCHEMA_VERSION is 2", () => {
+    expect(CURRENT_SCHEMA_VERSION).toBe(2)
   })
 
   it("DEFAULT_MAX_RUNTIME_MS is 24 hours", () => {

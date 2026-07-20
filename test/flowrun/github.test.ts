@@ -16,24 +16,41 @@ describe("extractFlowRunFromBody", () => {
     const block = buildBlock(flowRun)
     const body = `# Issue title\n\nSome description\n\n${block}`
     const result = extractFlowRunFromBody(body)
-    expect(result).not.toBeNull()
-    expect(result!.flowRunId).toBe("flow-owner/repo-issue-1")
-    expect(result!.status).toBe("planned")
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.data.flowRunId).toBe("flow-owner/repo-issue-1")
+      expect(result.data.status).toBe("planned")
+      // v2: 新创建的 FlowRun 不会触发迁移（已经是 v2）
+      expect(result.migrated).toBe(false)
+      expect(result.data.repositoryQualityPolicy.mode).toBe("off")
+    }
   })
 
-  it("returns null when markers not found", () => {
+  it("returns NOT_FOUND when markers not found", () => {
     const body = "# Just a normal issue\nNo flow run here"
-    expect(extractFlowRunFromBody(body)).toBeNull()
+    const result = extractFlowRunFromBody(body)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.code).toBe("NOT_FOUND")
+    }
   })
 
-  it("returns null when JSON is invalid", () => {
+  it("returns INVALID_JSON when JSON is invalid", () => {
     const body = `# Issue\n\n${CABINET_START_MARKER}\n\`\`\`json\n{invalid}\n\`\`\`\n${CABINET_END_MARKER}`
-    expect(extractFlowRunFromBody(body)).toBeNull()
+    const result = extractFlowRunFromBody(body)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.code).toBe("INVALID_JSON")
+    }
   })
 
-  it("returns null when JSON fails schema validation", () => {
+  it("returns VALIDATION_FAILED when JSON fails schema validation", () => {
     const body = `# Issue\n\n${CABINET_START_MARKER}\n\`\`\`json\n{"status": "invalid"}\n\`\`\`\n${CABINET_END_MARKER}`
-    expect(extractFlowRunFromBody(body)).toBeNull()
+    const result = extractFlowRunFromBody(body)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.code).toBe("VALIDATION_FAILED")
+    }
   })
 
   it("extracts block with surrounding content", () => {
@@ -41,9 +58,11 @@ describe("extractFlowRunFromBody", () => {
     const block = buildBlock(flowRun)
     const body = `# PRD\n\nSome content here\n\n${block}\n\n## Appendix`
     const result = extractFlowRunFromBody(body)
-    expect(result).not.toBeNull()
-    expect(result!.parentIssueNumber).toBe(2)
-    expect(result!.repo).toBe("a/b")
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.data.parentIssueNumber).toBe(2)
+      expect(result.data.repo).toBe("a/b")
+    }
   })
 })
 
@@ -91,6 +110,9 @@ describe("createInitialFlowRun", () => {
     expect(fr.revision).toBe(0)
     expect(fr.startedAt).not.toBeNull()
     expect(fr.maxRuntime).toBe(86_400_000)
+    // v2
+    expect(fr.repositoryQualityPolicy.mode).toBe("off")
+    expect(fr.repositoryQualityPolicy.requiredChecks).toEqual([])
   })
 
   it("initializes all 7 stages as pending", () => {
@@ -110,7 +132,7 @@ describe("createInitialFlowRun", () => {
 
   it("passes validation", () => {
     const fr = createInitialFlowRun("flow-o/r-10", "o/r", 10)
-    const { data, errors } = validateFlowRun(fr as any)
+    const { data, errors } = validateFlowRun(fr)
     expect(errors).toHaveLength(0)
     expect(data).not.toBeNull()
   })

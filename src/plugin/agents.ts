@@ -19,6 +19,12 @@ export interface AgentCapabilities {
   complete_goal: boolean
 }
 
+export interface AgentPermission {
+  bash?: string
+  write?: string
+  edit?: string
+}
+
 export interface AgentEntry {
   key: string
   description?: string
@@ -26,6 +32,7 @@ export interface AgentEntry {
   color?: string
   tools?: AgentTools
   capabilities?: AgentCapabilities
+  permission?: AgentPermission
   prompt: string
 }
 
@@ -73,6 +80,22 @@ function parseAgentFile(filePath: string): AgentEntry | null {
         }
       : undefined
 
+  const permissionRaw = parsed.permission
+  const permission: AgentPermission | undefined =
+    permissionRaw && typeof permissionRaw === "object" && !Array.isArray(permissionRaw)
+      ? {
+          bash: typeof (permissionRaw as Record<string, unknown>).bash === "string"
+            ? (permissionRaw as Record<string, unknown>).bash as string
+            : undefined,
+          write: typeof (permissionRaw as Record<string, unknown>).write === "string"
+            ? (permissionRaw as Record<string, unknown>).write as string
+            : undefined,
+          edit: typeof (permissionRaw as Record<string, unknown>).edit === "string"
+            ? (permissionRaw as Record<string, unknown>).edit as string
+            : undefined,
+        }
+      : undefined
+
   return {
     key: name,
     description: parsed.description as string | undefined,
@@ -80,6 +103,7 @@ function parseAgentFile(filePath: string): AgentEntry | null {
     color: parsed.color as string | undefined,
     tools,
     capabilities,
+    permission,
     prompt: body,
   }
 }

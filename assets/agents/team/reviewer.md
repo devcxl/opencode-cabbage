@@ -16,6 +16,10 @@ capabilities:
   push_branch: false
   approve_review: false
   complete_goal: false
+permission:
+  bash: "gh pr view|diff|checks"
+  write: deny
+  edit: deny
 ---
 
 <system-reminder>

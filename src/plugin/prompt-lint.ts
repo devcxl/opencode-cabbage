@@ -148,6 +148,110 @@ function checkAgentCapabilityConsistency(content: string, filePath: string): Lin
   return findings
 }
 
+function isWorkerAgent(filePath: string): boolean {
+  return filePath.includes("backend") || filePath.includes("frontend")
+}
+
+function isReviewerAgent(filePath: string): boolean {
+  return filePath.includes("reviewer")
+}
+
+function checkAgentPermission(content: string, filePath: string): LintFinding[] {
+  const findings: LintFinding[] = []
+  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/)
+  if (!frontmatterMatch) return findings
+
+  const fm = frontmatterMatch[1]
+
+  // Parse permission from frontmatter
+  const hasPermission = /^permission:/m.test(fm)
+
+  if (!hasPermission) {
+    findings.push({
+      severity: "warn",
+      file: filePath,
+      rule: "missing-permission",
+      message: "agent frontmatter is missing 'permission' field",
+    })
+    return findings
+  }
+
+  // Extract permission values
+  const bashPerm = fm.match(/^\s+bash:\s*"([^"]+)"/m)
+  const writePerm = fm.match(/^\s+write:\s*"([^"]+)"|^\s+write:\s*(deny)/m)
+  const editPerm = fm.match(/^\s+edit:\s*"([^"]+)"|^\s+edit:\s*(deny)/m)
+
+  const bashValue = bashPerm?.[1] ?? null
+  const writeValue = writePerm ? (writePerm[2] === "deny" ? "deny" : writePerm[1] ?? null) : null
+  const editValue = editPerm ? (editPerm[2] === "deny" ? "deny" : editPerm[1] ?? null) : null
+
+  // Rule: Worker must not have gh pr create|merge in permission.bash
+  if (isWorkerAgent(filePath) && bashValue) {
+    if (/\bgh pr create\b/.test(bashValue) || /\bgh pr merge\b/.test(bashValue)) {
+      findings.push({
+        severity: "error",
+        file: filePath,
+        rule: "worker-gh-write-permission",
+        message: "worker agent declares gh pr create/merge in permission.bash",
+      })
+    }
+  }
+
+  // Rule: Reviewer must have write: deny and edit: deny
+  if (isReviewerAgent(filePath)) {
+    if (writeValue !== "deny") {
+      findings.push({
+        severity: "error",
+        file: filePath,
+        rule: "reviewer-write-permission",
+        message: `reviewer agent declares write: "${writeValue ?? '(not set)'}" — must be "deny"`,
+      })
+    }
+    if (editValue !== "deny") {
+      findings.push({
+        severity: "error",
+        file: filePath,
+        rule: "reviewer-write-permission",
+        message: `reviewer agent declares edit: "${editValue ?? '(not set)'}" — must be "deny"`,
+      })
+    }
+  }
+
+  // Rule: capabilities vs permission consistency
+  const modifyFiles = fm.match(/^\s+modify_files:\s*(true|false)/m)
+  const runTests = fm.match(/^\s+run_tests:\s*(true|false)/m)
+  const pushBranch = fm.match(/^\s+push_branch:\s*(true|false)/m)
+
+  if (modifyFiles?.[1] === "true" && (writeValue === "deny" || editValue === "deny")) {
+    findings.push({
+      severity: "warn",
+      file: filePath,
+      rule: "capability-permission-mismatch",
+      message: "capabilities.modify_files is true but permission.write or permission.edit is deny",
+    })
+  }
+
+  if (runTests?.[1] === "true" && bashValue === null && !/bash:\s*"/m.test(fm)) {
+    findings.push({
+      severity: "warn",
+      file: filePath,
+      rule: "capability-permission-mismatch",
+      message: "capabilities.run_tests is true but permission.bash is not declared",
+    })
+  }
+
+  if (pushBranch?.[1] === "true" && bashValue && !bashValue.includes("git push")) {
+    findings.push({
+      severity: "warn",
+      file: filePath,
+      rule: "capability-permission-mismatch",
+      message: "capabilities.push_branch is true but permission.bash does not include 'git push'",
+    })
+  }
+
+  return findings
+}
+
 export function lintAll(projectRoot: string): { findings: LintFinding[]; passed: boolean } {
   const assetDirs = ["assets/agents", "assets/skills", "assets/commands", "assets/prompts"]
   const files = findMdFiles(projectRoot, assetDirs)
@@ -164,6 +268,7 @@ export function lintAll(projectRoot: string): { findings: LintFinding[]; passed:
 
     if (file.includes("agents/")) {
       allFindings.push(...checkAgentCapabilityConsistency(content, file))
+      allFindings.push(...checkAgentPermission(content, file))
     }
   }
 

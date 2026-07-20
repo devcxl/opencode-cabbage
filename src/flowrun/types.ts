@@ -349,6 +349,45 @@ export interface GoalFlowRunRef {
   flowRunId: string
 }
 
+// ─── flow_control 工具类型 ───
+
+export type FlowControlOp =
+  | "run-start"
+  | "stage-start"
+  | "stage-complete"
+  | "task-start"
+
+export interface FlowControlRequest {
+  op: FlowControlOp
+  parentIssueNumber: number
+
+  // stage-start / stage-complete 用
+  stage?: FlowStage
+
+  // task-start 用
+  taskId?: string
+  executionBinding?: TaskExecutionBinding
+  tddPolicy?: TddPolicy
+}
+
+export interface FlowControlResponse {
+  ok: boolean
+  error?: {
+    code: string
+    message: string
+  }
+  flowRunStatus?: FlowRunStatus
+  stage?: {
+    name: FlowStage
+    status: StageStatus
+  }
+  task?: {
+    taskId: string
+    status: TaskStatus
+    executionBinding?: TaskExecutionBinding | null
+  }
+}
+
 export interface ValidationError {
   path: string
   message: string

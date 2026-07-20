@@ -18,6 +18,7 @@ import {
   flowTaskStart,
 } from "../flowrun/transitions.js"
 import type { TaskExecutionBinding, FlowControlResponse } from "../flowrun/types.js"
+import { handleFlowPrCreateWithBroker } from "./flow-pr-tool.js"
 
 const abortedSessions = new Set<string>()
 const errorRetryCount = new Map<string, number>()
@@ -407,6 +408,62 @@ async function handleTaskStart(
   })
 }
 
+// ─── Flow PR Tool ───
+
+function createFlowPRTool(broker: FlowBroker) {
+  return tool({
+    description: `Create a Pull Request for a task that has passed committed-head regression and verification.
+
+Operation:
+- create: Create or reuse a PR for the specified task. Idempotent — reuses existing open PR for the same head branch.`,
+    args: {
+      op: tool.schema.enum(["create"]).describe("Flow PR operation"),
+      parent_issue_number: tool.schema.number().describe("Parent GitHub Issue number containing the FlowRun"),
+      task_id: tool.schema.string().describe("Task ID for the PR"),
+      current_head_sha: tool.schema.string().describe("Current committed HEAD SHA (for verification)"),
+      pr_title: tool.schema.string().describe("PR title"),
+      pr_body: tool.schema.string().describe("PR body/description"),
+      base_branch: tool.schema.string().optional().describe("Base branch (default: main)"),
+    },
+    async execute(args, _ctx) {
+      const taskId = args.task_id as string
+      const currentHeadSha = args.current_head_sha as string
+      const prTitle = args.pr_title as string
+      const prBody = args.pr_body as string
+      const baseBranch = (args.base_branch as string | undefined) ?? "main"
+      const parentIssueNumber = args.parent_issue_number as number
+
+      const resp = await handleFlowPrCreateWithBroker(broker, {
+        op: "pr-create",
+        parentIssueNumber,
+        taskId,
+        currentHeadSha,
+        prTitle,
+        prBody,
+        baseBranch,
+      })
+
+      if (!resp.ok) {
+        return JSON.stringify({
+          ok: false,
+          error: resp.error,
+          conflictPause: resp.conflictPause,
+        }, null, 2)
+      }
+
+      return JSON.stringify({
+        ok: true,
+        pr: {
+          prNumber: resp.prNumber,
+          prUrl: resp.prUrl,
+          created: resp.created,
+        },
+        taskStatus: resp.taskStatus,
+      }, null, 2)
+    },
+  })
+}
+
 export function createOpencodeCabbage(packageRoot: string): Plugin {
   return async (ctx, _options) => {
     const sourceSkillsDir = path.join(packageRoot, "assets", "skills")
@@ -421,6 +478,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
     const goalTool = createGoalTool(goalClient)
     const broker = new FlowBroker()
     const flowControlTool = createFlowControlTool(broker, goalClient)
+    const flowPRTool = createFlowPRTool(broker)
 
     const agentsDir = path.join(packageRoot, "assets", "agents")
 
@@ -434,6 +492,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
       tool: {
         goal: goalTool,
         flow_control: flowControlTool,
+        flow_pr: flowPRTool,
       },
 
       config: async (rawConfig) => {

@@ -356,6 +356,7 @@ export type FlowControlOp =
   | "stage-start"
   | "stage-complete"
   | "task-start"
+  | "pr-create"
 
 export interface FlowControlRequest {
   op: FlowControlOp
@@ -368,6 +369,12 @@ export interface FlowControlRequest {
   taskId?: string
   executionBinding?: TaskExecutionBinding
   tddPolicy?: TddPolicy
+
+  // pr-create 用
+  currentHeadSha?: string
+  prTitle?: string
+  prBody?: string
+  baseBranch?: string
 }
 
 export interface FlowControlResponse {
@@ -385,6 +392,11 @@ export interface FlowControlResponse {
     taskId: string
     status: TaskStatus
     executionBinding?: TaskExecutionBinding | null
+  }
+  pr?: {
+    prNumber: number
+    prUrl: string
+    created: boolean
   }
 }
 

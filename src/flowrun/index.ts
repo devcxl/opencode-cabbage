@@ -40,6 +40,7 @@ export {
 export {
   canStartStage, canCompleteStage, canStartTask, canCompleteTask,
   canMerge, allTasksComplete, getReadyTasks, determineNextStage,
+  canCreatePR,
   type GateResult,
 } from "./gate.js"
 
@@ -83,3 +84,12 @@ export {
   type VitestOutput,
   type FailureInput,
 } from "./adapter.js"
+
+export {
+  preflightPRCreate,
+  createOrReusePR,
+  setGhExecutor,
+  type CreatePRParams,
+  type CreatePRResult,
+  type PreflightResult,
+} from "./pr.js"

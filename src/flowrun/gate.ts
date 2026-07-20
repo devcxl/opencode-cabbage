@@ -152,14 +152,23 @@ export function canCreatePR(task: TaskState): GateResult {
   return ok()
 }
 
+/**
+ * 检查 FlowRun 是否满足合并收尾条件。
+ *
+ * 新语义（v2）：
+ * - FlowRun 状态为 running 或 merging
+ * - 所有 Task 状态均为 merged
+ * - 不再要求 review Stage 为 pass（Task-local merge 已独立）
+ *
+ * 用于 flow_run finalize。
+ */
 export function canMerge(flowRun: FlowRun): GateResult {
   if (flowRun.status !== "running" && flowRun.status !== "merging") {
     return block("FlowRun is not in a mergeable state")
   }
 
-  const reviewStage = flowRun.stages.review
-  if (reviewStage.status !== "pass") {
-    return block("Review stage is not complete")
+  if (!allTasksComplete(flowRun)) {
+    return block("Not all tasks merged (finalize requires all tasks to be merged first)")
   }
 
   return ok()

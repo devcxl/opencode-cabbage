@@ -22,6 +22,9 @@ function createSkill(dir: string, name: string, content: string): string {
   return filePath
 }
 
+const PROJECT_ROOT = path.resolve(import.meta.dirname || __dirname, "..")
+const ASSETS_SKILLS_DIR = path.join(PROJECT_ROOT, "assets", "skills")
+
 describe("setupSkillsDir", () => {
   it("copies skills to a temp directory", async () => {
     const srcDir = path.join(tmpDir, "skills-src")
@@ -78,5 +81,78 @@ describe("setupSkillsDir", () => {
     const result = await setupSkillsDir(srcDir)
     const entries = fs.readdirSync(result)
     expect(entries.length).toBe(0)
+  })
+})
+
+describe("flow-tdd Advisory Skill", () => {
+  const CONTRACT_SECTIONS = [
+    "Trigger", "Inputs", "Preconditions", "Procedure",
+    "Outputs", "Failure", "Idempotency", "Prohibited Actions",
+  ]
+
+  const TDD_PROTOCOL_KEYWORDS = [
+    "cycle-start",
+    "red",
+    "green",
+    "abandon-cycle",
+    "final-regression",
+    "final-verification",
+  ]
+
+  function readFlowTddSkill(): string | null {
+    const skillPath = path.join(ASSETS_SKILLS_DIR, "flow-tdd", "SKILL.md")
+    if (!fs.existsSync(skillPath)) return null
+    return fs.readFileSync(skillPath, "utf8")
+  }
+
+  it("flow-tdd SKILL.md exists in assets", () => {
+    const skillPath = path.join(ASSETS_SKILLS_DIR, "flow-tdd", "SKILL.md")
+    expect(fs.existsSync(skillPath)).toBe(true)
+  })
+
+  it("flow-tdd SKILL.md has complete 8-section Contract", () => {
+    const content = readFlowTddSkill()
+    expect(content).not.toBeNull()
+    for (const section of CONTRACT_SECTIONS) {
+      const headingRegex = new RegExp(`^### ${section}$`, "m")
+      expect(headingRegex.test(content!)).toBe(true)
+    }
+  })
+
+  it("flow-tdd SKILL.md contains TDD Advisory Protocol keywords", () => {
+    const content = readFlowTddSkill()
+    expect(content).not.toBeNull()
+    for (const keyword of TDD_PROTOCOL_KEYWORDS) {
+      expect(content!).toContain(keyword)
+    }
+  })
+
+  it("flow-tdd SKILL.md contains Advisory Procedure section", () => {
+    const content = readFlowTddSkill()
+    expect(content).not.toBeNull()
+    expect(content!).toMatch(/Advisory Procedure/i)
+  })
+
+  it("flow-tdd SKILL.md contains Runtime Procedure placeholder", () => {
+    const content = readFlowTddSkill()
+    expect(content).not.toBeNull()
+    expect(content!).toMatch(/Runtime Procedure/i)
+    expect(content!).toContain("Phase C")
+  })
+
+  it("flow-tdd is loaded by setupSkillsDir", async () => {
+    const srcDir = path.join(tmpDir, "skills-src")
+    fs.mkdirSync(srcDir, { recursive: true })
+    // Copy the real flow-tdd skill to temp dir for setupSkillsDir
+    const realSkillDir = path.join(ASSETS_SKILLS_DIR, "flow-tdd")
+    const destDir = path.join(srcDir, "flow-tdd")
+    fs.cpSync(realSkillDir, destDir, { recursive: true })
+
+    const result = await setupSkillsDir(srcDir)
+
+    expect(fs.existsSync(path.join(result, "flow-tdd", "SKILL.md"))).toBe(true)
+    const loaded = fs.readFileSync(path.join(result, "flow-tdd", "SKILL.md"), "utf8")
+    expect(loaded).toContain("# flow-tdd")
+    expect(loaded).toContain("cycle-start")
   })
 })

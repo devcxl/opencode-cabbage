@@ -41,13 +41,55 @@ name: "<task-name>"
 depends_on: ["<前置任务>"]
 labels: ["backend"]
 worktree_root: ".worktree/<task-name>/"
+test_commands:
+  - "npm test -- <test-file>"
+  - "npm run typecheck"
+verify_commands:
+  - "npm run lint"
+tdd:
+  mode: strict
+  min_cycles: 1
+acceptance:
+  - criteria: "<验收标准描述>"
+    verification_type: test | manual | lint
+    test_command: "<关联的测试命令>"
+  - criteria: "<另一条验收标准>"
+    verification_type: test
+    test_command: "npm test -- <other-test>"
 ---
+```
+
+Task frontmatter 新增字段说明：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `test_commands` | `string[]` | TDD cycle 中运行的测试命令列表 |
+| `verify_commands` | `string[]` | final-verification 阶段运行的验证命令 |
+| `tdd.mode` | `"strict" \| "advisory"` | TDD 模式，默认 `strict` |
+| `tdd.min_cycles` | `number` | 最少 RED→GREEN cycle 数量，默认 `1` |
+| `acceptance` | `object[]` | 结构化验收标准列表 |
+| `acceptance[].criteria` | `string` | 验收标准描述 |
+| `acceptance[].verification_type` | `"test" \| "manual" \| "lint"` | 验证方式 |
+| `acceptance[].test_command` | `string` | 关联的测试命令（verification_type 为 test 时必填） |
+
+`tdd` 配置块为 `flow-tdd` skill 提供运行时参数。模式默认 `strict`，
+表示 Agent 必须遵循 RED→GREEN→final-regression→final-verification 完整流程。
 
 ## 目标
 
 ## 实现要点
 
 ## 验收标准
+
+验收标准以结构化 `acceptance` 数组形式定义在 frontmatter 中（见上方模板）。
+每条标准包含 `criteria`（描述）、`verification_type`（验证方式）和 `test_command`（关联命令）。
+`flow-tdd` skill 在 final-verification 阶段逐条核验这些标准。
+
+## TDD 集成
+
+本 skill 生成的 `test_commands`、`verify_commands`、`tdd` 配置块和 `acceptance_criteria`
+是 `flow-tdd` skill 的输入。`flow-tdd` 根据这些字段执行 RED→GREEN cycle、
+final-regression 和 final-verification。
 
 ## Worktree
 - 路径: `.worktree/<task-name>/`

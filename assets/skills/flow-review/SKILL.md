@@ -39,6 +39,13 @@ gh pr view <pr-number> --json title,body,files
 对照 PRD（`docs/prd/`）和设计方案（`docs/dev/specs/`）验证。
 - 如发现实现与设计偏差 → 追加到 `docs/dev/changelog/<YYYY-MM-DD-NNN-slug>.md`
 
+**TDD Criterion Coverage** — 检查 Task 的 `acceptance_criteria` 是否被 PR 覆盖：
+- 对照 Task frontmatter 中的 `acceptance` 数组，逐条核查
+- 检查 PR 是否包含每条 criterion 对应的测试或验证
+- 检查 `tdd` 配置块中的 `mode` 和 `min_cycles` 是否被遵循
+- **明确不检查 commit order** — TDD cycle 的 RED→GREEN 顺序是编码过程约束，
+  reviewer 不审查 commit 历史是否呈现 RED-first 模式
+
 ### 5. 合并前检查
 在合并前确认以下项：
 - 文档同步已完成（`docs/guides/` 已更新或无需更新）

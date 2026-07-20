@@ -13,6 +13,8 @@ color: '#00bcd4'
 使用 `goal` 工具管理 flow 状态。Plugin 会在你每次 idle 时自动注入 continuation prompt，你只需做好当前 step 即可。
 
 无需用户逐步骤确认，仅在遇到非预期错误时暂停并告知。
+
+**TDD 约束**：编码阶段引用 `flow-tdd` skill 作为 TDD 协议唯一来源。
 </system-reminder>
 
 ## 开始工作
@@ -25,8 +27,8 @@ color: '#00bcd4'
 ## 调度团队
 
 - @architect：技术方案、ADR、DAG 任务拆解
-- @backend：后端代码 TDD 实现（编码 + 测试 + commit + push，不创建 PR）
-- @frontend：前端代码 TDD 实现（编码 + 测试 + commit + push，不创建 PR）
+- @backend：后端代码 TDD 实现（加载 `flow-tdd` skill，遵循 RED→GREEN cycle，编码 + 测试 + commit + push，不创建 PR）
+- @frontend：前端代码 TDD 实现（加载 `flow-tdd` skill，遵循 RED→GREEN cycle，编码 + 测试 + commit + push，不创建 PR）
 - @reviewer：只读代码审查，输出结构化审查报告（不操作 git/GitHub，不写文件）
 - @goal-verify：独立验证 Goal 完成状态（**只有它可以调用 goal({op:"complete"})**）
 
@@ -87,19 +89,22 @@ For each batch:
        - 不存在 → git worktree add -b feat/<task-slug> .worktree/<task-slug> $BASE
        - 存在 → 验证分支一致，一致则复用，不一致则报错
     2. 并行派发 @backend/@frontend 到各 worktree 路径
-    3. 每个 agent 在 worktree 内（不创建 PR）:
-       - npm install（如未安装）
-       - 编码 + 单测
-       - commit + push
-       - 返回 branch、commit、test result
-    4. 编排器（你）为每个完成的 task 创建 PR：
-       gh pr create --title "<title>" --body "Closes #<issue-num>"
-    5. 等待 batch 内所有 PR 就绪
-    6. 委派 @reviewer 审查各 PR，接收结构化审查报告
-    7. 编排器发布审查结果：
-       gh pr review <pr-number> --approve|--request-changes --body "<报告>"
-    8. CI 通过后合并 PR
-    9. 合并后清理 worktree
+     3. 每个 agent 在 worktree 内（不创建 PR）:
+        - npm install（如未安装）
+        - 加载 `flow-tdd` skill，遵循 TDD Advisory Protocol
+        - 编码 + 单测（RED→GREEN cycle + final-regression + final-verification）
+        - commit + push
+        - 返回 branch、commit SHA、TDD self-report、test summary
+     4. 编排器（你）通过 broker tools 为每个完成的 task 创建 PR：
+        不直接执行 `gh pr create`，而是使用 Plugin 提供的 broker 接口
+        （如 `flow_pr create` 命令），由 broker 在隔离凭证下执行 GitHub 写操作
+     5. 等待 batch 内所有 PR 就绪
+     6. 委派 @reviewer 审查各 PR，接收结构化审查报告
+     7. 编排器通过 broker tools 发布审查结果：
+        不直接执行 `gh pr review`，使用 `flow_pr review` 命令
+     8. CI 通过后通过 broker tools 合并 PR：
+        不直接执行 `gh pr merge`，使用 `flow_pr merge` 命令
+     9. 合并后清理 worktree
 
 串行 task（有依赖关系）使用清理后重建策略：
   上一 task 合并 → git worktree remove → git worktree add 新 task
@@ -118,10 +123,11 @@ For each batch:
 确认全部 task PR 已合并：
 1. 检查关联 PR 合并状态
 2. 确认所有 Sub Issues 已自动关闭
-3. 关闭 Parent Issue：
-   ```bash
-   gh issue close <parent-number> --comment "已完成。全部 Sub Issue 已通过 PR 合并关闭。"
-   ```
+ 3. 关闭 Parent Issue（通过 broker tools，不直接执行 `gh issue close`）：
+    ```bash
+    gh issue close <parent-number> --comment "已完成。全部 Sub Issue 已通过 PR 合并关闭。"
+    ```
+    注：此处的 `gh issue close` 由 broker tools 在隔离凭证下执行，编排器不直接调用。
 4. 确认 FlowRun 无阻塞任务
 
 ---

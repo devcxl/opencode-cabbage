@@ -14,6 +14,7 @@ import {
   abandonCycle,
   createTaskEvidence as createBaseEvidence,
 } from "../flowrun/state.js"
+import type { FlowBroker } from "./broker.js"
 
 // ─── 请求 / 响应类型 ───
 
@@ -66,6 +67,15 @@ export interface TddCheckpointResponse {
     code: string
     message: string
   }
+}
+
+/**
+ * Broker-aware 响应：包含冲突暂停标志。
+ * PERSIST_CONFLICT 时 conflictPause=true，调用方应暂停 FlowRun。
+ */
+export interface TddCheckpointBrokerResponse extends TddCheckpointResponse {
+  conflictPause: boolean
+  persisted: boolean
 }
 
 // ─── 内部辅助 ───
@@ -418,5 +428,58 @@ function handleAbandonCycle(req: TddCheckpointRequest, evidence: TddEvidence): T
     ok: true,
     evidence: result.value,
     evidenceRevision: result.value.revision,
+  }
+}
+
+// ─── Broker-aware handler ───
+
+/**
+ * 通过 FlowBroker 执行 tdd_checkpoint 操作。
+ *
+ * 流程：
+ * 1. 通过 broker.writeFlowRunWithLock 读取 FlowRun
+ * 2. 提取目标 TaskState
+ * 3. 调用 handleTddCheckpoint 执行状态机转换
+ * 4. 成功时持久化回 Issue（broker 自动处理 revision + 乐观锁）
+ * 5. PERSIST_CONFLICT 时设置 conflictPause=true
+ *
+ * @returns TddCheckpointBrokerResponse — 包含 conflictPause 标志
+ */
+export async function handleTddCheckpointWithBroker(
+  broker: FlowBroker,
+  req: TddCheckpointRequest,
+): Promise<TddCheckpointBrokerResponse> {
+  const writeResult = await broker.writeFlowRunWithLock(req.parentIssueNumber, (flowRun) => {
+    const task = flowRun.tasks[req.taskId]
+    if (!task) {
+      const resp: TddCheckpointResponse = {
+        ok: false,
+        error: { code: "TASK_NOT_FOUND", message: `Task "${req.taskId}" not found in FlowRun` },
+      }
+      return { flowRun, result: resp, shouldPersist: false }
+    }
+
+    const tddResp = handleTddCheckpoint(req, task)
+    return { flowRun, result: tddResp, shouldPersist: tddResp.ok }
+  })
+
+  if (!writeResult.ok) {
+    // PERSIST_CONFLICT or READ_FAILED
+    return {
+      ok: false,
+      conflictPause: writeResult.code === "PERSIST_CONFLICT",
+      persisted: false,
+      error: {
+        code: writeResult.code,
+        message: writeResult.message,
+      },
+    }
+  }
+
+  // 成功（或 shouldPersist=false）
+  return {
+    ...writeResult.result,
+    conflictPause: false,
+    persisted: writeResult.persisted,
   }
 }

@@ -58,3 +58,8 @@ export {
   postAuditComment, postPRComment,
   buildStageAudit, buildMergeAudit,
 } from "./audit.js"
+
+export {
+  evaluateTddCompliance,
+  type EvaluationResult,
+} from "./evaluator.js"

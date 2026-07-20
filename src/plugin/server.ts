@@ -222,6 +222,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
             color: agent.color,
             prompt: agent.prompt,
             tools: agent.tools ?? { read: true, bash: true, write: true, edit: true },
+            permission: agent.permission,
           }
         }
 

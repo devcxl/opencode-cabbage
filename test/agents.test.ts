@@ -138,3 +138,76 @@ describe("dev-lifecycle prompt", () => {
     expect(agent?.prompt).not.toContain("最终全部完成后调用 `goal({op:\"complete\"})`")
   })
 })
+
+describe("Agent permission parsing", () => {
+  it("parses permission with string values", () => {
+    writeAgent("perm-agent", "subagent", `tools:
+  read: true
+  bash: true
+  write: true
+  edit: true
+permission:
+  bash: "npm test|git push|npm run build"
+  write: ".worktree/"
+  edit: "src/,test/,assets/"`)
+    const result = loadAgents(tmpDir)
+    expect(result).toHaveLength(1)
+    expect(result[0].permission).toBeDefined()
+    expect(result[0].permission!.bash).toBe("npm test|git push|npm run build")
+    expect(result[0].permission!.write).toBe(".worktree/")
+    expect(result[0].permission!.edit).toBe("src/,test/,assets/")
+  })
+
+  it("parses permission with deny values", () => {
+    writeAgent("deny-agent", "subagent", `tools:
+  read: true
+  bash: true
+  write: false
+  edit: false
+permission:
+  bash: "gh pr view|diff|checks"
+  write: deny
+  edit: deny`)
+    const result = loadAgents(tmpDir)
+    expect(result).toHaveLength(1)
+    expect(result[0].permission!.bash).toBe("gh pr view|diff|checks")
+    expect(result[0].permission!.write).toBe("deny")
+    expect(result[0].permission!.edit).toBe("deny")
+  })
+
+  it("defaults permission to undefined when not specified", () => {
+    writeAgent("no-perm", "primary")
+    const result = loadAgents(tmpDir)
+    expect(result[0].permission).toBeUndefined()
+  })
+
+  it("handles partial permission specification", () => {
+    writeAgent("partial-perm", "subagent", "permission:\n  bash: \"npm test\"")
+    const result = loadAgents(tmpDir)
+    expect(result[0].permission).toBeDefined()
+    expect(result[0].permission!.bash).toBe("npm test")
+    expect(result[0].permission!.write).toBeUndefined()
+    expect(result[0].permission!.edit).toBeUndefined()
+  })
+
+  it("keeps capabilities field for lint usage", () => {
+    writeAgent("cap-agent", "subagent", `capabilities:
+  create_pr: false
+  merge_pr: false
+  modify_files: true
+  run_tests: true
+  push_branch: true
+  approve_review: false
+  complete_goal: false
+permission:
+  bash: "npm test|git push"
+  write: ".worktree/"
+  edit: "src/,test/"`)
+    const result = loadAgents(tmpDir)
+    expect(result[0].capabilities).toBeDefined()
+    expect(result[0].capabilities!.modify_files).toBe(true)
+    expect(result[0].capabilities!.run_tests).toBe(true)
+    expect(result[0].capabilities!.create_pr).toBe(false)
+    expect(result[0].permission).toBeDefined()
+  })
+})

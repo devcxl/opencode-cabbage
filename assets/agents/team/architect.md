@@ -8,6 +8,10 @@ tools:
   bash: true
   write: true
   edit: true
+permission:
+  bash: "npm test|npm run|git status|git diff|git log"
+  write: "docs/"
+  edit: "docs/,assets/"
 ---
 
 <system-reminder>

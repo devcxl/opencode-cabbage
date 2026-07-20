@@ -16,6 +16,10 @@ capabilities:
   push_branch: true
   approve_review: false
   complete_goal: false
+permission:
+  bash: "npm test|npm run|git push|git add|git commit|git status|git diff|git log|git branch|git checkout"
+  write: ".worktree/"
+  edit: "src/,test/,assets/"
 ---
 
 <system-reminder>

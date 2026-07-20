@@ -2,6 +2,7 @@ import type { ToolContext, ToolResult } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin/tool"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import type { Session } from "@opencode-ai/sdk/v2"
+import type { GoalFlowRunRef } from "../flowrun/types.js"
 
 export type GoalStatus = "active" | "paused" | "complete"
 
@@ -124,6 +125,84 @@ export async function writeGoal(
     : { ...existing, goal }
 
   await client.session.update({ sessionID, metadata })
+}
+
+// ─── GoalFlowRunRef 绑定 ───
+
+/**
+ * 读取 session metadata 中的 GoalFlowRunRef。
+ * 返回 null 表示尚未绑定。
+ */
+export async function readFlowRunRef(
+  client: ReturnType<typeof createOpencodeClient>,
+  sessionID: string,
+): Promise<GoalFlowRunRef | null> {
+  try {
+    const result = await client.session.get({ sessionID })
+    const session = (result as { data?: Session | null })?.data ?? null
+    const ref = session?.metadata?.flowRunRef as GoalFlowRunRef | undefined
+    return ref ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Goal → FlowRun 绑定结果。
+ */
+export type BindFlowRunResult =
+  | { ok: true }
+  | { ok: false; code: "GOAL_FLOW_CONFLICT"; message: string }
+
+/**
+ * 原子绑定 Goal → FlowRun。
+ *
+ * 规则：
+ * - 未绑定 → 写入 flowRunRef，返回 ok
+ * - 已绑定同一 FlowRun（repo + parentIssueNumber + flowRunId 相同）→ 幂等，返回 ok
+ * - 已绑定不同 FlowRun → 返回 GOAL_FLOW_CONFLICT
+ */
+export async function bindFlowRunRef(
+  client: ReturnType<typeof createOpencodeClient>,
+  sessionID: string,
+  ref: GoalFlowRunRef,
+): Promise<BindFlowRunResult> {
+  const result = await client.session.get({ sessionID })
+  const session = (result as { data?: Session | null })?.data ?? null
+  if (!session) return { ok: false, code: "GOAL_FLOW_CONFLICT", message: "Session not found" }
+
+  const existingRef = session.metadata?.flowRunRef as GoalFlowRunRef | undefined
+
+  if (existingRef) {
+    const isSame =
+      existingRef.repo === ref.repo &&
+      existingRef.parentIssueNumber === ref.parentIssueNumber &&
+      existingRef.flowRunId === ref.flowRunId
+
+    if (!isSame) {
+      return {
+        ok: false,
+        code: "GOAL_FLOW_CONFLICT",
+        message: `Goal is already bound to FlowRun "${existingRef.flowRunId}", cannot bind to "${ref.flowRunId}"`,
+      }
+    }
+    // 同一 FlowRun → 幂等
+    return { ok: true }
+  }
+
+  // 未绑定 → 写入
+  const existing: Record<string, unknown> = session.metadata ?? {}
+  const metadata = { ...existing, flowRunRef: ref }
+  await client.session.update({ sessionID, metadata })
+
+  return { ok: true }
+}
+
+/**
+ * 解析 GoalFlowRunRef 的显示名称。
+ */
+export function formatFlowRunRef(ref: GoalFlowRunRef): string {
+  return `${ref.repo}#${ref.parentIssueNumber} (${ref.flowRunId})`
 }
 
 export function createGoalTool(client: ReturnType<typeof createOpencodeClient>) {

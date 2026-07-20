@@ -18,6 +18,7 @@ export {
   type TddComplianceCheckpoint, type RepositoryQualityPolicy,
   type GoalFlowRunRef, type FlowRunReadResult, type TaskCommand,
   type ValidationError,
+  type FlowControlRequest, type FlowControlResponse, type FlowControlOp,
 } from "./types.js"
 
 export {
@@ -41,6 +42,11 @@ export {
   canMerge, allTasksComplete, getReadyTasks, determineNextStage,
   type GateResult,
 } from "./gate.js"
+
+export {
+  flowRunStart, flowStageStart, flowStageComplete, flowTaskStart,
+  type TransitionError, type TransitionResult,
+} from "./transitions.js"
 
 export {
   checkBranchProtection, validateCheckpoint, validatePRCheckpoints,

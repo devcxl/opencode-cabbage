@@ -1,4 +1,5 @@
 import type { Plugin } from "@opencode-ai/plugin"
+import { tool } from "@opencode-ai/plugin/tool"
 import path from "node:path"
 import { readFile, writeFile, mkdir } from "node:fs/promises"
 import { existsSync } from "node:fs"
@@ -8,7 +9,15 @@ import { initBootstrap, getBootstrapContent } from "./bootstrap.js"
 import { loadCommands } from "./commands.js"
 import { setupSkillsDir } from "./skills.js"
 import { loadAgents } from "./agents.js"
-import { createGoalClient, createGoalTool, readGoal, writeGoal, MAX_CONTINUATIONS, continuationPrompt, verifyAgentPrompt, formatGoal } from "./goal.js"
+import { createGoalClient, createGoalTool, readGoal, writeGoal, bindFlowRunRef, MAX_CONTINUATIONS, continuationPrompt, verifyAgentPrompt, formatGoal } from "./goal.js"
+import { FlowBroker } from "./broker.js"
+import {
+  flowRunStart,
+  flowStageStart,
+  flowStageComplete,
+  flowTaskStart,
+} from "../flowrun/transitions.js"
+import type { TaskExecutionBinding, FlowControlResponse } from "../flowrun/types.js"
 
 const abortedSessions = new Set<string>()
 const errorRetryCount = new Map<string, number>()
@@ -166,6 +175,238 @@ function startPeriodicCleanup() {
   }, ABORTED_SESSION_CLEANUP_INTERVAL)
 }
 
+// ─── Flow Control Tool ───
+
+function createFlowControlTool(
+  broker: FlowBroker,
+  goalClient: ReturnType<typeof createGoalClient>,
+) {
+  return tool({
+    description: `Control the FlowRun lifecycle: start a FlowRun, transition stages, and start tasks.
+
+Operations:
+- run-start: Transition FlowRun from planned → running. Binds Goal to FlowRun.
+- stage-start: Start a stage (requirements/design/tasks/code). Requires prerequisites met.
+- stage-complete: Complete a stage (requirements/design/tasks). Requires all checks pass.
+- task-start: Start a task (pending/ready → running). Freezes TDD policy and sets execution binding.`,
+    args: {
+      op: tool.schema.enum(["run-start", "stage-start", "stage-complete", "task-start"]).describe("Flow control operation"),
+      parent_issue_number: tool.schema.number().describe("Parent GitHub Issue number containing the FlowRun"),
+      stage: tool.schema.enum(["requirements", "design", "tasks", "code", "test", "review", "merge"]).optional().describe("Stage name (for stage-start/stage-complete)"),
+      task_id: tool.schema.string().optional().describe("Task ID (for task-start)"),
+      execution_binding: tool.schema.object({
+        branch: tool.schema.string(),
+        base_sha: tool.schema.string(),
+        start_head_sha: tool.schema.string(),
+        worktree_id: tool.schema.string(),
+        session_id: tool.schema.string(),
+      }).optional().describe("Execution binding for task-start"),
+      tdd_policy_json: tool.schema.string().optional().describe("JSON string of frozen TDD policy (for task-start)"),
+    },
+    async execute(args, ctx) {
+      const sessionID = (ctx as any).sessionID as string
+      const op = args.op as string
+      const parentIssueNumber = args.parent_issue_number as number
+
+      try {
+        switch (op) {
+          case "run-start":
+            return handleRunStart(broker, goalClient, parentIssueNumber, sessionID)
+          case "stage-start":
+            return handleStageStart(broker, parentIssueNumber, args.stage as string)
+          case "stage-complete":
+            return handleStageComplete(broker, parentIssueNumber, args.stage as string)
+          case "task-start":
+            return handleTaskStart(broker, parentIssueNumber, args.task_id as string, args.execution_binding as TaskExecutionBinding | undefined, args.tdd_policy_json as string | undefined)
+          default:
+            return errorResponse("UNKNOWN_OP", `Unknown operation: "${op}"`)
+        }
+      } catch (err) {
+        return errorResponse("INTERNAL_ERROR", String(err))
+      }
+    },
+  })
+}
+
+function okResponse(overrides: Partial<FlowControlResponse> = {}): string {
+  const resp: FlowControlResponse = { ok: true, ...overrides }
+  return JSON.stringify(resp, null, 2)
+}
+
+function errorResponse(code: string, message: string): string {
+  const resp: FlowControlResponse = { ok: false, error: { code, message } }
+  return JSON.stringify(resp, null, 2)
+}
+
+async function handleRunStart(
+  broker: FlowBroker,
+  goalClient: ReturnType<typeof createGoalClient>,
+  parentIssueNumber: number,
+  sessionID: string,
+): Promise<string> {
+  // 通过 broker 执行状态迁移
+  const writeResult = await broker.writeFlowRunWithLock<unknown>(parentIssueNumber, (flowRun) => {
+    const res = flowRunStart(flowRun)
+    if (!res.ok) {
+      return { flowRun, result: res.error, shouldPersist: false }
+    }
+    return { flowRun: res.value, result: res.value.status, shouldPersist: true }
+  })
+
+  if (!writeResult.ok) {
+    return errorResponse(writeResult.code, writeResult.message)
+  }
+
+  if (!writeResult.persisted) {
+    // 状态迁移被拒绝（如已是 running）
+    return errorResponse("INVALID_TRANSITION", "FlowRun is not in planned state")
+  }
+
+  // 绑定 Goal → FlowRun
+  const actualFlowRunId = writeResult.flowRun.flowRunId
+  const bindResult = await bindFlowRunRef(goalClient, sessionID, {
+    repo: writeResult.flowRun.repo,
+    parentIssueNumber,
+    flowRunId: actualFlowRunId,
+  })
+
+  if (!bindResult.ok) {
+    return errorResponse(bindResult.code, bindResult.message)
+  }
+
+  return okResponse({
+    flowRunStatus: writeResult.flowRun.status,
+  })
+}
+
+async function handleStageStart(
+  broker: FlowBroker,
+  parentIssueNumber: number,
+  stageName: string,
+): Promise<string> {
+  if (!stageName) {
+    return errorResponse("POLICY_INVALID", "stage is required for stage-start")
+  }
+
+  const writeResult = await broker.writeFlowRunWithLock<unknown>(parentIssueNumber, (flowRun) => {
+    const res = flowStageStart(flowRun, stageName as any)
+    if (!res.ok) {
+      return { flowRun, result: res.error, shouldPersist: false }
+    }
+    return {
+      flowRun: res.value,
+      result: { stage: stageName, status: res.value.stages[stageName as keyof typeof res.value.stages].status },
+      shouldPersist: true,
+    }
+  })
+
+  if (!writeResult.ok) {
+    return errorResponse(writeResult.code, writeResult.message)
+  }
+
+  if (!writeResult.persisted && writeResult.result && typeof writeResult.result === "object" && "code" in writeResult.result) {
+    const err = writeResult.result as { code: string; message: string }
+    return errorResponse(err.code, err.message)
+  }
+
+  return okResponse({
+    flowRunStatus: writeResult.flowRun.status,
+    stage: writeResult.result as FlowControlResponse["stage"],
+  })
+}
+
+async function handleStageComplete(
+  broker: FlowBroker,
+  parentIssueNumber: number,
+  stageName: string,
+): Promise<string> {
+  if (!stageName) {
+    return errorResponse("POLICY_INVALID", "stage is required for stage-complete")
+  }
+
+  const writeResult = await broker.writeFlowRunWithLock<unknown>(parentIssueNumber, (flowRun) => {
+    const res = flowStageComplete(flowRun, stageName as any)
+    if (!res.ok) {
+      return { flowRun, result: res.error, shouldPersist: false }
+    }
+    return {
+      flowRun: res.value,
+      result: { stage: stageName, status: res.value.stages[stageName as keyof typeof res.value.stages].status },
+      shouldPersist: true,
+    }
+  })
+
+  if (!writeResult.ok) {
+    return errorResponse(writeResult.code, writeResult.message)
+  }
+
+  if (!writeResult.persisted && writeResult.result && typeof writeResult.result === "object" && "code" in writeResult.result) {
+    const err = writeResult.result as { code: string; message: string }
+    return errorResponse(err.code, err.message)
+  }
+
+  return okResponse({
+    flowRunStatus: writeResult.flowRun.status,
+    stage: writeResult.result as FlowControlResponse["stage"],
+  })
+}
+
+async function handleTaskStart(
+  broker: FlowBroker,
+  parentIssueNumber: number,
+  taskId: string,
+  executionBinding: TaskExecutionBinding | undefined,
+  tddPolicyJson: string | undefined,
+): Promise<string> {
+  if (!taskId) {
+    return errorResponse("POLICY_INVALID", "task_id is required for task-start")
+  }
+
+  if (!executionBinding) {
+    return errorResponse("POLICY_INVALID", "execution_binding is required for task-start")
+  }
+
+  // 解析 frozen policy
+  let tddPolicy = undefined
+  if (tddPolicyJson) {
+    try {
+      tddPolicy = JSON.parse(tddPolicyJson)
+    } catch {
+      return errorResponse("POLICY_INVALID", "tdd_policy_json is not valid JSON")
+    }
+  }
+
+  const writeResult = await broker.writeFlowRunWithLock<unknown>(parentIssueNumber, (flowRun) => {
+    const res = flowTaskStart(flowRun, taskId, executionBinding, tddPolicy)
+    if (!res.ok) {
+      return { flowRun, result: res.error, shouldPersist: false }
+    }
+    return {
+      flowRun: res.value.flowRun,
+      result: {
+        taskId,
+        status: res.value.task.status,
+        executionBinding: res.value.task.executionBinding,
+      },
+      shouldPersist: true,
+    }
+  })
+
+  if (!writeResult.ok) {
+    return errorResponse(writeResult.code, writeResult.message)
+  }
+
+  if (!writeResult.persisted && writeResult.result && typeof writeResult.result === "object" && "code" in writeResult.result) {
+    const err = writeResult.result as { code: string; message: string }
+    return errorResponse(err.code, err.message)
+  }
+
+  return okResponse({
+    flowRunStatus: writeResult.flowRun.status,
+    task: writeResult.result as FlowControlResponse["task"],
+  })
+}
+
 export function createOpencodeCabbage(packageRoot: string): Plugin {
   return async (ctx, _options) => {
     const sourceSkillsDir = path.join(packageRoot, "assets", "skills")
@@ -178,6 +419,8 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
     const v1Client = (ctx.client as unknown as V1ClientContainer)._client
     const goalClient = createGoalClient(ctx.serverUrl, v1Client)
     const goalTool = createGoalTool(goalClient)
+    const broker = new FlowBroker()
+    const flowControlTool = createFlowControlTool(broker, goalClient)
 
     const agentsDir = path.join(packageRoot, "assets", "agents")
 
@@ -190,6 +433,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
     return {
       tool: {
         goal: goalTool,
+        flow_control: flowControlTool,
       },
 
       config: async (rawConfig) => {

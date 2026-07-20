@@ -51,7 +51,7 @@ export {
 
 export {
   checkBranchProtection, validateCheckpoint, validatePRCheckpoints,
-  canAutoMergeTask, mergePR, createRevertPR,
+  canMergeTaskPR, mergePR, mergeTaskPR, createRevertPR, setMergeGhExecutor,
   type MergeGateResult,
 } from "./merge.js"
 

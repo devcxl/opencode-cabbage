@@ -187,14 +187,40 @@ describe("canCompleteTask", () => {
 })
 
 describe("canMerge", () => {
-  it("blocks if review stage not pass", () => {
-    const run = withStage(runningRun(), "review", "pending")
-    expect(canMerge(run).allowed).toBe(false)
+  it("allows when flow is running and all tasks are merged", () => {
+    const run = withTask(runningRun(), { id: "a", status: "merged", dependsOn: [], expectedFiles: [] } as any)
+    expect(canMerge(run).allowed).toBe(true)
   })
 
-  it("allows when review is pass", () => {
-    const run = withStage(runningRun(), "review", "pass")
-    expect(canMerge(run).allowed).toBe(true)
+  it("allows when flow is merging and all tasks merged", () => {
+    const run = withTask(runningRun(), { id: "a", status: "merged", dependsOn: [], expectedFiles: [] } as any)
+    const run2 = { ...run, status: "merging" as const }
+    expect(canMerge(run2).allowed).toBe(true)
+  })
+
+  it("blocks when some tasks not merged", () => {
+    const run = withTask(runningRun(), { id: "a", status: "merged", dependsOn: [], expectedFiles: [] } as any)
+    const run2 = withTask(run, { id: "b", status: "running", dependsOn: [], expectedFiles: [] } as any)
+    expect(canMerge(run2).allowed).toBe(false)
+    expect(canMerge(run2).reason).toContain("all tasks merged")
+  })
+
+  it("blocks when no tasks exist", () => {
+    expect(canMerge(runningRun()).allowed).toBe(false)
+  })
+
+  it("blocks when flow is not in mergeable state", () => {
+    const run = withTask(runningRun(), { id: "a", status: "merged", dependsOn: [], expectedFiles: [] } as any)
+    const run2 = { ...run, status: "completed" as const }
+    expect(canMerge(run2).allowed).toBe(false)
+  })
+
+  // 新语义：不再要求 review stage pass
+  it("allows merge even when review stage is not pass", () => {
+    const run = withTask(runningRun(), { id: "a", status: "merged", dependsOn: [], expectedFiles: [] } as any)
+    const run2 = withStage(run, "review", "pending")
+    // review stage pending 不应阻止 canMerge
+    expect(canMerge(run2).allowed).toBe(true)
   })
 })
 

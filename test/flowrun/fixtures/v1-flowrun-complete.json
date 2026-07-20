@@ -1,0 +1,69 @@
+{
+  "flowRunId": "flow-owner/repo-issue-104",
+  "repo": "owner/repo",
+  "parentIssueNumber": 104,
+  "status": "running",
+  "schemaVersion": 1,
+  "revision": 7,
+  "stages": {
+    "requirements": { "status": "pass", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "design": { "status": "pass", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "tasks": { "status": "pass", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "code": { "status": "running", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "test": { "status": "pending", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "review": { "status": "pending", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "merge": { "status": "pending", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] }
+  },
+  "tasks": {
+    "task-1": {
+      "id": "task-1",
+      "name": "Task Alpha (with tests)",
+      "status": "running",
+      "dependsOn": [],
+      "area": "backend",
+      "expectedFiles": ["src/alpha.ts"],
+      "testCommands": ["npm test -- test/alpha.test.ts"],
+      "acceptance": "Alpha 功能验收通过",
+      "parallelSafe": true,
+      "prNumber": null,
+      "prCheckpoints": null,
+      "blockedReason": null,
+      "startedAt": "2026-07-20T10:00:00.000Z"
+    },
+    "task-2": {
+      "id": "task-2",
+      "name": "Task Beta (blocked, no tests)",
+      "status": "blocked",
+      "dependsOn": ["task-1"],
+      "area": "backend",
+      "expectedFiles": ["src/beta.ts"],
+      "testCommands": [],
+      "acceptance": "视觉稿调整",
+      "parallelSafe": false,
+      "prNumber": null,
+      "prCheckpoints": null,
+      "blockedReason": "Waiting for design review",
+      "startedAt": null
+    },
+    "task-3": {
+      "id": "task-3",
+      "name": "Task Gamma (cancelled)",
+      "status": "cancelled",
+      "dependsOn": ["task-1"],
+      "area": "frontend",
+      "expectedFiles": ["src/gamma.tsx"],
+      "testCommands": ["npm test -- test/gamma.test.tsx"],
+      "acceptance": "Gamma 功能（已取消）",
+      "parallelSafe": false,
+      "prNumber": null,
+      "prCheckpoints": null,
+      "blockedReason": null,
+      "startedAt": null
+    }
+  },
+  "startedAt": "2026-07-20T10:00:00.000Z",
+  "lastTickAt": "2026-07-20T10:30:00.000Z",
+  "nextTickAfter": null,
+  "maxRuntime": 86400000,
+  "completedAt": null
+}

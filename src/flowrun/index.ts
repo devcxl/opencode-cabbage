@@ -5,11 +5,29 @@ export {
   FLOW_RUN_STAGES, FLOW_RUN_STATUSES, TASK_STATUSES, STAGE_STATUSES, CHECKPOINT_STATUSES,
   CURRENT_SCHEMA_VERSION, DEFAULT_MAX_RUNTIME_MS,
   CABINET_START_MARKER, CABINET_END_MARKER, LABEL_PREFIX, FLOW_RUN_LABELS,
+  // Schema v2 新增
+  type AcceptanceCriterion, type TddMode, type TddEnforcement,
+  type TddRunnerPolicy, type TddApproval, type AlternativeValidation,
+  type TddException, type TddPolicy,
+  type TddFailureKind, type TddCommandEvidence, type VersionedDigest,
+  type TddTaskStartEvidence, type TaskExecutionBinding,
+  type TddCycleEvidence, type TddRegressionEvidence,
+  type FinalVerificationEvidence, type AlternativeValidationEvidence,
+  type TddReworkEvidence, type ReworkApproval,
+  type TddEvidence, type CoveragePolicy, type CoverageEvidence,
+  type TddComplianceCheckpoint, type RepositoryQualityPolicy,
+  type GoalFlowRunRef, type FlowRunReadResult, type TaskCommand,
+  type ValidationError,
 } from "./types.js"
 
 export {
-  validateFlowRun, type ValidationError,
+  validateFlowRun, validateFlowRunDag,
+  type DagValidationError,
 } from "./validator.js"
+
+export {
+  migrateV1ToV2,
+} from "./migration.js"
 
 export {
   extractFlowRunFromBody, replaceFlowRunInBody,

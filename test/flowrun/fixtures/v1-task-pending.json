@@ -1,0 +1,39 @@
+{
+  "flowRunId": "flow-owner/repo-issue-100",
+  "repo": "owner/repo",
+  "parentIssueNumber": 100,
+  "status": "running",
+  "schemaVersion": 1,
+  "revision": 3,
+  "stages": {
+    "requirements": { "status": "pass", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "design": { "status": "pass", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "tasks": { "status": "pass", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "code": { "status": "running", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "test": { "status": "pending", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "review": { "status": "pending", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "merge": { "status": "pending", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] }
+  },
+  "tasks": {
+    "task-pending": {
+      "id": "task-pending",
+      "name": "Pending Task",
+      "status": "pending",
+      "dependsOn": [],
+      "area": "backend",
+      "expectedFiles": ["src/example.ts"],
+      "testCommands": [],
+      "acceptance": "Should work correctly",
+      "parallelSafe": false,
+      "prNumber": null,
+      "prCheckpoints": null,
+      "blockedReason": null,
+      "startedAt": null
+    }
+  },
+  "startedAt": "2026-07-20T10:00:00.000Z",
+  "lastTickAt": "2026-07-20T10:30:00.000Z",
+  "nextTickAfter": null,
+  "maxRuntime": 86400000,
+  "completedAt": null
+}

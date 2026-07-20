@@ -1,35 +1,55 @@
 import { gh } from "../util/gh.js"
 import { escapeShellArg } from "../util/shell.js"
 import {
-  type FlowRun,
+  type FlowRun, type FlowRunReadResult,
   CABINET_START_MARKER,
   CABINET_END_MARKER,
   CURRENT_SCHEMA_VERSION,
 } from "./types.js"
 import { validateFlowRun } from "./validator.js"
+import { migrateV1ToV2 } from "./migration.js"
 
 function buildFlowRunBlock(flowRun: FlowRun): string {
   const json = JSON.stringify(flowRun, null, 2)
   return `${CABINET_START_MARKER}\n\`\`\`json\n${json}\n\`\`\`\n${CABINET_END_MARKER}`
 }
 
-export function extractFlowRunFromBody(body: string): FlowRun | null {
+/**
+ * 从 Issue body 中提取 FlowRun，执行完整 v1→v2 读取管线：
+ *   JSON parse → detect version → migrate → validate → return FlowRunReadResult
+ */
+export function extractFlowRunFromBody(body: string): FlowRunReadResult {
   const startIdx = body.indexOf(CABINET_START_MARKER)
   const endIdx = body.indexOf(CABINET_END_MARKER)
-  if (startIdx === -1 || endIdx === -1) return null
+  if (startIdx === -1 || endIdx === -1) {
+    return { ok: false, code: "NOT_FOUND", errors: [{ path: "", message: "FlowRun markers not found in issue body" }] }
+  }
 
   const block = body.slice(startIdx + CABINET_START_MARKER.length, endIdx).trim()
 
   const jsonMatch = block.match(/```json\n?([\s\S]*?)```/)
-  if (!jsonMatch) return null
-
-  try {
-    const parsed = JSON.parse(jsonMatch[1].trim())
-    const { data } = validateFlowRun(parsed)
-    return data
-  } catch {
-    return null
+  if (!jsonMatch) {
+    return { ok: false, code: "INVALID_JSON", errors: [{ path: "", message: "JSON block not found" }] }
   }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(jsonMatch[1].trim())
+  } catch {
+    return { ok: false, code: "INVALID_JSON", errors: [{ path: "", message: "Failed to parse FlowRun JSON" }] }
+  }
+
+  // Step 1: version detection + migration
+  const migrationResult = migrateV1ToV2(parsed)
+  if (!migrationResult.ok) return migrationResult
+
+  // Step 2: validate v2
+  const { errors } = validateFlowRun(migrationResult.data)
+  if (errors.length > 0) {
+    return { ok: false, code: "VALIDATION_FAILED", errors }
+  }
+
+  return { ok: true, data: migrationResult.data, migrated: migrationResult.migrated }
 }
 
 export function replaceFlowRunInBody(body: string, flowRun: FlowRun): string {
@@ -45,12 +65,12 @@ export function replaceFlowRunInBody(body: string, flowRun: FlowRun): string {
   return body.slice(0, startIdx) + block + body.slice(endIdx + CABINET_END_MARKER.length)
 }
 
-export async function readFlowRun(issueNumber: number): Promise<FlowRun | null> {
+export async function readFlowRun(issueNumber: number): Promise<FlowRunReadResult> {
   try {
     const { stdout } = await gh(`issue view ${issueNumber} --json body --jq .body`)
     return extractFlowRunFromBody(stdout)
   } catch {
-    return null
+    return { ok: false, code: "NOT_FOUND", errors: [{ path: "", message: "Failed to read issue body" }] }
   }
 }
 
@@ -69,13 +89,13 @@ export async function writeFlowRun(issueNumber: number, flowRun: FlowRun): Promi
   }
 }
 
-export async function readFlowRunWithLock(issueNumber: number): Promise<{ flowRun: FlowRun | null; currentBody: string | null }> {
+export async function readFlowRunWithLock(issueNumber: number): Promise<{ flowRunResult: FlowRunReadResult; currentBody: string | null }> {
   try {
     const { stdout } = await gh(`issue view ${issueNumber} --json body --jq .body`)
-    const flowRun = extractFlowRunFromBody(stdout)
-    return { flowRun, currentBody: stdout }
+    const flowRunResult = extractFlowRunFromBody(stdout)
+    return { flowRunResult, currentBody: stdout }
   } catch {
-    return { flowRun: null, currentBody: null }
+    return { flowRunResult: { ok: false, code: "NOT_FOUND", errors: [{ path: "", message: "Failed to read issue body" }] }, currentBody: null }
   }
 }
 
@@ -154,5 +174,9 @@ export function createInitialFlowRun(
     nextTickAfter: null,
     maxRuntime: 86_400_000,
     completedAt: null,
+    repositoryQualityPolicy: {
+      mode: "off",
+      requiredChecks: [],
+    },
   }
 }

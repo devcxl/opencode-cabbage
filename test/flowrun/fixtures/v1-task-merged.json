@@ -1,0 +1,47 @@
+{
+  "flowRunId": "flow-owner/repo-issue-103",
+  "repo": "owner/repo",
+  "parentIssueNumber": 103,
+  "status": "running",
+  "schemaVersion": 1,
+  "revision": 6,
+  "stages": {
+    "requirements": { "status": "pass", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "design": { "status": "pass", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "tasks": { "status": "pass", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "code": { "status": "running", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "test": { "status": "pending", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "review": { "status": "pending", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] },
+    "merge": { "status": "pending", "requiredArtifacts": [], "checks": [], "completedAt": null, "evidence": [] }
+  },
+  "tasks": {
+    "task-merged": {
+      "id": "task-merged",
+      "name": "Merged Task",
+      "status": "merged",
+      "dependsOn": [],
+      "area": "backend",
+      "expectedFiles": ["src/merged.ts"],
+      "testCommands": ["npm test -- test/merged.test.ts"],
+      "acceptance": "功能已合并并通过所有检查",
+      "parallelSafe": false,
+      "prNumber": 33,
+      "prCheckpoints": {
+        "prNumber": 33,
+        "localChecks": { "name": "localChecks", "status": "pass", "evidence": [] },
+        "ciChecks": { "name": "ciChecks", "status": "pass", "evidence": [] },
+        "reviewerApproval": { "name": "reviewerApproval", "status": "pass", "evidence": [] },
+        "goalVerification": { "name": "goalVerification", "status": "pass", "evidence": [] },
+        "branchProtection": { "name": "branchProtection", "status": "pass", "evidence": [] },
+        "mergeResult": { "name": "mergeResult", "status": "pass", "evidence": [] }
+      },
+      "blockedReason": null,
+      "startedAt": "2026-07-20T09:00:00.000Z"
+    }
+  },
+  "startedAt": "2026-07-20T09:00:00.000Z",
+  "lastTickAt": "2026-07-20T10:30:00.000Z",
+  "nextTickAfter": null,
+  "maxRuntime": 86400000,
+  "completedAt": null
+}

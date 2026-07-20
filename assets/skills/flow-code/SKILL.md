@@ -67,6 +67,19 @@ npm install
 npm test
 ```
 
+#### TDD Advisory Protocol
+
+编码阶段必须遵循 `flow-tdd` skill 定义的 TDD 流程。Agent 在编写任何功能代码前加载 `flow-tdd` skill。
+
+**TDD 检查点（commit 前自检）：**
+- [ ] 每个功能的代码变更都有对应的测试
+- [ ] 测试在修改前是 RED（失败），修改后是 GREEN（通过）
+- [ ] 已完成 `final-regression`（全部测试通过）
+- [ ] 已完成 `final-verification`（对照 acceptance_criteria）
+- [ ] self-report 已写入 commit message 或 PR body
+
+> 引用：`flow-tdd` skill 是 TDD 协议的唯一来源，包含完整的 RED→GREEN cycle 状态机、abandon-cycle 规则和 final-regression/verification 流程。
+
 ### 6. 文档同步检查
 完成编码后，逐项检查以下文档是否需要同步更新：
 

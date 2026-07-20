@@ -1,0 +1,288 @@
+# manifest.yaml — TDD 强制约束集成
+
+feature: tdd-enforcement
+parent_issue: 64
+base_branch: main
+
+tasks:
+  - id: tdd-p0-adr
+    title: "ADR: TDD 强制约束架构 — Task-local PR Gate、三层约束、单 Orchestrator"
+    depends_on: []
+    agent: backend
+    labels: ["docs"]
+    estimated_hours: 2
+    worktree: ".worktree/tdd-p0-adr/"
+    branch: "feat/tdd-p0-adr"
+    expected_files:
+      - "docs/adr/2026-07-20-tdd-enforcement-architecture.md"
+    verify_commands:
+      - "ls docs/adr/2026-07-20-tdd-enforcement-architecture.md"
+
+  - id: tdd-a1-advisory-skill
+    title: "flow-tdd Advisory Contract + flow-code/tasks/review 更新"
+    depends_on: [tdd-p0-adr]
+    agent: backend
+    labels: ["backend", "prompt"]
+    estimated_hours: 4
+    worktree: ".worktree/tdd-a1-advisory-skill/"
+    branch: "feat/tdd-a1-advisory-skill"
+    expected_files:
+      - "assets/skills/flow-tdd/SKILL.md"
+      - "assets/skills/flow-code/SKILL.md"
+      - "assets/skills/flow-tasks/SKILL.md"
+      - "assets/skills/flow-review/SKILL.md"
+      - "assets/agents/dev-lifecycle.md"
+      - "assets/agents/team/backend.md"
+      - "assets/agents/team/frontend.md"
+      - "test/skills.test.ts"
+    verify_commands:
+      - "npm test -- test/skills.test.ts"
+      - "npm run typecheck"
+
+  - id: tdd-a2-agent-lint
+    title: "Agent 引用、权限声明静态 Lint、npm pack smoke"
+    depends_on: [tdd-a1-advisory-skill]
+    agent: backend
+    labels: ["backend", "prompt"]
+    estimated_hours: 4
+    worktree: ".worktree/tdd-a2-agent-lint/"
+    branch: "feat/tdd-a2-agent-lint"
+    expected_files:
+      - "src/plugin/agents.ts"
+      - "src/plugin/prompt-lint.ts"
+      - "test/plugin/prompt-lint.test.ts"
+      - "assets/agents/team/backend.md"
+      - "assets/agents/team/frontend.md"
+      - "assets/agents/team/reviewer.md"
+      - "package.json"
+      - "test/agents.test.ts"
+    verify_commands:
+      - "npm run prompt-lint"
+      - "npm test -- test/agents.test.ts test/plugin/prompt-lint.test.ts"
+      - "npm run typecheck"
+      - "npm pack --dry-run && tar -tzf *.tgz | grep flow-tdd/SKILL.md"
+
+  - id: tdd-b1-schema-v2
+    title: "Schema v2 类型、完整 migration、read result、DAG validator"
+    depends_on: [tdd-p0-adr]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/tdd-b1-schema-v2/"
+    branch: "feat/tdd-b1-schema-v2"
+    expected_files:
+      - "src/flowrun/types.ts"
+      - "src/flowrun/migration.ts"
+      - "src/flowrun/validator.ts"
+      - "src/flowrun/index.ts"
+      - "test/flowrun/migration.test.ts"
+      - "test/flowrun/validator.test.ts"
+      - "test/flowrun/fixtures/v1-task-pending.json"
+      - "test/flowrun/fixtures/v1-task-running.json"
+      - "test/flowrun/fixtures/v1-task-reviewing.json"
+      - "test/flowrun/fixtures/v1-task-merged.json"
+      - "test/flowrun/fixtures/v1-flowrun-complete.json"
+    verify_commands:
+      - "npm test -- test/flowrun/migration.test.ts test/flowrun/validator.test.ts"
+      - "npm run typecheck"
+
+  - id: tdd-b2-evaluator
+    title: "criterion + strict/relaxed/bypass 纯 evaluator"
+    depends_on: [tdd-b1-schema-v2]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 3
+    worktree: ".worktree/tdd-b2-evaluator/"
+    branch: "feat/tdd-b2-evaluator"
+    expected_files:
+      - "src/flowrun/evaluator.ts"
+      - "test/flowrun/evaluator.test.ts"
+    verify_commands:
+      - "npm test -- test/flowrun/evaluator.test.ts"
+      - "npm run typecheck"
+
+  - id: tdd-c1-digest-adapter
+    title: "Canonical digest + Vitest adapter"
+    depends_on: [tdd-b2-evaluator]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/tdd-c1-digest-adapter/"
+    branch: "feat/tdd-c1-digest-adapter"
+    expected_files:
+      - "src/flowrun/digest.ts"
+      - "src/flowrun/adapter.ts"
+      - "test/flowrun/digest.test.ts"
+      - "test/flowrun/adapter.test.ts"
+      - "test/flowrun/fixtures/simple-vitest/"
+    verify_commands:
+      - "npm test -- test/flowrun/digest.test.ts test/flowrun/adapter.test.ts"
+      - "npm run typecheck"
+
+  - id: tdd-c2-checkpoint-sm
+    title: "tdd_checkpoint 状态机（内存存储）"
+    depends_on: [tdd-c1-digest-adapter]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/tdd-c2-checkpoint-sm/"
+    branch: "feat/tdd-c2-checkpoint-sm"
+    expected_files:
+      - "src/plugin/tdd-tool.ts"
+      - "src/flowrun/state.ts"
+      - "test/plugin/tdd-tool.test.ts"
+      - "test/flowrun/state.test.ts"
+    verify_commands:
+      - "npm test -- test/plugin/tdd-tool.test.ts test/flowrun/state.test.ts"
+      - "npm run typecheck"
+
+  - id: tdd-c3-broker
+    title: "单进程 broker、Issue 持久化与冲突暂停"
+    depends_on: [tdd-c2-checkpoint-sm]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/tdd-c3-broker/"
+    branch: "feat/tdd-c3-broker"
+    expected_files:
+      - "src/plugin/broker.ts"
+      - "src/flowrun/github.ts"
+      - "test/plugin/broker.test.ts"
+    verify_commands:
+      - "npm test -- test/plugin/broker.test.ts"
+      - "npm run typecheck"
+
+  - id: tdd-d1-server
+    title: "FlowRun/Stage/Task start 真实 server 接入"
+    depends_on: [tdd-b2-evaluator, tdd-c3-broker]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/tdd-d1-server/"
+    branch: "feat/tdd-d1-server"
+    expected_files:
+      - "src/plugin/server.ts"
+      - "src/plugin/goal.ts"
+      - "test/plugin/server-flowrun.test.ts"
+      - "test/plugin/server.test.ts"
+    verify_commands:
+      - "npm test -- test/plugin/server-flowrun.test.ts test/plugin/server.test.ts"
+      - "npm run typecheck"
+
+  - id: tdd-d2-pr-create
+    title: "committed-head regression + 幂等 PR create + reviewing 转换"
+    depends_on: [tdd-d1-server, tdd-c2-checkpoint-sm]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/tdd-d2-pr-create/"
+    branch: "feat/tdd-d2-pr-create"
+    expected_files:
+      - "src/flowrun/pr.ts"
+      - "src/plugin/flow-pr-tool.ts"
+      - "src/flowrun/gate.ts"
+      - "test/flowrun/pr.test.ts"
+      - "test/plugin/flow-pr-tool.test.ts"
+    verify_commands:
+      - "npm test -- test/flowrun/pr.test.ts test/plugin/flow-pr-tool.test.ts"
+      - "npm run typecheck"
+
+  - id: tdd-d3-reval-coverage
+    title: "remote head revalidation、rework + coverage"
+    depends_on: [tdd-d2-pr-create]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/tdd-d3-reval-coverage/"
+    branch: "feat/tdd-d3-reval-coverage"
+    expected_files:
+      - "src/flowrun/pr.ts"
+      - "src/flowrun/coverage.ts"
+      - "test/flowrun/coverage.test.ts"
+      - "test/flowrun/pr-rework.test.ts"
+    verify_commands:
+      - "npm test -- test/flowrun/coverage.test.ts test/flowrun/pr-rework.test.ts"
+      - "npm run typecheck"
+
+  - id: tdd-d4a-agent-isolation
+    title: "Agent permission 传递与隔离 Agent shell"
+    depends_on: [tdd-a2-agent-lint, tdd-d2-pr-create]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/tdd-d4a-agent-isolation/"
+    branch: "feat/tdd-d4a-agent-isolation"
+    expected_files:
+      - "src/plugin/agents.ts"
+      - "src/plugin/shell.ts"
+      - "test/plugin/shell.test.ts"
+    verify_commands:
+      - "npm test -- test/plugin/shell.test.ts test/agents.test.ts"
+      - "npm run typecheck"
+
+  - id: tdd-d4b-broker-github
+    title: "独立 GitHub broker 与最小凭证"
+    depends_on: [tdd-d4a-agent-isolation]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/tdd-d4b-broker-github/"
+    branch: "feat/tdd-d4b-broker-github"
+    expected_files:
+      - "src/plugin/github-broker.ts"
+      - "src/plugin/broker.ts"
+      - "test/plugin/github-broker.test.ts"
+    verify_commands:
+      - "npm test -- test/plugin/github-broker.test.ts"
+      - "npm run typecheck"
+
+  - id: tdd-e1-task-merge-gate
+    title: "Task-local merge Gate，解除全局 canMerge() 耦合"
+    depends_on: [tdd-d3-reval-coverage, tdd-d4b-broker-github]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/tdd-e1-task-merge-gate/"
+    branch: "feat/tdd-e1-task-merge-gate"
+    expected_files:
+      - "src/flowrun/merge.ts"
+      - "src/flowrun/gate.ts"
+      - "test/flowrun/merge.test.ts"
+    verify_commands:
+      - "npm test -- test/flowrun/merge.test.ts test/flowrun/gate.test.ts"
+      - "npm run typecheck"
+
+  - id: tdd-e2-ci-branch-prot
+    title: "GitHub Actions required checks 与 Branch Protection 检测"
+    depends_on: [tdd-e1-task-merge-gate]
+    agent: backend
+    labels: ["backend"]
+    estimated_hours: 4
+    worktree: ".worktree/tdd-e2-ci-branch-prot/"
+    branch: "feat/tdd-e2-ci-branch-prot"
+    expected_files:
+      - "src/flowrun/ci.ts"
+      - "test/flowrun/ci.test.ts"
+    verify_commands:
+      - "npm test -- test/flowrun/ci.test.ts"
+      - "npm run typecheck"
+
+  - id: tdd-e3-goal-binding
+    title: "Goal/FlowRun 终态绑定与文档同步"
+    depends_on: [tdd-e2-ci-branch-prot]
+    agent: backend
+    labels: ["backend", "docs"]
+    estimated_hours: 4
+    worktree: ".worktree/tdd-e3-goal-binding/"
+    branch: "feat/tdd-e3-goal-binding"
+    expected_files:
+      - "src/plugin/goal.ts"
+      - "src/flowrun/index.ts"
+      - "assets/prompts/bootstrap.md"
+      - "docs/guides/architecture.md"
+      - "docs/guides/configuration.md"
+      - "docs/guides/usage.md"
+    verify_commands:
+      - "npm test -- test/goal.test.ts test/plugin/server.test.ts"
+      - "npm run typecheck"
+      - "npm run docs:build"

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { canTransitionTo, formatGoal, continuationPrompt, verifyAgentPrompt, MAX_CONTINUATIONS } from "../src/plugin/goal.js"
+import { canTransitionTo, formatGoal, continuationPrompt, verifyAgentPrompt, MAX_CONTINUATIONS, checkFlowRunBlockers } from "../src/plugin/goal.js"
 
 const activeGoal = () => ({
   objective: "Implement user authentication",
@@ -94,5 +94,44 @@ describe("goal complete authorization", () => {
 describe("MAX_CONTINUATIONS", () => {
   it("is 50", () => {
     expect(MAX_CONTINUATIONS).toBe(50)
+  })
+})
+
+describe("checkFlowRunBlockers", () => {
+  it("允许完成：无 FlowRun 绑定（null）", () => {
+    expect(checkFlowRunBlockers(null)).toBeNull()
+  })
+
+  it("允许完成：FlowRun 状态为 completed", () => {
+    expect(checkFlowRunBlockers("completed")).toBeNull()
+  })
+
+  it("允许完成：FlowRun 状态为 cancelled", () => {
+    expect(checkFlowRunBlockers("cancelled")).toBeNull()
+  })
+
+  it("阻止完成：FlowRun 状态为 running", () => {
+    const result = checkFlowRunBlockers("running")
+    expect(result).not.toBeNull()
+    expect(result).toContain("terminal state")
+    expect(result).toContain("run-finalize")
+  })
+
+  it("阻止完成：FlowRun 状态为 merging", () => {
+    const result = checkFlowRunBlockers("merging")
+    expect(result).not.toBeNull()
+    expect(result).toContain("terminal state")
+  })
+
+  it("阻止完成：FlowRun 状态为 blocked", () => {
+    const result = checkFlowRunBlockers("blocked")
+    expect(result).not.toBeNull()
+    expect(result).toContain("terminal state")
+  })
+
+  it("阻止完成：FlowRun 状态为 planned", () => {
+    const result = checkFlowRunBlockers("planned")
+    expect(result).not.toBeNull()
+    expect(result).toContain("terminal state")
   })
 })

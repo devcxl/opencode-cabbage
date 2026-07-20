@@ -205,7 +205,28 @@ export function formatFlowRunRef(ref: GoalFlowRunRef): string {
   return `${ref.repo}#${ref.parentIssueNumber} (${ref.flowRunId})`
 }
 
-export function createGoalTool(client: ReturnType<typeof createOpencodeClient>) {
+/**
+ * 验证 FlowRun 终态 — 检查是否满足 Goal complete 的前提条件。
+ *
+ * 返回 null 表示允许完成；
+ * 返回错误信息字符串表示阻止完成。
+ *
+ * @param flowRunStatus FlowRun 当前状态，null 表示无绑定的 FlowRun
+ */
+export function checkFlowRunBlockers(flowRunStatus: string | null): string | null {
+  if (flowRunStatus === null) return null // 无 FlowRun 绑定，允许完成
+
+  if (flowRunStatus !== "completed" && flowRunStatus !== "cancelled") {
+    return `FlowRun is not in terminal state (status: ${flowRunStatus}). Run flow_control({op:"run-finalize"}) to finalize first.`
+  }
+
+  return null
+}
+
+export function createGoalTool(
+  client: ReturnType<typeof createOpencodeClient>,
+  onBeforeComplete?: (parentSessionID: string) => Promise<string | null>,
+) {
   return tool({
     description: `Manage the active goal-mode objective.
 
@@ -242,6 +263,15 @@ Use a single op field:
         if (parent.goal.status !== "active") {
           return `Parent session goal is not active (status: ${parent.goal.status}).`
         }
+
+        // 验证 FlowRun 终态（如绑定了 FlowRunRef）
+        if (onBeforeComplete) {
+          const blockReason = await onBeforeComplete(targetSessionID)
+          if (blockReason !== null) {
+            return `Goal completion blocked: ${blockReason}`
+          }
+        }
+
         parent.goal.status = "complete"
         await writeGoal(client, targetSessionID, parent.goal, parent.session)
         return `Goal completed and verified: "${parent.goal.objective}"`

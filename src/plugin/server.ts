@@ -10,16 +10,18 @@ import { loadCommands } from "./commands.js"
 import { setupSkillsDir } from "./skills.js"
 import { loadAgents } from "./agents.js"
 import { createIsolatedShellEnv, detectAmbientCredentials } from "./shell.js"
-import { createGoalClient, createGoalTool, readGoal, writeGoal, bindFlowRunRef, MAX_CONTINUATIONS, continuationPrompt, verifyAgentPrompt, formatGoal } from "./goal.js"
+import { createGoalClient, createGoalTool, readGoal, writeGoal, bindFlowRunRef, readFlowRunRef, checkFlowRunBlockers, MAX_CONTINUATIONS, continuationPrompt, verifyAgentPrompt, formatGoal } from "./goal.js"
 import { FlowBroker } from "./broker.js"
 import {
   flowRunStart,
   flowStageStart,
   flowStageComplete,
   flowTaskStart,
+  flowRunFinalize,
 } from "../flowrun/transitions.js"
 import type { TaskExecutionBinding, FlowControlResponse } from "../flowrun/types.js"
 import { handleFlowPrCreateWithBroker } from "./flow-pr-tool.js"
+import { readFlowRun } from "../flowrun/github.js"
 
 const abortedSessions = new Set<string>()
 const errorRetryCount = new Map<string, number>()
@@ -184,15 +186,16 @@ function createFlowControlTool(
   goalClient: ReturnType<typeof createGoalClient>,
 ) {
   return tool({
-    description: `Control the FlowRun lifecycle: start a FlowRun, transition stages, and start tasks.
+    description: `Control the FlowRun lifecycle: start a FlowRun, transition stages, start tasks, and finalize completed runs.
 
 Operations:
 - run-start: Transition FlowRun from planned → running. Binds Goal to FlowRun.
 - stage-start: Start a stage (requirements/design/tasks/code). Requires prerequisites met.
 - stage-complete: Complete a stage (requirements/design/tasks). Requires all checks pass.
-- task-start: Start a task (pending/ready → running). Freezes TDD policy and sets execution binding.`,
+- task-start: Start a task (pending/ready → running). Freezes TDD policy and sets execution binding.
+- run-finalize: Mark code→test→review→merge stages as pass, set FlowRun to completed. Requires all Tasks merged. Idempotent.`,
     args: {
-      op: tool.schema.enum(["run-start", "stage-start", "stage-complete", "task-start"]).describe("Flow control operation"),
+      op: tool.schema.enum(["run-start", "stage-start", "stage-complete", "task-start", "run-finalize"]).describe("Flow control operation"),
       parent_issue_number: tool.schema.number().describe("Parent GitHub Issue number containing the FlowRun"),
       stage: tool.schema.enum(["requirements", "design", "tasks", "code", "test", "review", "merge"]).optional().describe("Stage name (for stage-start/stage-complete)"),
       task_id: tool.schema.string().optional().describe("Task ID (for task-start)"),
@@ -220,6 +223,8 @@ Operations:
             return handleStageComplete(broker, parentIssueNumber, args.stage as string)
           case "task-start":
             return handleTaskStart(broker, parentIssueNumber, args.task_id as string, args.execution_binding as TaskExecutionBinding | undefined, args.tdd_policy_json as string | undefined)
+          case "run-finalize":
+            return handleRunFinalize(broker, parentIssueNumber)
           default:
             return errorResponse("UNKNOWN_OP", `Unknown operation: "${op}"`)
         }
@@ -409,6 +414,36 @@ async function handleTaskStart(
   })
 }
 
+async function handleRunFinalize(
+  broker: FlowBroker,
+  parentIssueNumber: number,
+): Promise<string> {
+  const writeResult = await broker.writeFlowRunWithLock<unknown>(parentIssueNumber, (flowRun) => {
+    const res = flowRunFinalize(flowRun)
+    if (!res.ok) {
+      return { flowRun, result: res.error, shouldPersist: false }
+    }
+    return {
+      flowRun: res.value,
+      result: { status: res.value.status, completedAt: res.value.completedAt },
+      shouldPersist: true,
+    }
+  })
+
+  if (!writeResult.ok) {
+    return errorResponse(writeResult.code, writeResult.message)
+  }
+
+  if (!writeResult.persisted && writeResult.result && typeof writeResult.result === "object" && "code" in writeResult.result) {
+    const err = writeResult.result as { code: string; message: string }
+    return errorResponse(err.code, err.message)
+  }
+
+  return okResponse({
+    flowRunStatus: writeResult.flowRun.status,
+  })
+}
+
 // ─── Flow PR Tool ───
 
 function createFlowPRTool(broker: FlowBroker) {
@@ -476,7 +511,18 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
     const projectDir = ctx.worktree || ctx.directory
     const v1Client = (ctx.client as unknown as V1ClientContainer)._client
     const goalClient = createGoalClient(ctx.serverUrl, v1Client)
-    const goalTool = createGoalTool(goalClient)
+    const goalTool = createGoalTool(goalClient, async (parentSessionID) => {
+      // 验证绑定的 FlowRun 是否已终态
+      const ref = await readFlowRunRef(goalClient, parentSessionID)
+      if (!ref) return null // 无 FlowRun 绑定，允许完成
+
+      // 读取 FlowRun 状态
+      const flowResult = await readFlowRun(ref.parentIssueNumber)
+      if (!flowResult.ok) {
+        return `Failed to read FlowRun #${ref.parentIssueNumber}: ${flowResult.code}`
+      }
+      return checkFlowRunBlockers(flowResult.data.status)
+    })
     const broker = new FlowBroker()
     const flowControlTool = createFlowControlTool(broker, goalClient)
     const flowPRTool = createFlowPRTool(broker)

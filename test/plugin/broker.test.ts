@@ -19,6 +19,14 @@ vi.mock("../../src/flowrun/github.js", async () => {
   }
 })
 
+// ─── Mock gh util (for verifyCredentials tests) ───
+
+const mockGhFn = vi.fn()
+
+vi.mock("../../src/util/gh.js", () => ({
+  gh: (...args: unknown[]) => mockGhFn(...args),
+}))
+
 // ─── 辅助函数 ───
 
 function delay(ms: number): Promise<void> {
@@ -99,6 +107,136 @@ function setupReadWrite(flowRun: FlowRun) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+})
+
+// ─── 独立凭证测试 ───
+
+describe("FlowBroker — 独立凭证", () => {
+  it("接受 BrokerCredentials 构造参数", () => {
+    const broker = new FlowBroker({ token: "ghp_test123" })
+    expect(broker).toBeDefined()
+  })
+
+  it("无凭证构造时正常运行（降级 ambient）", () => {
+    const broker = new FlowBroker()
+    expect(broker).toBeDefined()
+  })
+
+  it("broker token 不在 JSON 序列化输出中", () => {
+    const broker = new FlowBroker({ token: "ghp_secret_do_not_leak" })
+    const serialized = JSON.stringify(broker)
+    expect(serialized).not.toContain("ghp_secret_do_not_leak")
+  })
+
+  it("broker token 不通过 Object.keys 暴露", () => {
+    const broker = new FlowBroker({ token: "ghp_secret" })
+    const valueStr = JSON.stringify(Object.values(broker as unknown as Record<string, unknown>))
+    // Token 不应作为可枚举属性出现
+    expect(valueStr).not.toContain("ghp_secret")
+  })
+})
+
+describe("FlowBroker — verifyCredentials", () => {
+  it("无凭证时返回 ok: false", async () => {
+    const broker = new FlowBroker()
+    const result = await broker.verifyCredentials()
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain("No broker credentials")
+    // 无凭证时不应调用 gh
+    expect(mockGhFn).not.toHaveBeenCalled()
+  })
+
+  it("凭证有效时返回 ok: true", async () => {
+    mockGhFn.mockResolvedValue({ stdout: "", stderr: "" })
+
+    const broker = new FlowBroker({ token: "ghp_valid_token" })
+    const result = await broker.verifyCredentials()
+
+    expect(result.ok).toBe(true)
+    expect(mockGhFn).toHaveBeenCalledWith(
+      "auth status",
+      15_000,
+      expect.objectContaining({ GH_TOKEN: "ghp_valid_token", GITHUB_TOKEN: "ghp_valid_token" }),
+    )
+  })
+
+  it("凭证无效时返回 ok: false", async () => {
+    mockGhFn.mockRejectedValue(new Error("Authentication failed"))
+
+    const broker = new FlowBroker({ token: "ghp_invalid" })
+    const result = await broker.verifyCredentials()
+
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain("failed")
+  })
+})
+
+describe("FlowBroker — 凭证传递给 GitHub 操作", () => {
+  it("有凭证时 readFlowRunWithLock 收到 ghEnv", async () => {
+    const broker = new FlowBroker({ token: "ghp_broker" })
+    const flowRun = makeFlowRun()
+    setupReadWrite(flowRun)
+
+    await broker.writeFlowRunWithLock(1, (fr) => {
+      fr.status = "completed"
+      return { flowRun: fr, result: 42, shouldPersist: true }
+    })
+
+    expect(mockReadFlowRunWithLock).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ GH_TOKEN: "ghp_broker", GITHUB_TOKEN: "ghp_broker" }),
+    )
+  })
+
+  it("有凭证时 writeFlowRunWithLock 收到 ghEnv", async () => {
+    const broker = new FlowBroker({ token: "ghp_broker" })
+    const flowRun = makeFlowRun()
+    setupReadWrite(flowRun)
+
+    await broker.writeFlowRunWithLock(1, (fr) => {
+      fr.status = "completed"
+      return { flowRun: fr, result: 42, shouldPersist: true }
+    })
+
+    expect(mockWriteFlowRunWithLock).toHaveBeenCalledWith(
+      1,
+      expect.any(Object), // flowRun
+      expect.any(String), // currentBody
+      expect.objectContaining({ GH_TOKEN: "ghp_broker", GITHUB_TOKEN: "ghp_broker" }),
+    )
+  })
+
+  it("无凭证时不传递 ghEnv（undefined）", async () => {
+    const broker = new FlowBroker() // no credentials
+    const flowRun = makeFlowRun()
+    setupReadWrite(flowRun)
+
+    await broker.writeFlowRunWithLock(1, (fr) => {
+      fr.status = "completed"
+      return { flowRun: fr, result: 42, shouldPersist: true }
+    })
+
+    expect(mockReadFlowRunWithLock).toHaveBeenCalledWith(1, undefined)
+    expect(mockWriteFlowRunWithLock).toHaveBeenCalledWith(
+      1,
+      expect.any(Object),
+      expect.any(String),
+      undefined,
+    )
+  })
+
+  it("enqueue 操作不传递 ghEnv（enqueue 不调用 gh）", async () => {
+    const broker = new FlowBroker({ token: "ghp_broker" })
+    let result = ""
+    await broker.enqueue(1, async () => {
+      result = "done"
+      return result
+    })
+    expect(result).toBe("done")
+    // enqueue 不应调用任何 gh 操作
+    expect(mockReadFlowRunWithLock).not.toHaveBeenCalled()
+    expect(mockWriteFlowRunWithLock).not.toHaveBeenCalled()
+  })
 })
 
 // ─── Keyed Mutex 测试 ───
@@ -210,7 +348,7 @@ describe("FlowBroker — writeFlowRunWithLock", () => {
     }
 
     // 验证 readFlowRunWithLock 被调用
-    expect(mockReadFlowRunWithLock).toHaveBeenCalledWith(1)
+    expect(mockReadFlowRunWithLock).toHaveBeenCalledWith(1, undefined)
     // 验证 writeFlowRunWithLock 被调用，且 revision 已 bump
     expect(mockWriteFlowRunWithLock).toHaveBeenCalledTimes(1)
     const writtenFlowRun = mockWriteFlowRunWithLock.mock.calls[0][1] as FlowRun

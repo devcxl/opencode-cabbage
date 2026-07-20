@@ -46,6 +46,7 @@ export {
 
 export {
   flowRunStart, flowStageStart, flowStageComplete, flowTaskStart,
+  flowRunFinalize,
   type TransitionError, type TransitionResult,
 } from "./transitions.js"
 

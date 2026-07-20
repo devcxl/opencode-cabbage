@@ -3,7 +3,7 @@ import type {
   FlowRunStatus, StageStatus, TaskStatus,
 } from "./types.js"
 import {
-  canStartStage, canCompleteStage, canStartTask,
+  canStartStage, canCompleteStage, canStartTask, canMerge,
 } from "./gate.js"
 import type { GateResult } from "./gate.js"
 
@@ -169,4 +169,51 @@ export function flowTaskStart(
   task.startedAt = new Date().toISOString()
 
   return { ok: true, value: { flowRun, task } }
+}
+
+// ─── FlowRun Finalize ───
+
+/**
+ * FlowRun 终态绑定：所有 Task merged 后，顺序标记 code→test→review→merge 为 pass，
+ * 并将 FlowRun 状态设为 completed。
+ *
+ * 规则：
+ * - canMerge() 必须通过（所有 Task merged + FlowRun status 为 running/merging）
+ * - 对 code/test/review/merge 四个 stage：若未 pass 则逐个标记 pass
+ * - FlowRun status → completed，设置 completedAt
+ *
+ * 幂等：已经是 completed 则直接返回（不修改任何字段）。
+ */
+export function flowRunFinalize(flowRun: FlowRun): TransitionResult<FlowRun> {
+  // 幂等：已 completed
+  if (flowRun.status === "completed") {
+    return { ok: true, value: flowRun }
+  }
+
+  // 前置检查：canMerge（所有 Task merged + FlowRun 状态正确）
+  const mergeGate = canMerge(flowRun)
+  if (!mergeGate.allowed) {
+    return { ok: false, error: gateToError(mergeGate) }
+  }
+
+  // 顺序标记 finalize stages
+  const finalizeStages: FlowStage[] = ["code", "test", "review", "merge"]
+
+  for (const stage of finalizeStages) {
+    const stageState = flowRun.stages[stage]
+    if (!stageState) continue
+
+    // 已经是 pass → 跳过
+    if (stageState.status === "pass") continue
+
+    // 标记 pass
+    stageState.status = "pass"
+    stageState.completedAt = new Date().toISOString()
+  }
+
+  // FlowRun → completed
+  flowRun.status = "completed"
+  flowRun.completedAt = new Date().toISOString()
+
+  return { ok: true, value: flowRun }
 }

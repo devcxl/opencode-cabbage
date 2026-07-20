@@ -357,6 +357,7 @@ export type FlowControlOp =
   | "stage-complete"
   | "task-start"
   | "pr-create"
+  | "run-finalize"
 
 export interface FlowControlRequest {
   op: FlowControlOp

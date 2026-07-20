@@ -63,3 +63,17 @@ export {
   evaluateTddCompliance,
   type EvaluationResult,
 } from "./evaluator.js"
+
+export {
+  computeWorkspaceDigest,
+  type DigestOptions,
+} from "./digest.js"
+
+export {
+  executeRedCheck,
+  validateSelector,
+  classifyVitestFailure,
+  buildVitestArgs,
+  type VitestOutput,
+  type FailureInput,
+} from "./adapter.js"

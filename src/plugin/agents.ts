@@ -20,9 +20,7 @@ export interface AgentCapabilities {
 }
 
 export interface AgentPermission {
-  bash?: string
-  write?: string
-  edit?: string
+  [key: string]: string | Record<string, string> | undefined
 }
 
 export interface AgentEntry {
@@ -83,17 +81,21 @@ function parseAgentFile(filePath: string): AgentEntry | null {
   const permissionRaw = parsed.permission
   const permission: AgentPermission | undefined =
     permissionRaw && typeof permissionRaw === "object" && !Array.isArray(permissionRaw)
-      ? {
-          bash: typeof (permissionRaw as Record<string, unknown>).bash === "string"
-            ? (permissionRaw as Record<string, unknown>).bash as string
-            : undefined,
-          write: typeof (permissionRaw as Record<string, unknown>).write === "string"
-            ? (permissionRaw as Record<string, unknown>).write as string
-            : undefined,
-          edit: typeof (permissionRaw as Record<string, unknown>).edit === "string"
-            ? (permissionRaw as Record<string, unknown>).edit as string
-            : undefined,
-        }
+      ? Object.fromEntries(
+          Object.entries(permissionRaw as Record<string, unknown>)
+            .map(([key, value]) => {
+              if (typeof value === "string") return [key, value]
+              if (value && typeof value === "object" && !Array.isArray(value)) {
+                const rules: Record<string, string> = {}
+                for (const [pattern, action] of Object.entries(value as Record<string, unknown>)) {
+                  if (typeof action === "string") rules[pattern] = action
+                }
+                return [key, rules]
+              }
+              return [key, undefined]
+            })
+            .filter(([, v]) => v !== undefined)
+        )
       : undefined
 
   return {

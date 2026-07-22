@@ -46,15 +46,13 @@ describe("prompt-lint", () => {
 
 describe("prompt-lint: agent permission rules", () => {
   it("warns when agent frontmatter is missing permission field", () => {
-    // architect.md currently has no permission field
+    // dev-lifecycle.md has no permission field
     const { findings } = lintAll(PROJECT_ROOT)
     const missing: LintFinding[] = findings.filter((f: LintFinding) => f.rule === "missing-permission")
-    // architect.md should trigger the warning, backend/frontend/reviewer will be updated
     expect(missing.length).toBeGreaterThanOrEqual(1)
     for (const m of missing) {
       expect(m.severity).toBe("warn")
     }
-    // dev-lifecycle.md is the agent currently missing permission
     const devLifecycle = missing.find((m: LintFinding) => m.file.includes("dev-lifecycle"))
     expect(devLifecycle).toBeDefined()
   })
@@ -70,7 +68,7 @@ describe("prompt-lint: agent permission rules", () => {
   it("errors when reviewer declares write permission", () => {
     const { findings } = lintAll(PROJECT_ROOT)
     const violations: LintFinding[] = findings.filter((f: LintFinding) => f.rule === "reviewer-write-permission")
-    // After we update reviewer.md with write: deny, edit: deny, this should be 0
+    // reviewer.md has edit: "deny" — should be 0 violations
     expect(violations.length).toBe(0)
   })
 

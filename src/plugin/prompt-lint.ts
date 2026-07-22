@@ -1,6 +1,7 @@
 import { globSync } from "node:fs"
 import { readFileSync, existsSync } from "node:fs"
 import path from "node:path"
+import { parse as parseYaml } from "yaml"
 
 export interface LintFinding {
   severity: "error" | "warn"
@@ -156,6 +157,46 @@ function isReviewerAgent(filePath: string): boolean {
   return filePath.includes("reviewer")
 }
 
+function permissionKeyMatchesCommand(key: string, command: string): boolean {
+  if (key === "*") return false
+  if (key === command) return true
+  if (key.endsWith("*")) {
+    const prefix = key.slice(0, -1).trim()
+    if (prefix.length === 0) return false
+    return command === prefix || command.startsWith(prefix + " ")
+  }
+  return false
+}
+
+function permissionValueAllowsCommand(
+  permValue: unknown,
+  commandPattern: string,
+): boolean {
+  if (typeof permValue === "string") {
+    return permValue !== "deny" && permValue.includes(commandPattern)
+  }
+  if (permValue && typeof permValue === "object") {
+    const rules = permValue as Record<string, unknown>
+    return Object.entries(rules).some(([key, action]) => {
+      if (action === "deny") return false
+      return permissionKeyMatchesCommand(key, commandPattern)
+    })
+  }
+  return false
+}
+
+function permissionValueAllowsAny(permValue: unknown): boolean {
+  if (!permValue || permValue === "deny") return false
+  if (typeof permValue === "string") return true
+  if (typeof permValue === "object") {
+    return Object.entries(permValue as Record<string, unknown>).some(([key, v]) => {
+      if (key === "*") return false
+      return v !== "deny"
+    })
+  }
+  return false
+}
+
 function checkAgentPermission(content: string, filePath: string): LintFinding[] {
   const findings: LintFinding[] = []
   const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/)
@@ -163,9 +204,7 @@ function checkAgentPermission(content: string, filePath: string): LintFinding[] 
 
   const fm = frontmatterMatch[1]
 
-  // Parse permission from frontmatter
   const hasPermission = /^permission:/m.test(fm)
-
   if (!hasPermission) {
     findings.push({
       severity: "warn",
@@ -176,18 +215,17 @@ function checkAgentPermission(content: string, filePath: string): LintFinding[] 
     return findings
   }
 
-  // Extract permission values
-  const bashPerm = fm.match(/^\s+bash:\s*"([^"]+)"/m)
-  const writePerm = fm.match(/^\s+write:\s*"([^"]+)"|^\s+write:\s*(deny)/m)
-  const editPerm = fm.match(/^\s+edit:\s*"([^"]+)"|^\s+edit:\s*(deny)/m)
-
-  const bashValue = bashPerm?.[1] ?? null
-  const writeValue = writePerm ? (writePerm[2] === "deny" ? "deny" : writePerm[1] ?? null) : null
-  const editValue = editPerm ? (editPerm[2] === "deny" ? "deny" : editPerm[1] ?? null) : null
+  let permissionParsed: Record<string, unknown> | null = null
+  try {
+    const parsed = parseYaml(fm) as Record<string, unknown>
+    permissionParsed = (parsed?.permission as Record<string, unknown>) ?? null
+  } catch {}
 
   // Rule: Worker must not have gh pr create|merge in permission.bash
-  if (isWorkerAgent(filePath) && bashValue) {
-    if (/\bgh pr create\b/.test(bashValue) || /\bgh pr merge\b/.test(bashValue)) {
+  if (isWorkerAgent(filePath)) {
+    const bashPerm = permissionParsed?.bash
+    if (permissionValueAllowsCommand(bashPerm, "gh pr create") ||
+        permissionValueAllowsCommand(bashPerm, "gh pr merge")) {
       findings.push({
         severity: "error",
         file: filePath,
@@ -197,22 +235,18 @@ function checkAgentPermission(content: string, filePath: string): LintFinding[] 
     }
   }
 
-  // Rule: Reviewer must have write: deny and edit: deny
+  // Rule: Reviewer must have edit: deny
   if (isReviewerAgent(filePath)) {
-    if (writeValue !== "deny") {
+    const editPerm = permissionParsed?.edit
+    const isEditDenied = editPerm === "deny" ||
+      (typeof editPerm === "object" && editPerm !== null &&
+       Object.values(editPerm as Record<string, unknown>).every(v => v === "deny"))
+    if (!isEditDenied) {
       findings.push({
         severity: "error",
         file: filePath,
         rule: "reviewer-write-permission",
-        message: `reviewer agent declares write: "${writeValue ?? '(not set)'}" — must be "deny"`,
-      })
-    }
-    if (editValue !== "deny") {
-      findings.push({
-        severity: "error",
-        file: filePath,
-        rule: "reviewer-write-permission",
-        message: `reviewer agent declares edit: "${editValue ?? '(not set)'}" — must be "deny"`,
+        message: `reviewer agent must have edit: "deny"`,
       })
     }
   }
@@ -222,25 +256,25 @@ function checkAgentPermission(content: string, filePath: string): LintFinding[] 
   const runTests = fm.match(/^\s+run_tests:\s*(true|false)/m)
   const pushBranch = fm.match(/^\s+push_branch:\s*(true|false)/m)
 
-  if (modifyFiles?.[1] === "true" && (writeValue === "deny" || editValue === "deny")) {
+  if (modifyFiles?.[1] === "true" && permissionParsed?.edit === "deny") {
     findings.push({
       severity: "warn",
       file: filePath,
       rule: "capability-permission-mismatch",
-      message: "capabilities.modify_files is true but permission.write or permission.edit is deny",
+      message: "capabilities.modify_files is true but permission.edit is deny",
     })
   }
 
-  if (runTests?.[1] === "true" && bashValue === null && !/bash:\s*"/m.test(fm)) {
+  if (runTests?.[1] === "true" && !permissionValueAllowsAny(permissionParsed?.bash)) {
     findings.push({
       severity: "warn",
       file: filePath,
       rule: "capability-permission-mismatch",
-      message: "capabilities.run_tests is true but permission.bash is not declared",
+      message: "capabilities.run_tests is true but permission.bash is not declared or is deny",
     })
   }
 
-  if (pushBranch?.[1] === "true" && bashValue && !bashValue.includes("git push")) {
+  if (pushBranch?.[1] === "true" && !permissionValueAllowsCommand(permissionParsed?.bash, "git push")) {
     findings.push({
       severity: "warn",
       file: filePath,

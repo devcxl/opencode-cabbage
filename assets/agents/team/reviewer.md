@@ -17,9 +17,15 @@ capabilities:
   approve_review: false
   complete_goal: false
 permission:
-  bash: "gh pr view|diff|checks"
-  write: deny
-  edit: deny
+  bash:
+    "*": "deny"
+    "gh pr view": "allow"
+    "gh pr view *": "allow"
+    "diff": "allow"
+    "diff *": "allow"
+    "gh pr checks": "allow"
+    "gh pr checks *": "allow"
+  edit: "deny"
 ---
 
 <system-reminder>

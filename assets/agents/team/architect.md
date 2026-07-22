@@ -9,9 +9,19 @@ tools:
   write: true
   edit: true
 permission:
-  bash: "npm test|npm run|git status|git diff|git log"
-  write: "docs/"
-  edit: "docs/,assets/"
+  bash:
+    "*": "deny"
+    "npm *": "allow"
+    "git status": "allow"
+    "git status *": "allow"
+    "git diff": "allow"
+    "git diff *": "allow"
+    "git log": "allow"
+    "git log *": "allow"
+  edit:
+    "*": "deny"
+    "docs/**": "allow"
+    "assets/**": "allow"
 ---
 
 <system-reminder>

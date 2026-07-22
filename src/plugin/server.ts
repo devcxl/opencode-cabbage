@@ -10,7 +10,7 @@ import { loadCommands } from "./commands.js"
 import { setupSkillsDir } from "./skills.js"
 import { loadAgents } from "./agents.js"
 import { createIsolatedShellEnv, detectAmbientCredentials } from "./shell.js"
-import { createGoalClient, createGoalTool, readGoal, writeGoal, bindFlowRunRef, readFlowRunRef, checkFlowRunBlockers, MAX_CONTINUATIONS, continuationPrompt, verifyAgentPrompt, formatGoal } from "./goal.js"
+import { createGoalClient, createGoalTool, readGoal, writeGoal, bindFlowRunRef, readFlowRunRef, checkFlowRunBlockers, MAX_CONTINUATIONS, continuationPrompt, formatGoal } from "./goal.js"
 import { FlowBroker } from "./broker.js"
 import {
   flowRunStart,
@@ -580,36 +580,10 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
             mode: agent.mode,
             color: agent.color,
             prompt: agent.prompt,
-            tools: agent.tools ?? { read: true, bash: true, write: true, edit: true },
+            tools: agent.tools ?? { read: true, bash: true, edit: true },
             permission: agent.permission,
             shell: {
               env: createIsolatedShellEnv(agent),
-            },
-          }
-        }
-
-        if (!config.agent["goal-verify"]) {
-          config.agent["goal-verify"] = {
-            mode: "subagent",
-            description: "Goal verification agent. Verifies completion independently.",
-            prompt: verifyAgentPrompt(),
-            tools: { read: true, bash: true, write: false, edit: false },
-            permission: {
-              bash: "npm test|npm run|git status|git diff|git log",
-              write: "deny",
-              edit: "deny",
-            },
-            shell: {
-              env: createIsolatedShellEnv({
-                key: "goal-verify",
-                mode: "subagent",
-                prompt: verifyAgentPrompt(),
-                permission: {
-                  bash: "npm test|npm run|git status|git diff|git log",
-                  write: "deny",
-                  edit: "deny",
-                },
-              }),
             },
           }
         }

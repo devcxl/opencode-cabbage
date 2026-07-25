@@ -99,7 +99,15 @@ For each batch:
          - 使用 `gh pr create` 直接创建 PR
          - 将 prNumber 写入 task 的 PR checkpoints
      5. 等待 batch 内所有 PR 就绪
-     6. 委派 @reviewer 审查各 PR，接收结构化审查报告
+     6. 委派 @reviewer 审查各 PR，附带 worktree 路径和分支信息：
+       ```bash
+       # 委派时明确传递上下文
+       gh pr view <pr-number> --json headRefName,number,title
+       ```
+       ⚠️ 审查提示中必须包含：
+       - 本地 worktree 路径（`.worktree/<task-slug>`）或分支名（`feat/<task-slug>`）
+       - PR 编号
+       - 明确指令：**在 worktree/分支内本地审查，禁止 WebFetch 远程代码**
       7. 使用 `gh pr review` 发布审查结果
       8. CI 通过后使用 `gh pr merge` 合并 PR
      9. 合并后清理 worktree

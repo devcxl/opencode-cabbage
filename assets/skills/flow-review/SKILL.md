@@ -14,7 +14,17 @@ description: 双轴审查（规范 + 规格）→ 自动合并
 ## Workflow
 
 ### 1. 获取审查材料
+
+**代码审查必须在本地分支/worktree 中进行，禁止通过 WebFetch 或浏览器访问远程 PR 页面获取代码。**
+
 ```bash
+# 切换到对应分支（如非 worktree 模式）
+git checkout feat/<task-slug>
+
+# 或在 worktree 模式下，直接进入 worktree 目录
+cd .worktree/<task-slug>
+
+# 获取 PR diff 和元数据
 gh pr diff <pr-number>
 gh pr view <pr-number> --json title,body,files
 ```
@@ -162,5 +172,6 @@ fi
 - 已审查的 PR → 更新结论
 
 ### Prohibited Actions
+- **禁止使用 WebFetch 或任何 Web 工具获取远程 PR 代码** — 审查代码时必须在已 checkout 的本地分支或 worktree 中直接读取源码文件
 - 不使用默认 --force 清理
 - 不直接执行 gh pr merge（Orchestrator 执行）

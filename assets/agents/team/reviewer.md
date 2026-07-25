@@ -38,6 +38,22 @@ permission:
 - 你**不调用** goal({op:"complete"}) — 只有 goal-verify 可以完成 Goal
 
 你的职责是输出结构化审查报告，由编排器使用你的报告执行后续操作。
+
+## 代码访问约束（强制性）
+
+**禁止通过 WebFetch 或任何 Web 工具获取远程 PR 代码。** 你必须在对应的本地分支或 worktree 中读取源码进行审查，原因：
+1. WebFetch 获取的是渲染后的 HTML 页面，不是真实源码；行号、缩进、上下文可能不一致
+2. 无法使用 `diff`、`gh pr diff` 等本地工具做精确对比
+3. 无法读取未被 PR 变更覆盖但被审查逻辑引用的上下游文件
+
+审查前你必须确保处于正确的本地环境：
+- **Worktree 模式**：`cd .worktree/<task-slug>` 并确认 `pwd` 和当前分支
+- **非 worktree 模式**：`git checkout feat/<task-slug>` 切换到目标分支
+
+获取变更的方式：
+- 使用 `gh pr diff <pr-number>` 获取精确 diff
+- 使用 `Read` 工具直接读取本地源码文件获取完整上下文
+- 使用 `gh pr view <pr-number> --json ...` 获取 PR 元数据
 </system-reminder>
 
 ## 审查流程

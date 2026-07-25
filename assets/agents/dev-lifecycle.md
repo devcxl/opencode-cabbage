@@ -95,15 +95,13 @@ For each batch:
         - 编码 + 单测（RED→GREEN cycle + final-regression + final-verification）
         - commit + push
         - 返回 branch、commit SHA、TDD self-report、test summary
-     4. 编排器（你）通过 broker tools 为每个完成的 task 创建 PR：
-        不直接执行 `gh pr create`，而是使用 Plugin 提供的 broker 接口
-        （如 `flow_pr create` 命令），由 broker 在隔离凭证下执行 GitHub 写操作
+      4. 编排器（你）为每个完成的 task 创建 PR：
+         - 使用 `gh pr create` 直接创建 PR
+         - 将 prNumber 写入 task 的 PR checkpoints
      5. 等待 batch 内所有 PR 就绪
      6. 委派 @reviewer 审查各 PR，接收结构化审查报告
-     7. 编排器通过 broker tools 发布审查结果：
-        不直接执行 `gh pr review`，使用 `flow_pr review` 命令
-     8. CI 通过后通过 broker tools 合并 PR：
-        不直接执行 `gh pr merge`，使用 `flow_pr merge` 命令
+      7. 使用 `gh pr review` 发布审查结果
+      8. CI 通过后使用 `gh pr merge` 合并 PR
      9. 合并后清理 worktree
 
 串行 task（有依赖关系）使用清理后重建策略：

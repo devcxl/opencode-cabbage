@@ -40,7 +40,6 @@ export {
 export {
   canStartStage, canCompleteStage, canStartTask, canCompleteTask,
   canMerge, allTasksComplete, getReadyTasks, determineNextStage,
-  canCreatePR,
   type GateResult,
 } from "./gate.js"
 
@@ -85,26 +84,6 @@ export {
   type VitestOutput,
   type FailureInput,
 } from "./adapter.js"
-
-export {
-  preflightPRCreate,
-  createOrReusePR,
-  setGhExecutor,
-  initiateRework,
-  completeRework,
-  fetchRemotePRHead,
-  revalidateRemoteHead,
-  type CreatePRParams,
-  type CreatePRResult,
-  type PreflightResult,
-  type ReworkInput,
-  type ReworkResult,
-  type CompleteReworkInput,
-  type CompleteReworkResult,
-  type RemotePRHead,
-  type FetchRemoteHeadResult,
-  type RevalidateResult,
-} from "./pr.js"
 
 export {
   validateCoveragePath,

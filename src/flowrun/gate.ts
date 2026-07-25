@@ -111,48 +111,6 @@ export function canCompleteTask(flowRun: FlowRun, taskId: string): GateResult {
 }
 
 /**
- * 检查 Task 是否满足创建 PR 的前置条件。
- *
- * 规则：
- * - Task 状态必须为 running
- * - regression.status === "pass"
- * - verification.status === "pass"
- * - regression.headSha 和 verification.headSha 非空且一致
- */
-export function canCreatePR(task: TaskState): GateResult {
-  if (task.status !== "running") {
-    return block(`Task "${task.id}" is not running (status: ${task.status})`)
-  }
-
-  const { regression, verification } = task.tddEvidence
-
-  if (regression.status !== "pass") {
-    return block(`Regression is not complete (status: ${regression.status})`, [],
-      ["regression"])
-  }
-
-  if (verification.status !== "pass") {
-    return block(`Verification is not complete (status: ${verification.status})`, [],
-      ["verification"])
-  }
-
-  if (!regression.headSha || !verification.headSha) {
-    return block("Regression or verification is missing head SHA", [],
-      ["headSha"])
-  }
-
-  if (regression.headSha !== verification.headSha) {
-    return block(
-      `Head SHA mismatch: regression=${regression.headSha}, verification=${verification.headSha}`,
-      [],
-      ["headSha"],
-    )
-  }
-
-  return ok()
-}
-
-/**
  * 检查 FlowRun 是否满足合并收尾条件。
  *
  * 新语义（v2）：

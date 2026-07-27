@@ -35,6 +35,7 @@ Stage 产出的文档——PRD、ADR、Task、设计文档等。存放在 `docs/
 
 ## 避免使用的术语
 
-- **Ticket** — 统一用 **Issue**
+- **Ticket** — Decision Map 中的待决策项（Grilling / Research / Prototype），不是 GitHub Issue。
+  仅在需求澄清阶段使用，PRD 生成后销毁。与 Issue 有本质区别：Ticket 是临时待定问题，Issue 是持久化工作项。
 - **Backlog** — 避免歧义，直接指定 Issue 或 Issue list
 - **Sprint** / **Epic** — 不使用，用 **Issue Tree** 层级替代

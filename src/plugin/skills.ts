@@ -1,19 +1,24 @@
-import { cp, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { homedir } from "node:os"
 import path from "node:path"
 
-const _tempDirs = new Set<string>()
-
-process.once("exit", () => {
-  for (const dir of _tempDirs) {
-    rm(dir, { recursive: true, force: true }).catch(() => {})
+/**
+ * skills 固定安装路径，确保跨会话稳定。
+ * 用 env CABBAGE_SKILLS_DIR 可覆盖，方便测试。
+ */
+function resolveSkillsPath(): string {
+  if (process.env.CABBAGE_SKILLS_DIR) {
+    return process.env.CABBAGE_SKILLS_DIR
   }
-})
+  return path.join(homedir(), ".config", "opencode", "cabbage", "skills")
+}
 
 export async function setupSkillsDir(sourceSkillsDir: string, contextDir?: string, promptsDir?: string): Promise<string> {
-  const baseDir = await mkdtemp(path.join(tmpdir(), "opencode-cabbage-skills-"))
-  _tempDirs.add(baseDir)
-  const destDir = path.join(baseDir, "skills")
+  const destDir = resolveSkillsPath()
+
+  // 清理旧内容，确保与插件版本一致
+  await rm(destDir, { recursive: true, force: true })
+  await mkdir(destDir, { recursive: true })
 
   await cp(sourceSkillsDir, destDir, { recursive: true })
 

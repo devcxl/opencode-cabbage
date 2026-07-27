@@ -8,9 +8,11 @@ let tmpDir: string
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cabbage-skill-test-"))
+  process.env.CABBAGE_SKILLS_DIR = path.join(tmpDir, "skills")
 })
 
 afterEach(() => {
+  delete process.env.CABBAGE_SKILLS_DIR
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
 
@@ -26,14 +28,14 @@ const PROJECT_ROOT = path.resolve(import.meta.dirname || __dirname, "..")
 const ASSETS_SKILLS_DIR = path.join(PROJECT_ROOT, "assets", "skills")
 
 describe("setupSkillsDir", () => {
-  it("copies skills to a temp directory", async () => {
+  it("copies skills to the cabbage skills directory", async () => {
     const srcDir = path.join(tmpDir, "skills-src")
     fs.mkdirSync(srcDir, { recursive: true })
     createSkill(srcDir, "test", "# flow-test\n\nTest skill content.")
 
     const result = await setupSkillsDir(srcDir)
 
-    expect(result).toMatch(/opencode-cabbage-skills/)
+    expect(result).toContain("cabbage")
     expect(fs.existsSync(path.join(result, "flow-test", "SKILL.md"))).toBe(true)
     const content = fs.readFileSync(path.join(result, "flow-test", "SKILL.md"), "utf8")
     expect(content).toContain("# flow-test")

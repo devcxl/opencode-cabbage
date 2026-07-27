@@ -49,15 +49,16 @@ describe("setupSkillsDir with prompts", () => {
     expect(content).toContain("_context/CONTEXT.md")
   })
 
-  it("flow-requirements SKILL.md references _prompts/prd-format", async () => {
+  it("flow-requirements SKILL.md embeds decision-map and grilling concepts", async () => {
     const sourceSkills = assetPath("skills")
-    const promptsDir = assetPath("prompts")
-
-    const destDir = await setupSkillsDir(sourceSkills, undefined, promptsDir)
+    const destDir = await setupSkillsDir(sourceSkills)
 
     const skillPath = path.join(destDir, "flow-requirements", "SKILL.md")
     const content = await readFile(skillPath, "utf8")
-    expect(content).toContain("_prompts/prd-format")
+    // 不再引用外部 _prompts/prd-format，而是内嵌 Decision Map 和 Grilling 方法论
+    expect(content).toContain("Decision Map")
+    expect(content).toContain("一次只问一个问题")
+    expect(content).toContain("Phase A")
   })
 
   it("gracefully handles missing promptsDir", async () => {

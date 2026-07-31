@@ -21,10 +21,34 @@ import {
 } from "../flowrun/transitions.js"
 import type { TaskExecutionBinding, FlowControlResponse } from "../flowrun/types.js"
 import { readFlowRun } from "../flowrun/github.js"
+import { getContextBlock, formatContextBlock, CONTEXT_MARKER } from "../kernel/context.js"
+import type { ContextBlock } from "../kernel/context.js"
 
 const abortedSessions = new Set<string>()
 const errorRetryCount = new Map<string, number>()
 const COMPACTION_THRESHOLD = 20
+
+export interface FirstUserInjectionInput {
+  hasGoal: boolean
+  isSubAgent: boolean
+  contextBlock: ContextBlock | null
+  bootstrap: string
+}
+
+/**
+ * 决定首条 user 消息注入内容：
+ * - Primary（goal 激活）→ bootstrap + Project Context 块
+ * - 子 agent → 仅 Project Context 块
+ * - 其他 → 不注入
+ */
+export function buildFirstUserInjection(input: FirstUserInjectionInput): string | null {
+  const parts: string[] = []
+  if (input.hasGoal) parts.push(input.bootstrap)
+  if (input.contextBlock && (input.hasGoal || input.isSubAgent)) {
+    parts.push(input.contextBlock.block)
+  }
+  return parts.length > 0 ? parts.join("\n\n") : null
+}
 
 interface V1ClientContainer {
   _client?: { getConfig?: () => Record<string, unknown> }
@@ -120,9 +144,12 @@ async function queueContinuation(
       } catch {}
     }
 
+    const contextBlock = projectDir ? await getContextBlock(projectDir) : null
+    const contextText = contextBlock ? `${formatContextBlock(contextBlock)}\n\n` : ""
+
     await client.session.promptAsync({
       sessionID,
-      parts: [{ type: "text" as const, text: continuationPrompt(goal.objective, goal.completionCriterion), synthetic: true }],
+      parts: [{ type: "text" as const, text: contextText + continuationPrompt(goal.objective, goal.completionCriterion), synthetic: true }],
     })
   } catch (err) {
     console.error("[cabbage] continuation failed:", err)
@@ -538,13 +565,21 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
         const firstUser = output.messages.find(m => m.info.role === "user")
         if (!firstUser || !firstUser.parts.length) return
 
-        if (firstUser.parts.some(p => p.type === "text" && p.text.includes("EXTREMELY_IMPORTANT"))) return
+        if (firstUser.parts.some(p => p.type === "text" && (p.text.includes("EXTREMELY_IMPORTANT") || p.text.includes(CONTEXT_MARKER)))) return
 
-        // Only inject bootstrap for active flow: goal is active or user sent a flow command
-        const hasGoal = await readGoal(goalClient, output.messages[0].info.sessionID).then(r => r.goal?.status === "active").catch(() => false)
-        if (!hasGoal) return
+        const sessionID = output.messages[0].info.sessionID as string
+        const { goal, session } = await readGoal(goalClient, sessionID)
+        const contextBlock = await getContextBlock(projectDir)
 
-        firstUser.parts.unshift({ type: "text", text: getBootstrapContent() } as typeof firstUser.parts[number])
+        const injection = buildFirstUserInjection({
+          hasGoal: goal?.status === "active",
+          isSubAgent: !!session?.parentID,
+          contextBlock,
+          bootstrap: getBootstrapContent(),
+        })
+        if (injection) {
+          firstUser.parts.unshift({ type: "text", text: injection } as typeof firstUser.parts[number])
+        }
       },
 
       async event({ event }) {

@@ -1,8 +1,6 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin/tool"
 import path from "node:path"
-import { readFile, writeFile, mkdir } from "node:fs/promises"
-import { existsSync } from "node:fs"
 
 import { initPrompts } from "./prompts.js"
 import { initBootstrap, getBootstrapContent } from "./bootstrap.js"
@@ -10,7 +8,8 @@ import { loadCommands } from "./commands.js"
 import { setupSkillsDir } from "./skills.js"
 import { loadAgents } from "./agents.js"
 import { createIsolatedShellEnv, detectAmbientCredentials } from "./shell.js"
-import { createGoalClient, createGoalTool, readGoal, writeGoal, bindFlowRunRef, readFlowRunRef, checkFlowRunBlockers, MAX_CONTINUATIONS, continuationPrompt, formatGoal } from "./goal.js"
+import { createGoalClient, createGoalTool, readGoal, writeGoal, MAX_CONTINUATIONS, continuationPrompt, formatGoal } from "./goal.js"
+import { readIndex, updateFlowSession } from "../kernel/session-index.js"
 import { FlowBroker } from "./broker.js"
 import {
   flowRunStart,
@@ -77,35 +76,6 @@ export function configureGoalTools(config: GoalToolConfig): void {
   }
 }
 
-function sessionStatePath(projectDir: string) {
-  return path.join(projectDir, ".opencode", "opencode-cabbage", "session-state.json")
-}
-
-async function saveSessionState(projectDir: string, sessionID: string, goal: { status: string }) {
-  const dir = path.dirname(sessionStatePath(projectDir))
-  if (!existsSync(dir)) await mkdir(dir, { recursive: true })
-  await writeFile(sessionStatePath(projectDir), JSON.stringify({
-    sessionID,
-    status: goal.status,
-    updatedAt: Date.now(),
-  }), "utf8")
-}
-
-async function loadLastSession(projectDir: string): Promise<string | null> {
-  try {
-    const data = JSON.parse(await readFile(sessionStatePath(projectDir), "utf8"))
-    return data.status === "active" ? data.sessionID : null
-  } catch {
-    return null
-  }
-}
-
-async function clearSessionState(projectDir: string) {
-  try {
-    await writeFile(sessionStatePath(projectDir), JSON.stringify({ status: "completed", updatedAt: Date.now() }), "utf8")
-  } catch {}
-}
-
 async function queueContinuation(
   client: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient>,
   sessionID: string,
@@ -114,25 +84,28 @@ async function queueContinuation(
   const { goal } = await readGoal(client, sessionID)
   if (!goal || goal.status !== "active") return
 
-  if (projectDir) saveSessionState(projectDir, sessionID, goal)
+  if (projectDir) {
+    await updateFlowSession(projectDir, goal.parentIssueNumber, { status: goal.status, continuationCount: goal.continuationCount })
+  }
 
   if (abortedSessions.has(sessionID)) {
     abortedSessions.delete(sessionID)
     goal.status = "paused"
     await writeGoal(client, sessionID, goal)
-    if (projectDir) clearSessionState(projectDir)
+    if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
     return
   }
 
   if (goal.continuationCount >= MAX_CONTINUATIONS) {
     goal.status = "paused"
     await writeGoal(client, sessionID, goal)
-    if (projectDir) clearSessionState(projectDir)
+    if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
     return
   }
 
   goal.continuationCount++
   await writeGoal(client, sessionID, goal)
+  if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { continuationCount: goal.continuationCount })
 
   try {
     if (goal.continuationCount > 0 && goal.continuationCount % COMPACTION_THRESHOLD === 0) {
@@ -149,7 +122,7 @@ async function queueContinuation(
 
     await client.session.promptAsync({
       sessionID,
-      parts: [{ type: "text" as const, text: contextText + continuationPrompt(goal.objective, goal.completionCriterion), synthetic: true }],
+      parts: [{ type: "text" as const, text: contextText + continuationPrompt(goal.parentIssueNumber), synthetic: true }],
     })
   } catch (err) {
     console.error("[cabbage] continuation failed:", err)
@@ -157,26 +130,29 @@ async function queueContinuation(
 }
 
 async function autoResume(client: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient>, projectDir: string) {
-  const lastSessionID = await loadLastSession(projectDir)
-  if (!lastSessionID) return
+  const index = await readIndex(projectDir)
 
-  const { goal } = await readGoal(client, lastSessionID)
-  if (!goal || goal.status !== "active") {
-    await clearSessionState(projectDir)
-    return
-  }
+  for (const [parentIssueNumber, entry] of Object.entries(index.flows)) {
+    if (entry.status !== "active") continue
 
-  try {
-    await client.session.promptAsync({
-      sessionID: lastSessionID,
-      parts: [{
-        type: "text" as const,
-        text: `[auto-resume] Plugin restarted. Resuming previous goal:\n\n${formatGoal(goal)}\n\nContinue working.`,
-        synthetic: true,
-      }],
-    })
-  } catch (err) {
-    console.error("[cabbage] auto-resume failed:", err)
+    const { goal } = await readGoal(client, entry.sessionID)
+    if (!goal || goal.status !== "active") {
+      await updateFlowSession(projectDir, Number(parentIssueNumber), { status: "paused" })
+      continue
+    }
+
+    try {
+      await client.session.promptAsync({
+        sessionID: entry.sessionID,
+        parts: [{
+          type: "text" as const,
+          text: `[auto-resume] Plugin restarted. Resuming previous goal:\n\n${formatGoal(goal)}\n\nContinue working.`,
+          synthetic: true,
+        }],
+      })
+    } catch (err) {
+      console.error("[cabbage] auto-resume failed:", err)
+    }
   }
 }
 
@@ -209,7 +185,6 @@ function startPeriodicCleanup() {
 
 function createFlowControlTool(
   broker: FlowBroker,
-  goalClient: ReturnType<typeof createGoalClient>,
 ) {
   return tool({
     description: `Control the FlowRun lifecycle: start a FlowRun, transition stages, start tasks, and finalize completed runs.
@@ -235,14 +210,13 @@ Operations:
       tdd_policy_json: tool.schema.string().optional().describe("JSON string of frozen TDD policy (for task-start)"),
     },
     async execute(args, ctx) {
-      const sessionID = (ctx as any).sessionID as string
       const op = args.op as string
       const parentIssueNumber = args.parent_issue_number as number
 
       try {
         switch (op) {
           case "run-start":
-            return handleRunStart(broker, goalClient, parentIssueNumber, sessionID)
+            return handleRunStart(broker, parentIssueNumber)
           case "stage-start":
             return handleStageStart(broker, parentIssueNumber, args.stage as string)
           case "stage-complete":
@@ -273,9 +247,7 @@ function errorResponse(code: string, message: string): string {
 
 async function handleRunStart(
   broker: FlowBroker,
-  goalClient: ReturnType<typeof createGoalClient>,
   parentIssueNumber: number,
-  sessionID: string,
 ): Promise<string> {
   // 通过 broker 执行状态迁移
   const writeResult = await broker.writeFlowRunWithLock<unknown>(parentIssueNumber, (flowRun) => {
@@ -293,18 +265,6 @@ async function handleRunStart(
   if (!writeResult.persisted) {
     // 状态迁移被拒绝（如已是 running）
     return errorResponse("INVALID_TRANSITION", "FlowRun is not in planned state")
-  }
-
-  // 绑定 Goal → FlowRun
-  const actualFlowRunId = writeResult.flowRun.flowRunId
-  const bindResult = await bindFlowRunRef(goalClient, sessionID, {
-    repo: writeResult.flowRun.repo,
-    parentIssueNumber,
-    flowRunId: actualFlowRunId,
-  })
-
-  if (!bindResult.ok) {
-    return errorResponse(bindResult.code, bindResult.message)
   }
 
   return okResponse({
@@ -481,20 +441,9 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
     const projectDir = ctx.worktree || ctx.directory
     const v1Client = (ctx.client as unknown as V1ClientContainer)._client
     const goalClient = createGoalClient(ctx.serverUrl, v1Client)
-    const goalTool = createGoalTool(goalClient, async (parentSessionID) => {
-      // 验证绑定的 FlowRun 是否已终态
-      const ref = await readFlowRunRef(goalClient, parentSessionID)
-      if (!ref) return null // 无 FlowRun 绑定，允许完成
-
-      // 读取 FlowRun 状态
-      const flowResult = await readFlowRun(ref.parentIssueNumber)
-      if (!flowResult.ok) {
-        return `Failed to read FlowRun #${ref.parentIssueNumber}: ${flowResult.code}`
-      }
-      return checkFlowRunBlockers(flowResult.data.status)
-    })
+    const goalTool = createGoalTool(goalClient)
     const broker = new FlowBroker()
-    const flowControlTool = createFlowControlTool(broker, goalClient)
+    const flowControlTool = createFlowControlTool(broker)
 
     const agentsDir = path.join(packageRoot, "assets", "agents")
 
@@ -614,7 +563,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
                 sessionID,
                 parts: [{
                   type: "text" as const,
-                  text: `[auto-retry] Previous attempt failed. Try a different approach.\n\nGoal: ${goal.objective}`,
+                  text: `[auto-retry] Previous attempt failed. Try a different approach.\n\n${formatGoal(goal)}`,
                   synthetic: true,
                 }],
               })
@@ -623,7 +572,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
                 sessionID,
                 parts: [{
                   type: "text" as const,
-                  text: `[skip] Skipping failed step. Continue with remaining work.\n\nGoal: ${goal.objective}`,
+                  text: `[skip] Skipping failed step. Continue with remaining work.\n\n${formatGoal(goal)}`,
                   synthetic: true,
                 }],
               })
@@ -648,7 +597,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
           if (sessionID) {
             const { goal } = await readGoal(goalClient, sessionID)
             if (goal?.status === "complete") {
-              await clearSessionState(projectDir)
+              await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "completed" })
             }
           }
         }

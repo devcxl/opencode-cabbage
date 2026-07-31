@@ -1,5 +1,6 @@
 import type { FlowRun } from "../flowrun/types.js"
 import { readFlowRunWithLock, writeFlowRunWithLock as ghWriteFlowRunWithLock } from "../flowrun/github.js"
+import { KeyedMutex } from "../kernel/mutex.js"
 
 // ─── 类型 ───
 
@@ -17,34 +18,6 @@ export interface MutateResult<R> {
 export type WriteResult<R> =
   | { ok: true; flowRun: FlowRun; result: R; persisted: boolean }
   | { ok: false; code: "PERSIST_CONFLICT" | "READ_FAILED"; message: string }
-
-// ─── Keyed Mutex ───
-
-/**
- * 按 key 隔离的互斥锁，用于单进程内串行化并发操作。
- *
- * 每个 key（parentIssueNumber）维护独立的 promise 链，
- * 相同 key 的操作依次执行，不同 key 的操作可以并行。
- */
-class KeyedMutex {
-  private locks = new Map<number, Promise<void>>()
-
-  async runExclusive<T>(key: number, fn: () => Promise<T>): Promise<T> {
-    const prev = this.locks.get(key) ?? Promise.resolve()
-    let release: () => void
-    const next = new Promise<void>(r => {
-      release = r
-    })
-    this.locks.set(key, next)
-
-    await prev
-    try {
-      return await fn()
-    } finally {
-      release!()
-    }
-  }
-}
 
 // ─── FlowBroker ───
 

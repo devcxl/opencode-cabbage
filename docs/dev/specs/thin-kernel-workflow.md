@@ -10,7 +10,7 @@
 - 高风险 git/gh 写操作全部收敛到工具内执行（复用宿主 `gh auth`），Agent shell 不再清空 `GH_TOKEN/GH_CONFIG_DIR`（修 server.ts:543 缺陷），改为 permission 规则兜底：**allow 白名单只读 + deny 黑名单写操作（deny 置尾，最后匹配优先）**。
 - 根 `CONTEXT.md` 通过 message transform（bootstrap/continuation/子 agent 首条消息）自动注入，按 mtime 缓存刷新。
 - 删除清单见 §6：cabinet 写路径、broker、transitions/gate/migration/validator/resilience/coverage/audit、flow-handoff/flow-test、内置 context、session-state.json、out-of-scope.md。
-- 实施按 18 个任务、按依赖分 11 个执行波次（§13）DAG 推进，每批独立合入且测试保持绿色，最后一批做 adversarial 测试 + 1.0.0 发布。
+- 实施按 18 个任务、按依赖分 10 个执行波次（§13）DAG 推进，每批独立合入且测试保持绿色，最后一批做 adversarial 测试 + 1.0.0 发布。
 
 ---
 
@@ -709,7 +709,7 @@ export async function detectLegacyFlowRun(parentIssueNumber): Promise<{ legacy: 
 | 4 | flow-record-layer | kernel/records（Flow/Task Record CRUD、evidence comment、labels、mutex 写入） | 0 | new | 中 |
 | 5 | worktree-lifecycle | kernel/worktree 创建/复用/销毁 preflight | 4 | new | 高 |
 | 6 | tdd-kernel-wiring | state/adapter/digest/evaluator 迁入 kernel/tdd + evidence append + 基线 | 4 | refactor | 高 |
-| 7 | setup-control-tool | setup_control 三 op + **首次实现 caller.ts（§2.2 requireCaller）** | 2, 4 | new | 中 |
+| 7 | setup-control-tool | setup_control 三 op + **首次实现 caller.ts（§2.2 requireCaller）** | 2 | new | 中 |
 | 8 | flow-control-tool | flow_control（create/status/planning/stage/complete/cancel/takeover）+ legacy 检测 | 3, 4, 5 | new | 高 |
 | 9 | task-control-tool | task_control（create/start/submit/merge/cancel/destroy） | 5, 6, 8 | new | 高 |
 | 10 | tdd-checkpoint-tool | tdd_checkpoint 注册 + 工具亲执 RED/GREEN + submit 门禁 | 6, 9 | new | 高 |
@@ -723,7 +723,7 @@ export async function detectLegacyFlowRun(parentIssueNumber): Promise<{ legacy: 
 
 **server.ts 接线批次串行约束**（HIGH 2 修订）：多个批次修改 `src/plugin/server.ts`（批 1 message transform、批 3 continuation/双 session、批 7–11 工具注册、批 12 shell env/permission），必须串行推进避免文件冲突，顺序：批 1 → 批 3 → 批 7 → 批 8 → 批 9 → 批 10 → 批 11 → 批 12。每个批次只改动自己对应的 server.ts 区块（工具注册块 / event 块 / config 块），合并后下一批再基于最新 main 开发。
 
-**依赖边修订**（MEDIUM 4）：批 4 依赖改为 `0`（records 是 Issue CRUD，不依赖 session-index）；批 11 依赖改为 `2`（release 聚合 commits，不触碰 Task Record）。原 4→3、7→4、11→4 三条伪依赖已剪除，扩大并行度。
+**依赖边修订**（MEDIUM 4）：批 4 依赖改为 `0`（records 是 Issue CRUD，不依赖 session-index）；批 7 依赖改为 `2`（setup 三 op 不触碰 records）；批 11 依赖改为 `2`（release 聚合 commits，不触碰 Task Record）。原 4→3、7→4、11→4 三条伪依赖已剪除，扩大并行度。剪除后拓扑最长链 10 层：0→4→5→8→9→10→14→15→16→17。
 
 **caller.ts 归属**（LOW）：caller.ts 核心实现在批 7 首次落地；批 12 只做 config 层第二道门（`configureLifecycleTools`）+ 全组合矩阵测试，不重复实现。
 

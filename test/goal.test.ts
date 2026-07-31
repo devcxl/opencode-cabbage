@@ -1,11 +1,23 @@
 import { describe, it, expect } from "vitest"
-import { canTransitionTo, formatGoal, continuationPrompt, verifyAgentPrompt, MAX_CONTINUATIONS, checkFlowRunBlockers } from "../src/plugin/goal.js"
+import { canTransitionTo, formatGoal, continuationPrompt, verifyAgentPrompt, MAX_CONTINUATIONS, createGoal } from "../src/plugin/goal.js"
 
 const activeGoal = () => ({
-  objective: "Implement user authentication",
-  completionCriterion: "All auth tests pass, PR merged",
+  parentIssueNumber: 42,
   status: "active" as const,
   continuationCount: 0,
+})
+
+describe("GoalData 最小化", () => {
+  it("createGoal 只含 parentIssueNumber/status/continuationCount", () => {
+    const goal = createGoal(42)
+    expect(goal).toEqual({ parentIssueNumber: 42, status: "active", continuationCount: 0 })
+  })
+
+  it("不再存储 objective/completionCriterion（从 Flow Record 读取）", () => {
+    const goal = createGoal(42)
+    expect("objective" in goal).toBe(false)
+    expect("completionCriterion" in goal).toBe(false)
+  })
 })
 
 describe("canTransitionTo", () => {
@@ -44,19 +56,19 @@ describe("canTransitionTo", () => {
 })
 
 describe("formatGoal", () => {
-  it("includes objective, criterion, and status", () => {
+  it("包含 parentIssueNumber 与 status，不含 objective", () => {
     const result = formatGoal(activeGoal())
-    expect(result).toContain("Goal: Implement user authentication")
-    expect(result).toContain("Completion criterion: All auth tests pass, PR merged")
+    expect(result).toContain("#42")
     expect(result).toContain("Status: active")
+    expect(result).not.toContain("objective")
   })
 })
 
 describe("continuationPrompt", () => {
-  it("includes objective and criterion", () => {
-    const result = continuationPrompt("My objective", "My criterion")
-    expect(result).toContain("My objective")
-    expect(result).toContain("My criterion")
+  it("引用 Flow Record 的 parent issue number", () => {
+    const result = continuationPrompt(42)
+    expect(result).toContain("#42")
+    expect(result).toContain("Flow Record")
   })
 })
 
@@ -94,44 +106,5 @@ describe("goal complete authorization", () => {
 describe("MAX_CONTINUATIONS", () => {
   it("is 50", () => {
     expect(MAX_CONTINUATIONS).toBe(50)
-  })
-})
-
-describe("checkFlowRunBlockers", () => {
-  it("允许完成：无 FlowRun 绑定（null）", () => {
-    expect(checkFlowRunBlockers(null)).toBeNull()
-  })
-
-  it("允许完成：FlowRun 状态为 completed", () => {
-    expect(checkFlowRunBlockers("completed")).toBeNull()
-  })
-
-  it("允许完成：FlowRun 状态为 cancelled", () => {
-    expect(checkFlowRunBlockers("cancelled")).toBeNull()
-  })
-
-  it("阻止完成：FlowRun 状态为 running", () => {
-    const result = checkFlowRunBlockers("running")
-    expect(result).not.toBeNull()
-    expect(result).toContain("terminal state")
-    expect(result).toContain("run-finalize")
-  })
-
-  it("阻止完成：FlowRun 状态为 merging", () => {
-    const result = checkFlowRunBlockers("merging")
-    expect(result).not.toBeNull()
-    expect(result).toContain("terminal state")
-  })
-
-  it("阻止完成：FlowRun 状态为 blocked", () => {
-    const result = checkFlowRunBlockers("blocked")
-    expect(result).not.toBeNull()
-    expect(result).toContain("terminal state")
-  })
-
-  it("阻止完成：FlowRun 状态为 planned", () => {
-    const result = checkFlowRunBlockers("planned")
-    expect(result).not.toBeNull()
-    expect(result).toContain("terminal state")
   })
 })

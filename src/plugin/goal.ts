@@ -2,21 +2,19 @@ import type { ToolContext, ToolResult } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin/tool"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import type { Session } from "@opencode-ai/sdk/v2"
-import type { GoalFlowRunRef } from "../flowrun/types.js"
 
 export type GoalStatus = "active" | "paused" | "complete"
 
+/** 最小化 goal（§10.2）：目标与验收条件从 Flow Record（Parent Issue body）读取 */
 export interface GoalData {
-  objective: string
-  completionCriterion: string
+  parentIssueNumber: number
   status: GoalStatus
   continuationCount: number
 }
 
-function createGoal(objective: string, completionCriterion: string): GoalData {
+export function createGoal(parentIssueNumber: number): GoalData {
   return {
-    objective: objective.trim(),
-    completionCriterion: completionCriterion.trim(),
+    parentIssueNumber,
     status: "active",
     continuationCount: 0,
   }
@@ -33,26 +31,24 @@ export function canTransitionTo(goal: GoalData, target: GoalStatus): boolean {
 
 export function formatGoal(goal: GoalData): string {
   return [
-    `Goal: ${goal.objective}`,
-    `Completion criterion: ${goal.completionCriterion}`,
+    `Flow: #${goal.parentIssueNumber}`,
     `Status: ${goal.status}`,
+    `Continuations: ${goal.continuationCount}`,
+    `Objective/acceptance: read from Flow Record (Parent Issue #${goal.parentIssueNumber})`,
   ].join("\n")
 }
 
 export const MAX_CONTINUATIONS = 50
 
-export function continuationPrompt(objective: string, completionCriterion: string): string {
+export function continuationPrompt(parentIssueNumber: number): string {
   return `Continue working toward the active goal.
 
-<objective>
-${objective}
-</objective>
+Read the Flow Record (Parent Issue #${parentIssueNumber}) for the objective and completion criteria.
 
-<completion_criterion>
-${completionCriterion}
-</completion_criterion>
+<flow_issue>
+#${parentIssueNumber}
+</flow_issue>
 
-Keep the full objective intact. Do not redefine success around a smaller or easier task.
 Work from evidence — inspect the current state before relying on anything.
 If the work is not done, just keep working. Do not narrate that you are continuing — execute.`
 }
@@ -64,22 +60,23 @@ You are the only agent authorized to call goal({op:"complete"}). Other agents (r
 
 You start with a FRESH context — do not assume any prior work was done correctly.
 
-First step: Call goal({op:"get"}) to retrieve the objective and completion criterion.
+First step: Call goal({op:"get"}) to retrieve the active flow's parent issue number, then read the Flow Record (Parent Issue body) for the objective and completion criteria.
 
 ---
 
 ## Verification Procedure
 
-1. Call goal({op:"get"}) to retrieve the objective and completion criterion.
-2. Break them into concrete, individual requirements.
-3. For EACH requirement, gather evidence:
+1. Call goal({op:"get"}) to retrieve the parent issue number.
+2. Read the Flow Record (Parent Issue body) for the objective and completion criteria.
+3. Break them into concrete, individual requirements.
+4. For EACH requirement, gather evidence:
    - Read full files — not just snippets
    - Run tests, builds, lint
    - Check imports, exports, types resolve correctly
-4. Classify each finding: SATISFIED / NOT SATISFIED / UNCERTAIN
-5. If ALL requirements are SATISFIED:
+5. Classify each finding: SATISFIED / NOT SATISFIED / UNCERTAIN
+6. If ALL requirements are SATISFIED:
    Call goal({op:"complete"}) — only you can do this
-6. If ANY requirement is NOT SATISFIED or UNCERTAIN:
+7. If ANY requirement is NOT SATISFIED or UNCERTAIN:
    Do NOT call goal({op:"complete"}). Return a detailed report.
 
 ---
@@ -127,111 +124,14 @@ export async function writeGoal(
   await client.session.update({ sessionID, metadata })
 }
 
-// ─── GoalFlowRunRef 绑定 ───
-
-/**
- * 读取 session metadata 中的 GoalFlowRunRef。
- * 返回 null 表示尚未绑定。
- */
-export async function readFlowRunRef(
-  client: ReturnType<typeof createOpencodeClient>,
-  sessionID: string,
-): Promise<GoalFlowRunRef | null> {
-  try {
-    const result = await client.session.get({ sessionID })
-    const session = (result as { data?: Session | null })?.data ?? null
-    const ref = session?.metadata?.flowRunRef as GoalFlowRunRef | undefined
-    return ref ?? null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Goal → FlowRun 绑定结果。
- */
-export type BindFlowRunResult =
-  | { ok: true }
-  | { ok: false; code: "GOAL_FLOW_CONFLICT"; message: string }
-
-/**
- * 原子绑定 Goal → FlowRun。
- *
- * 规则：
- * - 未绑定 → 写入 flowRunRef，返回 ok
- * - 已绑定同一 FlowRun（repo + parentIssueNumber + flowRunId 相同）→ 幂等，返回 ok
- * - 已绑定不同 FlowRun → 返回 GOAL_FLOW_CONFLICT
- */
-export async function bindFlowRunRef(
-  client: ReturnType<typeof createOpencodeClient>,
-  sessionID: string,
-  ref: GoalFlowRunRef,
-): Promise<BindFlowRunResult> {
-  const result = await client.session.get({ sessionID })
-  const session = (result as { data?: Session | null })?.data ?? null
-  if (!session) return { ok: false, code: "GOAL_FLOW_CONFLICT", message: "Session not found" }
-
-  const existingRef = session.metadata?.flowRunRef as GoalFlowRunRef | undefined
-
-  if (existingRef) {
-    const isSame =
-      existingRef.repo === ref.repo &&
-      existingRef.parentIssueNumber === ref.parentIssueNumber &&
-      existingRef.flowRunId === ref.flowRunId
-
-    if (!isSame) {
-      return {
-        ok: false,
-        code: "GOAL_FLOW_CONFLICT",
-        message: `Goal is already bound to FlowRun "${existingRef.flowRunId}", cannot bind to "${ref.flowRunId}"`,
-      }
-    }
-    // 同一 FlowRun → 幂等
-    return { ok: true }
-  }
-
-  // 未绑定 → 写入
-  const existing: Record<string, unknown> = session.metadata ?? {}
-  const metadata = { ...existing, flowRunRef: ref }
-  await client.session.update({ sessionID, metadata })
-
-  return { ok: true }
-}
-
-/**
- * 解析 GoalFlowRunRef 的显示名称。
- */
-export function formatFlowRunRef(ref: GoalFlowRunRef): string {
-  return `${ref.repo}#${ref.parentIssueNumber} (${ref.flowRunId})`
-}
-
-/**
- * 验证 FlowRun 终态 — 检查是否满足 Goal complete 的前提条件。
- *
- * 返回 null 表示允许完成；
- * 返回错误信息字符串表示阻止完成。
- *
- * @param flowRunStatus FlowRun 当前状态，null 表示无绑定的 FlowRun
- */
-export function checkFlowRunBlockers(flowRunStatus: string | null): string | null {
-  if (flowRunStatus === null) return null // 无 FlowRun 绑定，允许完成
-
-  if (flowRunStatus !== "completed" && flowRunStatus !== "cancelled") {
-    return `FlowRun is not in terminal state (status: ${flowRunStatus}). Run flow_control({op:"run-finalize"}) to finalize first.`
-  }
-
-  return null
-}
-
 export function createGoalTool(
   client: ReturnType<typeof createOpencodeClient>,
-  onBeforeComplete?: (parentSessionID: string) => Promise<string | null>,
 ) {
   return tool({
-    description: `Manage the active goal-mode objective.
+    description: `Manage the active goal-mode objective (minimal: parentIssueNumber/status/continuationCount).
 
 Use a single op field:
-- create: starts a goal. Requires both objective and completion_criterion.
+- create: starts a goal bound to a Flow Record. Requires parent_issue_number.
 - get: returns the current goal.
 - resume: re-activates a paused goal.
 - cancel: discards the current goal.
@@ -239,8 +139,7 @@ Use a single op field:
 - complete: marks the goal as completed. Follow the returned instructions.`,
     args: {
       op: tool.schema.enum(["create", "get", "complete", "resume", "cancel", "pause"]).describe("Goal operation"),
-      objective: tool.schema.string().describe("Goal objective (required for create)"),
-      completion_criterion: tool.schema.string().describe("Concrete, checkable conditions (required for create)"),
+      parent_issue_number: tool.schema.number().describe("Parent GitHub Issue number of the Flow Record (required for create)"),
     },
     async execute(args: Record<string, any>, ctx: ToolContext): Promise<ToolResult> {
       const sessionID = (ctx as any).sessionID as string
@@ -264,30 +163,21 @@ Use a single op field:
           return `Parent session goal is not active (status: ${parent.goal.status}).`
         }
 
-        // 验证 FlowRun 终态（如绑定了 FlowRunRef）
-        if (onBeforeComplete) {
-          const blockReason = await onBeforeComplete(targetSessionID)
-          if (blockReason !== null) {
-            return `Goal completion blocked: ${blockReason}`
-          }
-        }
-
         parent.goal.status = "complete"
         await writeGoal(client, targetSessionID, parent.goal, parent.session)
-        return `Goal completed and verified: "${parent.goal.objective}"`
+        return `Goal completed and verified: Flow #${parent.goal.parentIssueNumber}`
       }
 
       switch (args.op) {
         case "create": {
-          if (!args.objective?.trim()) return "Error: objective is required"
-          if (!args.completion_criterion?.trim()) return "Error: completion_criterion is required"
+          if (!args.parent_issue_number) return "Error: parent_issue_number is required"
           const existing = (await readGoal(client, sessionID)).goal
           if (existing?.status === "active") {
-            return `Error: an active goal already exists: "${existing.objective}"`
+            return `Error: an active goal already exists for Flow #${existing.parentIssueNumber}`
           }
-          const goal = createGoal(args.objective, args.completion_criterion)
+          const goal = createGoal(Number(args.parent_issue_number))
           await writeGoal(client, sessionID, goal)
-          return `Goal created: "${goal.objective}"\nStatus: active`
+          return `Goal created: Flow #${goal.parentIssueNumber}\nStatus: active`
         }
 
         case "get": {
@@ -309,7 +199,7 @@ Use a single op field:
           goal.status = "active"
           goal.continuationCount = 0
           await writeGoal(client, sessionID, goal, s)
-          return `Goal resumed: "${goal.objective}"\nStatus: active`
+          return `Goal resumed: Flow #${goal.parentIssueNumber}\nStatus: active`
         }
 
         case "pause": {
@@ -318,14 +208,14 @@ Use a single op field:
           if (!canTransitionTo(goal, "paused")) return `Goal cannot be paused (status: ${goal.status}).`
           goal.status = "paused"
           await writeGoal(client, sessionID, goal, s)
-          return `Goal paused: "${goal.objective}"\nStatus: paused`
+          return `Goal paused: Flow #${goal.parentIssueNumber}\nStatus: paused`
         }
 
         case "cancel": {
           const { goal, session: s } = await readGoal(client, sessionID)
           if (!goal) return "No goal to cancel."
           await writeGoal(client, sessionID, null, s)
-          return `Goal cancelled: "${goal.objective}"`
+          return `Goal cancelled: Flow #${goal.parentIssueNumber}`
         }
 
         default:

@@ -89,14 +89,14 @@ describe("loadAgents", () => {
     writeAgent("tools-agent", "primary", "tools:\n  read: true\n  bash: true\n  write: true\n  edit: true")
     const result = loadAgents(tmpDir)
     expect(result).toHaveLength(1)
-    expect(result[0].tools).toBeUndefined()
+    expect((result[0] as unknown as Record<string, unknown>).tools).toBeUndefined()
   })
 
   it("ignores deprecated capabilities frontmatter（capabilities 已废弃）", () => {
     writeAgent("cap-agent", "primary", "capabilities:\n  create_pr: false\n  merge_pr: false\n  modify_files: true")
     const result = loadAgents(tmpDir)
     expect(result).toHaveLength(1)
-    expect(result[0].capabilities).toBeUndefined()
+    expect((result[0] as unknown as Record<string, unknown>).capabilities).toBeUndefined()
   })
 
   it("skips files without frontmatter", () => {
@@ -151,9 +151,10 @@ describe("developer agent（backend+frontend 合并，§6.1）", () => {
     const edit = dev?.permission?.edit as Record<string, string> | undefined
     expect(edit?.["*"]).toBe("deny")
     expect(edit?.[".worktree/**"]).toBe("allow")
-    expect(edit?.["src/**"]).toBe("allow")
-    expect(edit?.["test/**"]).toBe("allow")
-    expect(edit?.["assets/**"]).toBe("allow")
+    // 单一基准：仅 worktree 内可编辑（避免仓库根双基准）
+    expect(edit?.["src/**"]).toBeUndefined()
+    expect(edit?.["test/**"]).toBeUndefined()
+    expect(edit?.["assets/**"]).toBeUndefined()
   })
 
   it("body 技术栈无关：加载 flow-tdd、不内嵌三份工程原则拷贝、无 backend/frontend 残留", () => {

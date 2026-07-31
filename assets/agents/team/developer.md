@@ -41,9 +41,6 @@ permission:
   edit:
     "*": "deny"
     ".worktree/**": "allow"
-    "src/**": "allow"
-    "test/**": "allow"
-    "assets/**": "allow"
 ---
 
 <system-reminder>

@@ -1,4 +1,5 @@
 ---
-description: 代码审查 — AI 审查 → 自动合并
+description: 代码审查 — 双轴审查 → 自动合并
 ---
-请加载 flow-review 技能，按其中定义的流程进行代码审查阶段。
+请加载 flow-review 技能，按其中定义的流程进行代码审查阶段（阶段契约见 stage-contract）。
+

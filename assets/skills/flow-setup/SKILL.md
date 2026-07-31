@@ -1,46 +1,42 @@
 ---
 name: flow-setup
-description: 初始化项目文档结构，验证开发环境
+description: 初始化 — 探测环境 → 生成 workflow → 确认 Profile
 ---
 
 # flow-setup
 
-初始化项目文档结构，验证开发环境。
+初始化阶段：探测开发环境、生成缺失的 CI/release workflow、确认 AGENTS.md Project Profile。
+所有探测与写入由内核工具 `setup_control` 完成，本 skill 只定义流程，不复制工具实现。
 
-## Workflow
+## 核心：调用 setup_control
 
-### 1. 创建文档目录
-确保以下目录结构存在：
-```
-docs/
-├── prd/              # 产品需求文档
-├── adr/              # 架构决策记录
-└── dev/
-    ├── specs/        # 技术方案
-    ├── tasks/        # DAG 任务定义
-    ├── api/          # API 设计文档
-    ├── db/           # 数据库设计
-    ├── guides/       # 开发指南
-    └── handoff/      # 上下文交接
+调用 `setup_control` 完成三个阶段：
+
+1. `setup_control{op:"probe"}` — 探测 git/gh/CI/Profile，输出 readiness 报告
+2. `setup_control{op:"generate-workflows"}` — 缺失时生成 CI/release workflow 草案 + Setup PR（人工合入）
+3. `setup_control{op:"confirm-profile"}` — 用户确认后将 Profile 区块写入根 AGENTS.md
+
+Profile 区块格式（内核解析白名单，§9.1）：
+
+```markdown
+## Project Profile
+
+- test command: `npm test -- run`
+- test file patterns: `test/**/*.test.ts`
+- implementation file patterns: `src/**/*.ts`
+- tdd default mode: `strict`
+- version bump rule: `breaking→major, feature→minor, fix→patch`
+- version file: `package.json`
+- tag format: `v{version}`
+- release workflow: `.github/workflows/release.yml`
 ```
 
-### 2. 验证环境
-```bash
-gh auth status
-git remote get-url origin
-```
-确保 gh CLI 已认证、项目已关联 GitHub 远程。
-
-### 3. 完成标记
-```bash
-mkdir -p .opencode/opencode-cabbage
-echo "setup-complete" > .opencode/opencode-cabbage/setup-complete
-```
+未确认 Profile 时 `flow_control{op:"create-flow"}` 会阻断并提示先执行 `/setup`。
 
 ## Output
-- `docs/` 目录已就绪
-- 开发环境已验证
-- 可开始 `/requirements`
+- readiness 报告（development-ready / release-ready 逐项布尔）
+- `.github/workflows/` 草案（缺失时，经 Setup PR 人工合入）
+- 根 AGENTS.md `## Project Profile` 区块
 
 ## Contract
 
@@ -48,28 +44,29 @@ echo "setup-complete" > .opencode/opencode-cabbage/setup-complete
 由 `/setup` 命令触发。首次使用插件或切换新项目时执行。
 
 ### Inputs
-无外部输入。从当前工作目录检测项目状态。
+- 用户对 readiness 报告 / Profile 覆盖项的确认
 
 ### Preconditions
-无。不要求任何前置阶段。
+- gh CLI 已认证（宿主 `gh auth`）
 
 ### Procedure
-1. 创建 docs 目录结构
-2. 验证 gh CLI 和 GitHub 远程
-3. 写入完成标记
+1. 调用 `setup_control{op:"probe"}` 读取 readiness 报告
+2. 缺失 workflow 时调用 `setup_control{op:"generate-workflows"}` 生成草案
+3. 用户确认后调用 `setup_control{op:"confirm-profile"}` 写入 Profile
 
 ### Outputs
-- `docs/` 目录树（prd, adr, dev/specs, dev/tasks, dev/api, dev/db, dev/guides, dev/handoff）
-- `.opencode/opencode-cabbage/setup-complete` 标记文件
+- readiness 报告
+- workflow 草案（可选）
+- 根 AGENTS.md Profile 区块
 
 ### Failure
-- 目录创建失败 → 报告错误并退出
-- gh auth 失败 → 提示用户执行 `gh auth login`
+- gh auth 失败 → 提示用户执行 `gh auth login` 后重试
+- workflow 生成失败 → 报告错误并停止
 
 ### Idempotency
-- 已存在的目录跳过
-- 已存在 `setup-complete` 标记则跳过全部步骤
+- Profile 已确认 → 重复 confirm 覆盖写入（工具内读后写）
+- workflow 已存在 → 跳过生成
 
 ### Prohibited Actions
-- 不删除已有目录或文件
-- 不修改项目代码
+- 不手工编辑 AGENTS.md Profile 区块（由 setup_control 写回）
+- 不直接 push 或创建 Setup PR（工具内部执行）

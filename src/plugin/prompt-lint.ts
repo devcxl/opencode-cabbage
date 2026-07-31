@@ -1,4 +1,4 @@
-import { globSync } from "node:fs"
+import { globSync, readdirSync } from "node:fs"
 import { readFileSync, existsSync } from "node:fs"
 import path from "node:path"
 import { parse as parseYaml } from "yaml"
@@ -22,6 +22,18 @@ const FORBIDDEN_PATTERNS: Array<{ pattern: RegExp; rule: string; message: string
   { pattern: /\bgit push origin dev\b(?!\s+--tags)/, rule: "no-hardcoded-default-branch", message: "contains hardcoded 'git push origin dev'" },
   { pattern: /^\s*git add \.\s*$/m, rule: "no-blanket-git-add", message: "contains blanket 'git add .' without context" },
   { pattern: /git worktree remove.*--force/, rule: "no-default-force-cleanup", message: "contains default --force worktree cleanup" },
+]
+
+// R12 skill/command 收敛（§6.2/§6.4）：删除 flow-handoff / flow-test skill 与 /test /handoff 命令
+const REMOVED_SKILLS = ["flow-handoff", "flow-test"]
+const REMOVED_COMMANDS = ["test", "handoff"]
+
+/** 残留引用：skill 名 / 命令引用（反引号、加粗、列表项） */
+const HANDOFF_TEST_RESIDUE_PATTERNS: Array<{ pattern: RegExp; rule: string; message: string }> = [
+  { pattern: /\bflow-handoff\b|\bflow-test\b/, rule: "handoff-test-residue", message: "references removed skill flow-handoff / flow-test" },
+  { pattern: /`\/(test|handoff)`/, rule: "handoff-test-residue", message: "references removed command /test / /handoff" },
+  { pattern: /\*\*\/test\*\*|\*\*\/handoff\*\*/, rule: "handoff-test-residue", message: "references removed command /test / /handoff" },
+  { pattern: /^\s*[-*]\s*\/(test|handoff)\b/m, rule: "handoff-test-residue", message: "references removed command /test / /handoff" },
 ]
 
 function findMdFiles(root: string, dirs: string[]): string[] {
@@ -85,6 +97,54 @@ function checkForbiddenPatterns(content: string, filePath: string): LintFinding[
         file: filePath,
         rule,
         message,
+      })
+    }
+  }
+  return findings
+}
+
+/** R12：content 中残留 flow-handoff/flow-test skill 或 /test /handoff 命令引用 */
+function checkHandoffTestResidue(content: string, filePath: string): LintFinding[] {
+  const findings: LintFinding[] = []
+  for (const { pattern, rule, message } of HANDOFF_TEST_RESIDUE_PATTERNS) {
+    if (pattern.test(content)) {
+      findings.push({ severity: "error", file: filePath, rule, message })
+      break
+    }
+  }
+  return findings
+}
+
+/** R12：assets/skills 下不得存在已删除的 flow-handoff / flow-test */
+function checkRemovedSkills(root: string): LintFinding[] {
+  const skillsDir = path.join(root, "assets", "skills")
+  if (!existsSync(skillsDir)) return []
+  const findings: LintFinding[] = []
+  for (const name of readdirSync(skillsDir)) {
+    if (REMOVED_SKILLS.includes(name)) {
+      findings.push({
+        severity: "error",
+        file: path.join(skillsDir, name),
+        rule: "skill-removed",
+        message: `removed skill directory still exists: ${name}`,
+      })
+    }
+  }
+  return findings
+}
+
+/** R12：assets/commands 下不得存在已删除的 test.md / handoff.md */
+function checkRemovedCommands(root: string): LintFinding[] {
+  const commandsDir = path.join(root, "assets", "commands")
+  if (!existsSync(commandsDir)) return []
+  const findings: LintFinding[] = []
+  for (const name of readdirSync(commandsDir)) {
+    if (REMOVED_COMMANDS.includes(name.replace(/\.md$/, ""))) {
+      findings.push({
+        severity: "error",
+        file: path.join(commandsDir, name),
+        rule: "command-removed",
+        message: `removed command file still exists: ${name}`,
       })
     }
   }
@@ -302,6 +362,10 @@ export function lintAll(projectRoot: string): { findings: LintFinding[]; passed:
   const files = findMdFiles(projectRoot, assetDirs)
   const allFindings: LintFinding[] = []
 
+  // R12：目录级收敛校验（flow-handoff/flow-test skill、/test /handoff 命令不得存在）
+  allFindings.push(...checkRemovedSkills(projectRoot))
+  allFindings.push(...checkRemovedCommands(projectRoot))
+
   for (const file of files) {
     const content = readFileSync(file, "utf8")
 
@@ -309,6 +373,7 @@ export function lintAll(projectRoot: string): { findings: LintFinding[]; passed:
       allFindings.push(...checkContractCompleteness(content, file))
     }
     allFindings.push(...checkForbiddenPatterns(content, file))
+    allFindings.push(...checkHandoffTestResidue(content, file))
     allFindings.push(...checkRelativeRefs(content, file))
 
     if (file.includes("agents/")) {

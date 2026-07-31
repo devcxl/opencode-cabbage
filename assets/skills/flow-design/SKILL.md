@@ -1,26 +1,22 @@
 ---
 name: flow-design
-description: 技术方案设计 → 方案文档 + ADR 输出
+description: 技术方案设计 → 方案文档 + ADR（planning worktree + Planning PR）
 ---
 
 # flow-design
 
-基于 PRD 进行技术方案设计，输出方案文档和 ADR。
+基于 PRD 进行技术方案设计，architect 在 planning worktree 产出 CONTEXT.md + PRD + Design + ADR，
+并由 `flow_control` 通过 Planning PR 合入形成 Planning Baseline。
 
-## Prerequisites
-- `/requirements` 已完成 → `docs/prd/<title>.md` + Parent Issue 存在
-- 阅读 `../_context/CONTEXT.md` 了解领域术语
+## 核心：调用 flow_control
 
-## Workflow
+1. `flow_control{op:"planning-start"}` — 创建 planning worktree `.worktree/planning-<slug>`（architect 在此写文档）
+2. 在 planning worktree 内产出：根 `CONTEXT.md` 术语更新 + `docs/prd/<title>.md` + `docs/dev/specs/<title>.md` + `docs/adr/<date>-<slug>.md`
+3. `flow_control{op:"planning-pr"}` — 对 planning worktree 变更创建 Planning PR（合并后 = Planning Baseline）
 
-### 1. 阅读上下文
-- 阅读 PRD：`docs/prd/<title>.md`
-- 阅读已有 ADR：`docs/adr/`（确保设计不与已有架构决策冲突）
-- 阅读 `docs/dev/out-of-scope.md`（了解已排除范围）
+worktree 创建与 Planning PR 创建均由内核工具完成，创建动作全部收敛到工具内。
 
-### 2. 技术方案设计
-
-#### 简单性约束
+## 设计约束
 
 技术方案必须遵循以下原则：
 
@@ -29,65 +25,16 @@ description: 技术方案设计 → 方案文档 + ADR 输出
 3. **方案自检** — 每个设计决策必须能回答"为什么不用更简单的替代方案？"
 4. **ADR 记录简化决策** — 如果选择复杂方案，必须在 ADR 中说明为何简单方案不够
 
-#### 方案内容
-- 技术选型与理由
-- 架构与数据流
-- API / 数据模型
-- 与已有的 ADR 的兼容性检查
+## CONTEXT.md 术语
 
-### 3. 记录 ADR
-为每个关键决策记录 ADR 到 `docs/adr/<YYYY-MM-DD>-<slug>.md`。
-ADR 格式参考 `_prompts/adr-format` 中的格式要求。
-
-ADR 至少记录：
-- 技术选型决策
-- 架构模式决策
-- 任何可能有争议的方案选择
-
-### 4. 附到 GitHub Issue
-```bash
-mkdir -p docs/dev/handoff
-cat > docs/dev/handoff/design-comment.md << 'EOF'
-## 技术方案
-
-...（摘要）
-
-## ADR
-
-...（ADR 列表）
-
-完整文档：docs/dev/specs/<title>.md
-EOF
-gh issue comment <issue-number> --body-file docs/dev/handoff/design-comment.md
-```
-
-### 5. 提交文档（Planning PR）
-设计文档和 ADR 通过 Planning PR 合入，确保分支保护下也能正常工作：
-
-```bash
-# 探测默认分支
-BASE=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || echo "main")
-
-# 创建 planning 分支
-git checkout -b chore/plan-<slug> $BASE
-git add docs/dev/specs/<title>.md docs/adr/<date>-<slug>.md
-git commit -m "docs: <title> — 技术方案 + ADR"
-git push origin chore/plan-<slug>
-
-# 创建 PR
-gh pr create --title "docs: <title> — 技术方案 + ADR" \
-  --body "Planning PR：完整技术方案和架构决策记录" \
-  --base $BASE
-
-# 合并 PR 后切回 $BASE
-git checkout $BASE && git pull origin $BASE
-```
+阅读项目根 CONTEXT.md 与 skills 内 `_context/CONTEXT.md` 了解领域术语；
+设计中发现的新术语经用户确认后写入根 CONTEXT.md（术语权威）。
 
 ## Output
 - `docs/dev/specs/<title>.md` — 技术方案
 - `docs/adr/<date>-<slug>.md` — ADR 决议
-- Parent Issue 收到设计评论
-- 文档通过 Planning PR 合入默认分支
+- 根 CONTEXT.md 术语更新（如发现新术语）
+- Planning PR（由 flow_control 创建）
 
 ## 后续
 - **/tasks** — 基于设计方案拆解为 DAG 任务
@@ -99,31 +46,33 @@ git checkout $BASE && git pull origin $BASE
 
 ### Inputs
 - `docs/prd/<title>.md` — 上游 PRD（来源：requirements 阶段产出）
-- Parent Issue 编号（来源：Goal metadata 或 `/requirements` 阶段产出）
+- Flow Record 编号（来源：requirements 阶段产出）
 
 ### Preconditions
-- `/requirements` 已完成 → `docs/prd/<title>.md` 存在
-- Parent Issue 存在
+- `/requirements` 已完成 → PRD 与 Flow Record 存在
+- requirements 基线已用户确认
 
 ### Procedure
-1. 阅读 PRD、已有 ADR、Out of Scope
-2. 输出技术方案到 `docs/dev/specs/<title>.md`
-3. 记录 ADR 到 `docs/adr/<YYYY-MM-DD>-<slug>.md`
-4. 附设计评论到 Parent Issue
-5. 通过 Planning PR 提交文档
+1. 调用 `flow_control{op:"planning-start"}` 创建 planning worktree
+2. 阅读 PRD、已有 ADR、根 CONTEXT.md 术语
+3. 输出技术方案到 `docs/dev/specs/<title>.md`
+4. 记录 ADR 到 `docs/adr/<YYYY-MM-DD>-<slug>.md`
+5. 调用 `flow_control{op:"planning-pr"}` 创建 Planning PR
 
 ### Outputs
-- `docs/dev/specs/<title>.md` — 技术方案
-- `docs/adr/<date>-<slug>.md` — ADR 决议
+- 技术方案 + ADR（planning worktree 内）
+- Planning PR（Planning Baseline 的一部分）
 
 ### Failure
 - ADR 与已有决策冲突 → 记录冲突并标注
-- Planning PR 合并失败 → 通知用户手动处理
+- Planning PR 创建失败 → 通知用户手动处理
 
 ### Idempotency
 - 技术方案已存在 → 读取并更新
 - ADR 已存在 → 不重复创建
+- planning worktree 已存在 → 复用（工具校验分支一致性）
 
 ### Prohibited Actions
-- 不直接 push 到默认分支
+- 不绕过 flow_control 手工创建 worktree / Planning PR（由内核工具完成）
 - 不跳过 ADR 兼容性检查
+- 不直接 push 到默认分支

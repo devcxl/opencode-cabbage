@@ -1,54 +1,34 @@
 ---
 name: flow-release
-description: 版本 → Changelog → Release → npm publish（仅人工）
+description: 版本 → Release PR → GitHub Actions 发布（release_control，仅人工）
 ---
 
 # flow-release
 
-版本号更新 → tag 推送 → Release 草稿 → 人工审核发布 → 自动 npm publish。
+通过 `release_control` 完成版本提议、Release PR、合并发布与发布监控。
+发布流程技术栈无关：按 Profile 的版本规则（version file / tag format / release workflow）执行，
+最终发布走项目自己的 GitHub Actions release workflow（不假设 npm 或任何特定生态）。
 
-## Prerequisites
-- main 分支最新，所有 PR 已合并
-- CI 通过
+## 核心：调用 release_control
 
-## Workflow
+1. `release_control{op:"propose-version"}` — 聚合上一 tag 后全部 commit，按 Profile 版本规则分类，输出提议版本
+2. `release_control{op:"open-release-pr"}` — 固定顺序：release branch → 按 Profile 写规则更新版本 → Release PR（人工确认后）
+3. `release_control{op:"merge-release-pr"}` — CI + 人工批准 → merge → SHA 校验 → 打 tag push
+4. `release_control{op:"monitor"}` — 轮询 GitHub Actions release workflow 至成功；瞬时失败 rerun；代码/配置缺陷 → Corrective Flow
 
-### 1. 确认版本号
-从 conventional commits 自动确定 semver bump：
-```bash
-git log $(git describe --tags --abbrev=0)..HEAD --oneline
-```
-- `fix:` → patch | `feat:` → minor | `BREAKING:` → major
+## 版本规则（Profile）
 
-### 2. 更新版本号 → 打 tag → 推送
-```bash
-npm version <major|minor|patch> --no-git-tag-version
-# 更新 CHANGELOG.md
-git commit -m "chore(release): v<version>"
-BASE=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
-git tag v<version>
-git push origin $BASE --tags
-```
-
-### 3. Release 草稿（自动）
-tag 推送触发 `.github/workflows/release-draft.yml`：
-- 构建 + 测试
-- 生成 Release 草稿（含自动 release notes）
-
-### 4. 人工审核发布
-GitHub Releases 页面 → 检查 Release 草稿 → 点击 **Publish release**。
-
-发布触发 `.github/workflows/release-publish.yml`：
-- 自动 `npm publish`（需要 `NPM_TOKEN` 仓库 Secret）
+版本分类依赖 AGENTS.md `## Project Profile` 的 `version bump rule`：
+`breaking→major, feature→minor, fix→patch`（0.x breaking 也 major）。
+未分类 commit → release_control 要求用户分类后重试。
 
 ## Output
-- 版本已更新
-- tag 已推送
-- Release 草稿已创建（待人工发布）
-- 发布后自动推送 npm
+- 提议版本
+- Release PR（合并 + tag push）
+- GitHub Actions release workflow 运行结果
 
 ## 后续
-无需后续阶段。Flow 完成。
+- 发布完成后 Flow 结束（goal-verify 独立验证 → complete-flow）
 
 ## Contract
 
@@ -56,31 +36,31 @@ GitHub Releases 页面 → 检查 Release 草稿 → 点击 **Publish release**�
 由 `/release` 命令触发。**仅手动触发**，不包含在自动流程中。
 
 ### Inputs
-- 版本号类型（patch/minor/major，来源：用户指定）
+- 用户对提议版本/Release 的确认
 
 ### Preconditions
 - 所有 PR 已合并
-- 默认分支最新
-- 所有测试通过
+- 默认分支最新且 CI 通过
+- Release Profile 已确认（AGENTS.md Project Profile）
 
 ### Procedure
-1. 确认版本号
-2. 更新版本（npm version）
-3. 生成 Changelog
-4. 创建 git tag → push → 触发 Release 草稿
-5. 人工审核发布 → npm publish
+1. 调用 `release_control{op:"propose-version"}` 确定版本
+2. 调用 `release_control{op:"open-release-pr"}` 创建 Release PR（人工确认）
+3. 调用 `release_control{op:"merge-release-pr"}` 合并 + 打 tag
+4. 调用 `release_control{op:"monitor"}` 监控发布 workflow
 
 ### Outputs
-- GitHub Release
-- npm 包已发布
+- GitHub Release（经项目 release workflow）
+- tag 已推送
 
 ### Failure
-- npm publish 失败 → 检查 npm 认证
+- 发布 workflow 失败 → monitor 识别瞬时失败并 rerun；代码/配置缺陷 → Corrective Flow + 新版本
 - tag 已存在 → 提示版本冲突
 
 ### Idempotency
-- 相同版本号 → 阻止
+- 相同版本号 → 阻止重复发布
 
 ### Prohibited Actions
-- 不在自动模式中执行
-- 不跳过测试直接发布
+- 不在自动模式中执行（release 为人工流程）
+- 不假设 npm 或其他特定技术生态（按 Profile 规则 + 项目 GitHub Actions release workflow）
+- 不跳过测试/CI 直接发布

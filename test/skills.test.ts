@@ -135,11 +135,13 @@ describe("flow-tdd Advisory Skill", () => {
     expect(content!).toMatch(/Advisory Procedure/i)
   })
 
-  it("flow-tdd SKILL.md contains Runtime Procedure placeholder", () => {
+  it("flow-tdd SKILL.md contains Runtime Procedure bound to tdd_checkpoint ops", () => {
     const content = readFlowTddSkill()
     expect(content).not.toBeNull()
     expect(content!).toMatch(/Runtime Procedure/i)
-    expect(content!).toContain("Phase C")
+    // 批 14：Runtime Procedure 从 Phase C 占位改为实际协议 — 每个 stage 对应 tdd_checkpoint op
+    expect(content!).toContain("tdd_checkpoint")
+    expect(content!).toContain("cycle-start")
   })
 
   it("flow-tdd is loaded by setupSkillsDir", async () => {
@@ -156,5 +158,56 @@ describe("flow-tdd Advisory Skill", () => {
     const loaded = fs.readFileSync(path.join(result, "flow-tdd", "SKILL.md"), "utf8")
     expect(loaded).toContain("# flow-tdd")
     expect(loaded).toContain("cycle-start")
+  })
+})
+
+describe("skills convergence (R12, §6.2)", () => {
+  const EXPECTED_SKILLS = [
+    "flow-setup", "flow-requirements", "flow-design", "flow-tasks",
+    "flow-code", "flow-tdd", "flow-review", "flow-release",
+  ]
+
+  // 每个 skill 指向的内核工具（§6.2 引用关系）
+  const SKILL_TOOL_REFS: Record<string, string[]> = {
+    "flow-setup": ["setup_control"],
+    "flow-requirements": ["flow_control"],
+    "flow-design": ["flow_control"],
+    "flow-tasks": ["task_control"],
+    "flow-code": ["task_control", "tdd_checkpoint"],
+    "flow-tdd": ["tdd_checkpoint"],
+    "flow-review": ["task_control"],
+    "flow-release": ["release_control"],
+  }
+
+  function listSkillDirs(): string[] {
+    if (!fs.existsSync(ASSETS_SKILLS_DIR)) return []
+    return fs.readdirSync(ASSETS_SKILLS_DIR, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name)
+  }
+
+  it("exactly 8 skills exist, no flow-handoff / flow-test", () => {
+    const dirs = listSkillDirs()
+    expect(dirs.sort()).toEqual([...EXPECTED_SKILLS].sort())
+  })
+
+  it("each skill references its kernel tool, does not copy tool implementation", () => {
+    for (const skill of EXPECTED_SKILLS) {
+      const skillPath = path.join(ASSETS_SKILLS_DIR, skill, "SKILL.md")
+      const content = fs.readFileSync(skillPath, "utf8")
+      for (const tool of SKILL_TOOL_REFS[skill]) {
+        expect(content).toContain(tool)
+      }
+      // 不复制内核工具实现：不出现 shell 层 gh/git 写命令
+      expect(content).not.toMatch(/gh pr create/)
+      expect(content).not.toMatch(/gh issue create/)
+      expect(content).not.toMatch(/git push/)
+      expect(content).not.toMatch(/git worktree add/)
+    }
+  })
+
+  it("flow-code references flow-tdd as the single TDD source", () => {
+    const content = fs.readFileSync(path.join(ASSETS_SKILLS_DIR, "flow-code", "SKILL.md"), "utf8")
+    expect(content).toContain("flow-tdd")
   })
 })

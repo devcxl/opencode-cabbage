@@ -4,6 +4,9 @@ import path from "node:path"
 import os from "node:os"
 import { loadCommands } from "../src/plugin/commands.js"
 
+const PROJECT_ROOT = path.resolve(import.meta.dirname || __dirname, "..")
+const ASSETS_COMMANDS_DIR = path.join(PROJECT_ROOT, "assets", "commands")
+
 let tmpDir: string
 let skillsDir: string
 
@@ -108,6 +111,29 @@ describe("loadCommands", () => {
       expect(r1).toEqual(r2)
     } finally {
       fs.rmSync(otherSkillsDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("command convergence (R12, §6.4)", () => {
+  const EXPECTED_COMMANDS = ["setup", "requirements", "design", "tasks", "code", "review", "release"]
+
+  it("exactly 7 commands exist, no test / handoff", () => {
+    const files = fs.readdirSync(ASSETS_COMMANDS_DIR)
+      .filter(f => f.endsWith(".md"))
+      .map(f => f.replace(/\.md$/, ""))
+    expect(files.sort()).toEqual([...EXPECTED_COMMANDS].sort())
+  })
+
+  it("each command references its skill, no handoff/test residue", () => {
+    for (const name of EXPECTED_COMMANDS) {
+      const content = fs.readFileSync(path.join(ASSETS_COMMANDS_DIR, `${name}.md`), "utf8")
+      // 命令引用对应 skill（不复制流程）
+      expect(content).toContain(`flow-${name}`)
+      expect(content).not.toContain("flow-handoff")
+      expect(content).not.toContain("flow-test")
+      expect(content).not.toContain("/handoff")
+      expect(content).not.toContain("/test")
     }
   })
 })

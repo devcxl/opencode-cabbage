@@ -6,7 +6,7 @@
  * server.ts 接线由后续批次统一处理（本批不注册，避免文件冲突）。
  */
 import { tool } from "@opencode-ai/plugin/tool"
-import { requireCaller, CALLER_NOT_AUTHORIZED, type CallerRole } from "../kernel/caller.js"
+import { requireToolCaller, CALLER_NOT_AUTHORIZED } from "../kernel/caller.js"
 import {
   FLOW_STAGES,
   createFlow,
@@ -84,8 +84,8 @@ Caller: primary for all ops except complete-flow (goal-verify only).`,
     async execute(args, ctx) {
       const op = args.op as string
 
-      const callerRoles: CallerRole[] = op === "complete-flow" ? ["goal-verify"] : ["primary"]
-      const denied = await requireCaller(ctx, callerRoles, op, deps.sessionClient)
+      // caller 门禁（矩阵单一来源，§2.2）：complete-flow 仅 goal-verify；status 另开放 architect；其余仅 primary
+      const denied = await requireToolCaller(ctx, "flow_control", op, deps.sessionClient)
       if (denied) return errorResponse(CALLER_NOT_AUTHORIZED, denied)
 
       try {

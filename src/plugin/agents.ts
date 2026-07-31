@@ -2,23 +2,11 @@ import { readFileSync, readdirSync, existsSync } from "node:fs"
 import path from "node:path"
 import { parse as parseYaml } from "yaml"
 
-export interface AgentTools {
-  read?: boolean
-  bash?: boolean
-  write?: boolean
-  edit?: boolean
-}
-
-export interface AgentCapabilities {
-  create_pr: boolean
-  merge_pr: boolean
-  modify_files: boolean
-  run_tests: boolean
-  push_branch: boolean
-  approve_review: boolean
-  complete_goal: boolean
-}
-
+/**
+ * Agent frontmatter 的 permission 解析。
+ * 值可为字符串（如 "deny"、"npm test|git push"）或嵌套规则对象
+ * （OpenCode 语义：pattern → action，如 bash: { "*": "deny", "npm *": "allow" }）。
+ */
 export interface AgentPermission {
   [key: string]: string | Record<string, string> | undefined
 }
@@ -28,8 +16,6 @@ export interface AgentEntry {
   description?: string
   mode?: "subagent" | "primary" | "all"
   color?: string
-  tools?: AgentTools
-  capabilities?: AgentCapabilities
   permission?: AgentPermission
   prompt: string
 }
@@ -52,31 +38,6 @@ function parseAgentFile(filePath: string): AgentEntry | null {
   if (!parsed || typeof parsed !== "object") return null
   const name = String(parsed.name ?? "")
   if (!name) return null
-
-  const toolsRaw = parsed.tools
-  const tools: AgentTools | undefined =
-    toolsRaw && typeof toolsRaw === "object" && !Array.isArray(toolsRaw)
-      ? {
-          read: Boolean((toolsRaw as Record<string, unknown>).read),
-          bash: Boolean((toolsRaw as Record<string, unknown>).bash),
-          write: Boolean((toolsRaw as Record<string, unknown>).write),
-          edit: Boolean((toolsRaw as Record<string, unknown>).edit),
-        }
-      : undefined
-
-  const capabilitiesRaw = parsed.capabilities
-  const capabilities: AgentCapabilities | undefined =
-    capabilitiesRaw && typeof capabilitiesRaw === "object" && !Array.isArray(capabilitiesRaw)
-      ? {
-          create_pr: Boolean((capabilitiesRaw as Record<string, unknown>).create_pr),
-          merge_pr: Boolean((capabilitiesRaw as Record<string, unknown>).merge_pr),
-          modify_files: Boolean((capabilitiesRaw as Record<string, unknown>).modify_files),
-          run_tests: Boolean((capabilitiesRaw as Record<string, unknown>).run_tests),
-          push_branch: Boolean((capabilitiesRaw as Record<string, unknown>).push_branch),
-          approve_review: Boolean((capabilitiesRaw as Record<string, unknown>).approve_review),
-          complete_goal: Boolean((capabilitiesRaw as Record<string, unknown>).complete_goal),
-        }
-      : undefined
 
   const permissionRaw = parsed.permission
   const permission: AgentPermission | undefined =
@@ -103,8 +64,6 @@ function parseAgentFile(filePath: string): AgentEntry | null {
     description: parsed.description as string | undefined,
     mode: parsed.mode as AgentEntry["mode"],
     color: parsed.color as string | undefined,
-    tools,
-    capabilities,
     permission,
     prompt: body,
   }

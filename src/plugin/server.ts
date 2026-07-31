@@ -7,7 +7,7 @@ import { initBootstrap, getBootstrapContent } from "./bootstrap.js"
 import { loadCommands } from "./commands.js"
 import { setupSkillsDir } from "./skills.js"
 import { loadAgents } from "./agents.js"
-import { createIsolatedShellEnv, detectAmbientCredentials } from "./shell.js"
+import { createAgentShellEnv } from "./shell.js"
 import { createGoalClient, createGoalTool, readGoal, writeGoal, MAX_CONTINUATIONS, continuationPrompt, formatGoal } from "./goal.js"
 import { readIndex, updateFlowSession } from "../kernel/session-index.js"
 import { FlowBroker } from "./broker.js"
@@ -462,15 +462,6 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
       config: async (rawConfig) => {
         const config = rawConfig as Record<string, any>
 
-        // ── Ambient credential 检测 ──
-        const ambientReport = detectAmbientCredentials()
-        if (ambientReport.hasWriteCredentials) {
-          console.warn(
-            "[cabbage] ⚠️  检测到可用 GitHub 写凭证，Runtime enforcement 已降级为 advisory:",
-            ambientReport.sources.map(s => s.location).join(", "),
-          )
-        }
-
         config.skills = config.skills || {}
         config.skills.paths = config.skills.paths || []
         if (!config.skills.paths.includes(skillsDir)) {
@@ -497,10 +488,9 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
             mode: agent.mode,
             color: agent.color,
             prompt: agent.prompt,
-            tools: agent.tools ?? { read: true, bash: true, edit: true },
             permission: agent.permission,
             shell: {
-              env: createIsolatedShellEnv(agent),
+              env: createAgentShellEnv(),
             },
           }
         }

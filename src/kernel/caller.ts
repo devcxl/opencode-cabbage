@@ -25,11 +25,14 @@ const TOOL_ROLES: Record<string, CallerRole[]> = {
   release_control: ["primary"],
 }
 
-/** op 级覆盖（最后匹配优先）：architect 仅 flow_control.status 只读；goal-verify 仅 complete-flow */
+/** op 级覆盖（最后匹配优先）：architect 仅 flow_control.status 只读；goal-verify 仅 complete-flow；tdd_checkpoint.not-applicable 仅 primary（spec §2.3 纯文档豁免） */
 const OP_ROLES: Record<string, Record<string, CallerRole[]>> = {
   flow_control: {
     "complete-flow": ["goal-verify"],
     status: ["primary", "architect"],
+  },
+  tdd_checkpoint: {
+    "not-applicable": ["primary"],
   },
 }
 

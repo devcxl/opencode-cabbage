@@ -59,14 +59,6 @@ export function devGuidesDir(projectDir: string) {
   return path.join(docsRoot(projectDir), "dev", "guides")
 }
 
-export function devHandoffDir(projectDir: string) {
-  return path.join(docsRoot(projectDir), "dev", "handoff")
-}
-
-export function outOfScopePath(projectDir: string) {
-  return path.join(docsRoot(projectDir), "dev", "out-of-scope.md")
-}
-
 export function prdPath(projectDir: string, name: string) {
   return path.join(prdDir(projectDir), `${slugify(name)}.md`)
 }
@@ -84,7 +76,7 @@ export function pluginTemplateDir(projectDir: string) {
   return path.join(projectDir, ".opencode", PLUGIN_ID, "templates")
 }
 
-const DOCS_SUBDIRS = ["prd", "adr", "dev/specs", "dev/tasks", "dev/api", "dev/db", "dev/guides", "dev/handoff"]
+const DOCS_SUBDIRS = ["prd", "adr", "dev/specs", "dev/tasks", "dev/api", "dev/db", "dev/guides"]
 
 export async function ensureDocsStructure(projectDir: string) {
   const created: string[] = []

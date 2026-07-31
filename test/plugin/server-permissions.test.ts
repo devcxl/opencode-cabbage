@@ -185,6 +185,7 @@ describe("server config hook — agent 注入（permission 规则，无 tools �
   let tmpDir: string
   let plugin: {
     config: (config: unknown) => Promise<void>
+    tool: Record<string, unknown>
   }
 
   beforeEach(async () => {
@@ -200,12 +201,22 @@ describe("server config hook — agent 注入（permission 规则，无 tools �
       serverUrl: new URL("http://localhost:0"),
     }
     const hooks = await createOpencodeCabbage(projectRoot)(ctx as never, {})
-    plugin = hooks as unknown as { config: (config: unknown) => Promise<void> }
+    plugin = hooks as unknown as { config: (config: unknown) => Promise<void>; tool: Record<string, unknown> }
   })
 
   afterEach(async () => {
     delete process.env.CABBAGE_SKILLS_DIR
     await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it("注册 5 个生命周期工具 + goal（批 15 接线验证）", async () => {
+    const toolKeys = Object.keys(plugin.tool).sort()
+    expect(toolKeys).toEqual(["flow_control", "goal", "release_control", "setup_control", "task_control", "tdd_checkpoint"])
+    for (const key of ["flow_control", "task_control", "setup_control", "tdd_checkpoint", "release_control"]) {
+      expect(plugin.tool[key], `${key} should be a tool definition`).toBeDefined()
+    }
+    // 旧 FlowRun 工具（run-* 版）已删除
+    expect(plugin.tool).not.toHaveProperty("flowrun")
   })
 
   it("注入的 agent 保留 permission 规则，不再注入 tools 布尔", async () => {

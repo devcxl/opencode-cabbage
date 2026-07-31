@@ -20,21 +20,19 @@
 }
 ```
 
-插件启动后自动注入 9 个 slash command、9 个 flow skill、5 个 agent。
+插件启动后自动注入 7 个 slash command、8 个 flow skill、5 个 agent 与 5 个确定性生命周期工具。
 
 ## 命令一览
 
 | 命令 | 阶段 | 产出 |
 |------|------|------|
-| `/setup` | 初始化 | `docs/` 目录结构、环境验证 |
-| `/requirements` | 需求 | PRD → `docs/prd/` + GitHub Issue |
-| `/design` | 设计 | 技术方案 + ADR → `docs/dev/specs/` + `docs/adr/` |
-| `/tasks` | 任务拆解 | DAG 任务 + Sub Issues → `docs/dev/tasks/` |
-| `/code` | 编码 | 分支 + 代码 + 单测 + PR |
-| `/test` | 测试 | 触发 CI + 监控 + 汇报 |
+| `/setup` | 初始化 | `docs/` 目录结构、Project Profile、CI/release workflow 校验 |
+| `/requirements` | 需求 | PRD → `docs/prd/` + Draft Parent Issue |
+| `/design` | 设计 | 技术方案 + 必要 ADR → `docs/dev/specs/` + `docs/adr/` |
+| `/tasks` | 任务拆解 | DAG 任务 + Sub Issues（GitHub 权威源） |
+| `/code` | 编码 | Task + Runtime TDD evidence + PR |
 | `/review` | 审查 | 双轴审查 + 自动合并 |
-| `/release` | ⚠️ 手动发布 | 版本 → Changelog → Release → npm publish |
-| `/handoff` | 交接 | 打包上下文，跨会话传递 |
+| `/release` | ⚠️ 手动发布 | 版本提议 → Release PR → tag push → workflow 监控 |
 
 ## 快速开始
 
@@ -60,19 +58,36 @@ npm install @devcxl/opencode-cabbage
 src/                          # TypeScript 薄层
 ├── index.ts                  # 插件入口
 ├── plugin.ts                 # 包路径解析
-└── plugin/
-    ├── server.ts             # 主工厂：注入 skills/commands/agents
-    ├── commands.ts           # Command 加载器
-    ├── skills.ts             # Skill 加载器
-    ├── prompts.ts            # Prompt 加载器
-    ├── bootstrap.ts          # 启动引导
-    └── agents.ts             # Agent 注入
+├── plugin/                   # 加载器 + 工具工厂
+│   ├── server.ts             # 主工厂：注入 skills/commands/agents/5 个生命周期工具
+│   ├── commands.ts           # Command 加载器
+│   ├── skills.ts             # Skill 加载器
+│   ├── prompts.ts            # Prompt 加载器
+│   ├── bootstrap.ts          # 启动引导
+│   ├── agents.ts             # Agent 注入
+│   ├── setup-control.ts      # setup_control 工具
+│   ├── flow-control.ts       # flow_control 工具
+│   ├── task-control.ts       # task_control 工具
+│   ├── tdd-checkpoint.ts     # tdd_checkpoint 工具
+│   └── release-control.ts    # release_control 工具
+└── kernel/                   # 确定性薄内核
+    ├── slug.ts               # Functional Slug 派生/校验
+    ├── records.ts            # Flow/Task Record CRUD（GitHub 权威源）
+    ├── worktree.ts           # Worktree 生命周期（无 --force）
+    ├── tdd/                  # Runtime TDD 纯函数 + evidence
+    ├── review.ts             # 合并门禁（CI/分支保护/风险/approval）
+    ├── release.ts            # 版本提议 + tag 不可变校验
+    ├── context.ts            # 根 CONTEXT.md 发现/注入
+    ├── profile.ts            # AGENTS.md Project Profile 解析
+    ├── session-index.ts      # Flow→session 索引 + takeover
+    ├── caller.ts             # 调用者角色矩阵
+    ├── permission.ts         # 权限匹配语义
+    └── legacy.ts             # 旧 FlowRun 检测
 
 assets/                       # 运行时资源
-├── commands/                 # 9 个 slash command
-├── skills/                   # 9 个 flow-* skill
+├── commands/                 # 7 个 slash command
+├── skills/                   # 8 个 flow-* skill
 ├── agents/                   # 5 个 agent 定义
-├── context/                  # 领域词汇表
 └── prompts/                  # 引导提示词 + 模板
 ```
 

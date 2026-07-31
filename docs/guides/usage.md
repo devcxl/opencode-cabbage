@@ -11,7 +11,7 @@
 按顺序逐一执行命令，适合需要精细控制的场景：
 
 ```
-/setup → /requirements → /design → /tasks → /code → /test → /review → /release
+/setup → /requirements → /design → /tasks → /code → /review → /release
 ```
 
 ### 自动模式
@@ -30,9 +30,12 @@
 - gh CLI 是否安装并可执行
 - GitHub 远程仓库是否配置
 - 是否需要 GitHub CLI 认证
+- Project Profile（AGENTS.md）与 CI/release workflow
 
 **产出**：
-- `docs/prd/`、`docs/adr/`、`docs/dev/{specs,tasks,api,db,guides,handoff}/` 目录
+- `docs/prd/`、`docs/adr/`、`docs/dev/{specs,tasks,api,db,guides}/` 目录
+- 根 `AGENTS.md` 的 Project Profile 区块
+- 缺失的 CI / release workflow 草案
 
 **何时执行**：第一次使用插件时，或切换到一个新项目时。
 
@@ -145,22 +148,6 @@ acceptance: 用户可以通过邮箱+密码注册，收到验证邮件
 
 ---
 
-### `/test` — CI 测试
-
-**用途**：触发 CI 流水线并监控结果。
-
-**流程**：
-1. 在已创建的 PR 上触发 CI
-2. 监控 CI 运行状态
-3. 汇报测试结果
-
-**监控内容**：
-- CI 队列长度（背压检测）
-- CI 运行状态
-- 测试通过/失败情况
-
----
-
 ### `/review` — 代码审查
 
 **用途**：AI 双轴审查 PR 并自动合并。
@@ -195,22 +182,15 @@ acceptance: 用户可以通过邮箱+密码注册，收到验证邮件
 
 **⚠️ 该阶段为手动触发**，不会在自动模式中执行。
 
-**流程**：
-1. 版本号更新（`npm version patch|minor|major`）
-2. 生成 Changelog
-3. 创建 GitHub Release
-4. npm publish
+**流程**（技术栈无关，按 Profile 的 Release 规则）：
+1. 调用 `release_control{propose-version}` 聚合上一 tag 后 main 的变更并提议 SemVer 版本（用户确认）
+2. 调用 `release_control{open-release-pr}` 创建 Release PR（更新版本文件 + Release Notes）
+3. CI 通过 + 人工批准后调用 `release_control{merge-release-pr}` 合并并打 tag
+4. 调用 `release_control{monitor}` 监控项目 GitHub Actions release workflow，成功后发布完成
+
+实际发布由项目自己的 GitHub Actions release workflow 执行，不假设 npm 或其他生态。
 
 ---
-
-### `/handoff` — 上下文交接
-
-**用途**：当上下文窗口压力过大或需要跨会话传递进度时使用。
-
-**流程**：
-1. 打包当前 FlowRun 状态
-2. 输出到 `docs/dev/handoff/`
-3. 下次会话可读取恢复
 
 ---
 
@@ -300,10 +280,4 @@ test: 添加用户模块单元测试
 
 ### 版本发布
 
-```bash
-npm version patch  # bugfix
-npm version minor  # 新功能（向后兼容）
-npm version major  # 破坏性变更
-git push origin main --tags
-npm publish
-```
+发布遵循技术栈无关的 Release 流程（详见 `/release` 章节）：按 Profile 的版本规则更新版本文件、创建 Release PR、人工批准后合并并打 tag，由项目自己的 GitHub Actions release workflow 完成实际发布。

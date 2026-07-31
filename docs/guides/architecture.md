@@ -13,21 +13,19 @@
 │  │              opencode-cabbage Plugin                   │  │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌───────────────┐ │  │
 │  │  │  Config      │  │  Events     │  │  Tools        │ │  │
-│  │  │  Injection   │  │  Handler    │  │  (goal)       │ │  │
+│  │  │  Injection   │  │  Handler    │  │  (5 生命周期) │ │  │
 │  │  └──────┬───────┘  └──────┬──────┘  └───────┬───────┘ │  │
 │  │         │                 │                  │         │  │
 │  │  ┌──────┴─────────────────┴──────────────────┴───────┐ │  │
-│  │  │              FlowRun 引擎（Spike 验证完成，阶段性接入中）  │ │  │
-│  │  │  ┌─────────┐ ┌────────┐ ┌────────┐ ┌──────────┐  │ │  │
-│  │  │  │ Gate    │ │ GitHub │ │ Merge  │ │Resilience│  │ │  │
-│  │  │  │ 检查    │ │ 存储   │ │ 合并   │ │ 弹性     │  │ │  │
-│  │  │  └─────────┘ └────────┘ └────────┘ └──────────┘  │ │  │
+│  │  │            Thin Kernel（确定性薄内核）                │ │  │
+│  │  │  slug  records worktree tdd review release          │ │  │
+│  │  │  context profile session-index permission           │ │  │
 │  │  └───────────────────────────────────────────────────┘ │  │
 │  └───────────────────────────────────────────────────────┘  │
 │                                                             │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │           Agent 团队 (5 agents + 1 goal-verify)       │  │
-│  │  @dev-lifecycle → @architect → @developer        │  │
+│  │  @dev-lifecycle → @architect → @developer             │  │
 │  │                    → @reviewer → @goal-verify          │  │
 │  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
@@ -41,7 +39,7 @@ TypeScript 薄层，职责：
 
 - **插件入口** (`index.ts`) — 导出 `{ id, server }`
 - **包路径解析** (`plugin.ts`) — 解析 npm 包根路径
-- **主工厂** (`plugin/server.ts`) — 创建 `Plugin` 接口，注入配置、注册事件、暴露 tool
+- **主工厂** (`plugin/server.ts`) — 创建 `Plugin` 接口，注入配置、注册事件、暴露工具
 
 ### 2. 加载器层 (`src/plugin/`)
 
@@ -49,91 +47,74 @@ TypeScript 薄层，职责：
 
 | 加载器 | 职责 |
 |--------|------|
-| `commands.ts` | 解析 markdown frontmatter，注册 9 个 slash command |
-| `skills.ts` | 复制 skills 到临时目录，替换路径引用 |
+| `commands.ts` | 解析 markdown frontmatter，注册 7 个 slash command |
+| `skills.ts` | 复制 skills 到固定目录，替换路径引用 |
 | `agents.ts` | 解析 YAML frontmatter，注册 agent |
 | `prompts.ts` | 两级加载（项目 > 内置），提供 prompt 内容 |
 | `bootstrap.ts` | 加载启动引导 system prompt |
-| `goal.ts` | Goal 状态机 + continuation 管理 |
+| `goal.ts` | 最小 Goal 状态机（parentIssueNumber/status/continuationCount）+ continuation 管理 |
 
-### 3. FlowRun 引擎 (`src/flowrun/`)
+### 3. Thin Kernel（确定性薄内核，`src/kernel/`）
 
-FlowRun 已实现完整的阶段/任务/Gate/Checkpoint 状态机，经 Spike 验证（2026-07-15），阶段性接入中。当前编排由 Goal 系统 + Agent 协作驱动，FlowRun 逐步接入 Continuation 状态摘要和 PR 合并路径验证。
+对模型不应自由决定的高风险流程规则实施确定性约束（ADR 0002）：
 
 | 模块 | 职责 |
 |------|------|
-| `types.ts` | 类型系统：FlowRun/Stage/Task/Checkpoint |
-| `github.ts` | Issue CRUD + 标签管理 + 乐观锁 |
-| `gate.ts` | 阶段/任务准入准出检查 |
-| `merge.ts` | PR 合并 + 分支保护 + 回滚 |
-| `transitions.ts` | 状态迁移函数（flowRunStart、flowRunFinalize 等） |
-| `validator.ts` | JSON Schema 校验 |
-| `resilience.ts` | 运行时检查 + 背压检测 |
-| `audit.ts` | 审计评论发布 |
+| `slug.ts` | Functional Slug 派生与校验（拒绝泛化名/非法格式） |
+| `records.ts` | Flow/Task Record CRUD（GitHub Issues 权威源）+ evidence 受控 comment |
+| `worktree.ts` | worktree 生命周期（创建/复用校验/销毁 preflight，无 --force） |
+| `tdd/` | Runtime TDD 纯函数（state/adapter/digest/evaluator/evidence） |
+| `review.ts` | 审查与合并门禁（CI/分支保护/风险双层/非作者 approval） |
+| `release.ts` | 版本聚合/分类/提议 + tag 不可变校验（技术栈无关） |
+| `context.ts` | 根 CONTEXT.md 发现/摘要/mtime 缓存刷新 |
+| `profile.ts` | AGENTS.md Project Profile 区块解析 |
+| `session-index.ts` | parentIssue→session 轻量索引 + 双 session 拒绝/takeover |
+| `caller.ts` | 工具调用者校验原语（角色矩阵 + op 覆盖） |
+| `permission.ts` | OpenCode permission 匹配语义（最后匹配优先、deny 置尾） |
+| `legacy.ts` | 旧 FlowRun cabinet 检测（不迁移只提示） |
 
 ## 核心概念
 
-### Goal（目标）
+### Flow / Task Record（GitHub 权威源）
 
-Goal 是 flow 状态的载体，存储在 session metadata 中：
+- 一个 **Flow** = 一个 GitHub Parent Issue（Flow Record），包含目标、验收摘要与阶段 checklist
+- 一个 **Task** = 一个 GitHub Sub Issue（Task Record），包含验收标准、依赖、TDD 上下文块
+- PR 关联 Sub Issue，CI Checks 关联 PR；三者共同构成工程进度权威事实
+- **不持久化** FlowRun cabinet 或其他 JSON 状态——进度从 GitHub 实时推导
 
-```typescript
-interface GoalData {
-  objective: string          // 一句话目标
-  completionCriterion: string // 完成标准
-  status: "active" | "paused" | "complete"
-  continuationCount: number   // 自动 continuation 次数
-}
-```
+### 5 个生命周期工具
 
-### FlowRun（流程运行）
-
-FlowRun 是完整的流程状态机，存储在 GitHub Issue body 中：
-
-```typescript
-interface FlowRun {
-  flowRunId: string
-  repo: string
-  parentIssueNumber: number
-  status: "planned" | "running" | "blocked" | "merging" | "completed" | "cancelled"
-  stages: Record<FlowStage, StageState>
-  tasks: Record<string, TaskState>
-  // ...
-}
-```
-
-FlowRun 通过 JSON 块持久化在 Issue body 中：
-
-```
-<!-- cabbage-flow-run:start -->
-```json
-{ ... }
-```
-<!-- cabbage-flow-run:end -->
-```
+| 工具 | 职责 |
+|------|------|
+| `setup_control` | 探测/校验（development-ready / release-ready）/ 生成 workflow 草案 / 确认 Profile |
+| `flow_control` | Flow 生命周期（create/status/planning/stage/complete/cancel/takeover）+ legacy 检测 |
+| `task_control` | Task 生命周期（create/start/submit/submit-review/merge/cancel/destroy/status） |
+| `tdd_checkpoint` | Runtime TDD 证据（RED/GREEN/回归，工具亲执，缺证据拒 PR） |
+| `release_control` | 版本提议 / Release PR / 合并打 tag / workflow 监控 |
 
 ### Stage（阶段）
 
-7 个有序阶段，每个有准入/准出条件：
+5 个逻辑阶段，每个有明确目标与完成条件：
 
 ```
-requirements → design → tasks → code → test → review → merge
+requirements → design → tasks → code → review
 ```
 
-### Task（任务）
+Release 是独立人工流程，不属于每个 Flow 的 Stage。
 
-DAG 任务图，支持依赖关系和并行执行：
+### 权限模型
 
-```typescript
-interface TaskState {
-  id: string
-  dependsOn: string[]     // 依赖的任务 ID
-  area: "developer" | "common"
-  parallelSafe: boolean   // 是否可并行
-  prNumber: number | null // 关联 PR
-  // ...
-}
-```
+- 高风险 git/gh 写操作（worktree 创建/销毁、push、PR、merge、Issue 关闭）只走生命周期工具
+- 模型可直接执行只读 git/gh 与本地 edit/add/commit
+- Agent permission：allow 只读白名单 + deny 写操作置尾（最后匹配优先）
+- 工具内 caller 校验（角色矩阵）+ config 层工具布尔双重门禁
+- 复用宿主 `gh auth`，不建设第二套凭据
+
+### Project Context 注入
+
+- 根 `CONTEXT.md` 是领域术语权威
+- 插件在 Primary 会话与子 Agent 首消息自动注入内容与 digest（mtime 缓存刷新）
+- 术语经用户确认后即时更新；Context 只保存领域语言，不承载实现细节
 
 ## 事件驱动
 
@@ -141,8 +122,8 @@ interface TaskState {
 
 | 事件 | 处理 |
 |------|------|
-| `session.status (idle)` | 自动 continuation（最多 50 次） |
-| `session.status (error)` | 错误恢复（重试 3→跳过 2→暂停） |
+| `session.status (idle)` | 自动 continuation（进度驱动：有进展继续，停滞 3 次暂停） |
+| `session.status (error)` | 错误恢复（工具级瞬时重试，无 generic skip） |
 | `session.error` | 记录 abort session |
 | `message.updated (user)` | 重置 continuation 计数 |
 | `session.updated` | 清理已完成 session |
@@ -151,7 +132,7 @@ interface TaskState {
 
 ### 自动 continuation
 
-Plugin 在 AI idle 时自动注入 continuation prompt：
+Plugin 在 AI idle 时自动注入 continuation prompt（含 Project Context 摘要）：
 
 ```
 Continue working toward the active goal.
@@ -163,40 +144,28 @@ Continue working toward the active goal.
 
 ### 错误恢复
 
-```
-错误次数 0-2: 重试（不同方法）
-错误次数 3-4: 跳过（继续剩余工作）
-错误次数 5+: 暂停，等待用户介入
-```
+- Task 失败自动重试最多 3 次，仍失败标记 blocked 并停止下游；其他独立 Tasks 继续
+- Review 自动修复最多 3 轮
+- 连续 3 次 continuation 无可验证进展才暂停请求人工介入
 
 ### 自动恢复
 
-插件重启时自动恢复上次未完成的 session：
+插件重启时通过 session-index 自动恢复上次未完成的 session：
 
 ```
 [auto-resume] Plugin restarted. Resuming previous goal:
-Goal: ...
+Flow #<number>
 Status: active
 Continue working.
 ```
 
-### 背压检测
-
-每次操作前检查：
-
-- GitHub API rate limit（< 100 则暂停）
-- CI 队列长度（>= 10 则暂停）
-
-### 乐观锁
-
-FlowRun 写入时检测 Issue body 是否被其他进程修改，防止并发冲突。
-
 ## 安全性
 
-- 子 agent 禁止调用 `goal({op:"create"|"pause"|"resume"|"cancel"})` — 生命周期操作限制在主 session
-- 只有 `@goal-verify` 可以调用 `goal({op:"complete"})` — 防止过早完成
-- `goal({op:"complete"})` 内部验证 FlowRun 终态：如绑定 FlowRunRef，要求 FlowRun 必须先由 `flow_control({op:"run-finalize"})` 完成终态绑定
-- Agent 工具权限由 frontmatter 控制（reviewer 只读，developer 本地读写）
+- 子 agent 禁止调用 Flow 生命周期写操作（caller 矩阵：developer 仅 tdd_checkpoint、architect 仅 status 只读、reviewer 无工具）
+- 只有 `@goal-verify` 可以完成 Flow（`flow_control{complete-flow}`）
+- TDD 硬门禁：缺 evidence 的 PR 被拒绝创建
+- 合并门禁：CI checks + 分支保护 + 风险双层判定（只升不降）+ 高风险需非作者人类 approval
+- worktree 销毁 preflight：PR 合并 + 干净才自动；脏目录拒绝；无 `--force`
 
 ## 依赖关系
 
@@ -209,4 +178,4 @@ FlowRun 写入时检测 Issue body 是否被其他进程修改，防止并发冲
 
 外部依赖：
 - `gh` CLI — GitHub 操作（Issues、PRs、CI、Releases）
-- `npm` — 发布流程
+- 项目自身的 GitHub Actions release workflow — 实际发布（技术栈无关，不假设 npm）

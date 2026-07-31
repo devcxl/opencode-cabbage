@@ -29,7 +29,7 @@ import type { ProjectProfile } from "../../src/kernel/profile.js"
 import { createTaskControlTool, registerTaskControl } from "../../src/plugin/task-control.js"
 import { setRecordsGhExecutor } from "../../src/kernel/records.js"
 import { setWorktreeGitExecutor } from "../../src/kernel/worktree.js"
-import { setMergeGhExecutor } from "../../src/flowrun/merge.js"
+import { setMergeGhExecutor } from "../../src/kernel/review.js"
 import type { CallerSessionClient } from "../../src/kernel/caller.js"
 
 const primaryClient: CallerSessionClient = {
@@ -103,7 +103,7 @@ function resetAllExecutors() {
   setTaskGitExecutor(null)
   setRecordsGhExecutor(null)
   setWorktreeGitExecutor(null)
-  // flowrun/merge.ts 的 setMergeGhExecutor 不接受 null，用恒抛错的 stub 兜底
+  // kernel/review.ts 的 setMergeGhExecutor 接受 null，用恒抛错的 stub 兜底
   setMergeGhExecutor(() => {
     throw new Error("unexpected merge gh")
   })

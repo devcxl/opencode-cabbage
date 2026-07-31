@@ -1,5 +1,4 @@
 import type { Plugin } from "@opencode-ai/plugin"
-import { tool } from "@opencode-ai/plugin/tool"
 import path from "node:path"
 
 import { initPrompts } from "./prompts.js"
@@ -10,16 +9,11 @@ import { loadAgents } from "./agents.js"
 import { createAgentShellEnv } from "./shell.js"
 import { createGoalClient, createGoalTool, readGoal, writeGoal, MAX_CONTINUATIONS, continuationPrompt, formatGoal } from "./goal.js"
 import { readIndex, updateFlowSession } from "../kernel/session-index.js"
-import { FlowBroker } from "./broker.js"
-import {
-  flowRunStart,
-  flowStageStart,
-  flowStageComplete,
-  flowTaskStart,
-  flowRunFinalize,
-} from "../flowrun/transitions.js"
-import type { TaskExecutionBinding, FlowControlResponse } from "../flowrun/types.js"
-import { readFlowRun } from "../flowrun/github.js"
+import { createSetupControlTool } from "./setup-control.js"
+import { createFlowControlTool } from "./flow-control.js"
+import { createTaskControlTool } from "./task-control.js"
+import { createTddCheckpointTool } from "./tdd-checkpoint.js"
+import { createReleaseControlTool } from "./release-control.js"
 import { getContextBlock, formatContextBlock, CONTEXT_MARKER } from "../kernel/context.js"
 import type { ContextBlock } from "../kernel/context.js"
 import { readProjectProfile } from "../kernel/profile.js"
@@ -218,269 +212,25 @@ function startPeriodicCleanup() {
   }, ABORTED_SESSION_CLEANUP_INTERVAL)
 }
 
-// ─── Flow Control Tool ───
-
-function createFlowControlTool(
-  broker: FlowBroker,
-) {
-  return tool({
-    description: `Control the FlowRun lifecycle: start a FlowRun, transition stages, start tasks, and finalize completed runs.
-
-Operations:
-- run-start: Transition FlowRun from planned → running. Binds Goal to FlowRun.
-- stage-start: Start a stage (requirements/design/tasks/code). Requires prerequisites met.
-- stage-complete: Complete a stage (requirements/design/tasks). Requires all checks pass.
-- task-start: Start a task (pending/ready → running). Freezes TDD policy and sets execution binding.
-- run-finalize: Mark code→test→review→merge stages as pass, set FlowRun to completed. Requires all Tasks merged. Idempotent.`,
-    args: {
-      op: tool.schema.enum(["run-start", "stage-start", "stage-complete", "task-start", "run-finalize"]).describe("Flow control operation"),
-      parent_issue_number: tool.schema.number().describe("Parent GitHub Issue number containing the FlowRun"),
-      stage: tool.schema.enum(["requirements", "design", "tasks", "code", "test", "review", "merge"]).optional().describe("Stage name (for stage-start/stage-complete)"),
-      task_id: tool.schema.string().optional().describe("Task ID (for task-start)"),
-      execution_binding: tool.schema.object({
-        branch: tool.schema.string(),
-        base_sha: tool.schema.string(),
-        start_head_sha: tool.schema.string(),
-        worktree_id: tool.schema.string(),
-        session_id: tool.schema.string(),
-      }).optional().describe("Execution binding for task-start"),
-      tdd_policy_json: tool.schema.string().optional().describe("JSON string of frozen TDD policy (for task-start)"),
-    },
-    async execute(args, ctx) {
-      const op = args.op as string
-      const parentIssueNumber = args.parent_issue_number as number
-
-      try {
-        switch (op) {
-          case "run-start":
-            return handleRunStart(broker, parentIssueNumber)
-          case "stage-start":
-            return handleStageStart(broker, parentIssueNumber, args.stage as string)
-          case "stage-complete":
-            return handleStageComplete(broker, parentIssueNumber, args.stage as string)
-          case "task-start":
-            return handleTaskStart(broker, parentIssueNumber, args.task_id as string, args.execution_binding as TaskExecutionBinding | undefined, args.tdd_policy_json as string | undefined)
-          case "run-finalize":
-            return handleRunFinalize(broker, parentIssueNumber)
-          default:
-            return errorResponse("UNKNOWN_OP", `Unknown operation: "${op}"`)
-        }
-      } catch (err) {
-        return errorResponse("INTERNAL_ERROR", String(err))
-      }
-    },
-  })
-}
-
-function okResponse(overrides: Partial<FlowControlResponse> = {}): string {
-  const resp: FlowControlResponse = { ok: true, ...overrides }
-  return JSON.stringify(resp, null, 2)
-}
-
-function errorResponse(code: string, message: string): string {
-  const resp: FlowControlResponse = { ok: false, error: { code, message } }
-  return JSON.stringify(resp, null, 2)
-}
-
-async function handleRunStart(
-  broker: FlowBroker,
-  parentIssueNumber: number,
-): Promise<string> {
-  // 通过 broker 执行状态迁移
-  const writeResult = await broker.writeFlowRunWithLock<unknown>(parentIssueNumber, (flowRun) => {
-    const res = flowRunStart(flowRun)
-    if (!res.ok) {
-      return { flowRun, result: res.error, shouldPersist: false }
-    }
-    return { flowRun: res.value, result: res.value.status, shouldPersist: true }
-  })
-
-  if (!writeResult.ok) {
-    return errorResponse(writeResult.code, writeResult.message)
-  }
-
-  if (!writeResult.persisted) {
-    // 状态迁移被拒绝（如已是 running）
-    return errorResponse("INVALID_TRANSITION", "FlowRun is not in planned state")
-  }
-
-  return okResponse({
-    flowRunStatus: writeResult.flowRun.status,
-  })
-}
-
-async function handleStageStart(
-  broker: FlowBroker,
-  parentIssueNumber: number,
-  stageName: string,
-): Promise<string> {
-  if (!stageName) {
-    return errorResponse("POLICY_INVALID", "stage is required for stage-start")
-  }
-
-  const writeResult = await broker.writeFlowRunWithLock<unknown>(parentIssueNumber, (flowRun) => {
-    const res = flowStageStart(flowRun, stageName as any)
-    if (!res.ok) {
-      return { flowRun, result: res.error, shouldPersist: false }
-    }
-    return {
-      flowRun: res.value,
-      result: { stage: stageName, status: res.value.stages[stageName as keyof typeof res.value.stages].status },
-      shouldPersist: true,
-    }
-  })
-
-  if (!writeResult.ok) {
-    return errorResponse(writeResult.code, writeResult.message)
-  }
-
-  if (!writeResult.persisted && writeResult.result && typeof writeResult.result === "object" && "code" in writeResult.result) {
-    const err = writeResult.result as { code: string; message: string }
-    return errorResponse(err.code, err.message)
-  }
-
-  return okResponse({
-    flowRunStatus: writeResult.flowRun.status,
-    stage: writeResult.result as FlowControlResponse["stage"],
-  })
-}
-
-async function handleStageComplete(
-  broker: FlowBroker,
-  parentIssueNumber: number,
-  stageName: string,
-): Promise<string> {
-  if (!stageName) {
-    return errorResponse("POLICY_INVALID", "stage is required for stage-complete")
-  }
-
-  const writeResult = await broker.writeFlowRunWithLock<unknown>(parentIssueNumber, (flowRun) => {
-    const res = flowStageComplete(flowRun, stageName as any)
-    if (!res.ok) {
-      return { flowRun, result: res.error, shouldPersist: false }
-    }
-    return {
-      flowRun: res.value,
-      result: { stage: stageName, status: res.value.stages[stageName as keyof typeof res.value.stages].status },
-      shouldPersist: true,
-    }
-  })
-
-  if (!writeResult.ok) {
-    return errorResponse(writeResult.code, writeResult.message)
-  }
-
-  if (!writeResult.persisted && writeResult.result && typeof writeResult.result === "object" && "code" in writeResult.result) {
-    const err = writeResult.result as { code: string; message: string }
-    return errorResponse(err.code, err.message)
-  }
-
-  return okResponse({
-    flowRunStatus: writeResult.flowRun.status,
-    stage: writeResult.result as FlowControlResponse["stage"],
-  })
-}
-
-async function handleTaskStart(
-  broker: FlowBroker,
-  parentIssueNumber: number,
-  taskId: string,
-  executionBinding: TaskExecutionBinding | undefined,
-  tddPolicyJson: string | undefined,
-): Promise<string> {
-  if (!taskId) {
-    return errorResponse("POLICY_INVALID", "task_id is required for task-start")
-  }
-
-  if (!executionBinding) {
-    return errorResponse("POLICY_INVALID", "execution_binding is required for task-start")
-  }
-
-  // 解析 frozen policy
-  let tddPolicy = undefined
-  if (tddPolicyJson) {
-    try {
-      tddPolicy = JSON.parse(tddPolicyJson)
-    } catch {
-      return errorResponse("POLICY_INVALID", "tdd_policy_json is not valid JSON")
-    }
-  }
-
-  const writeResult = await broker.writeFlowRunWithLock<unknown>(parentIssueNumber, (flowRun) => {
-    const res = flowTaskStart(flowRun, taskId, executionBinding, tddPolicy)
-    if (!res.ok) {
-      return { flowRun, result: res.error, shouldPersist: false }
-    }
-    return {
-      flowRun: res.value.flowRun,
-      result: {
-        taskId,
-        status: res.value.task.status,
-        executionBinding: res.value.task.executionBinding,
-      },
-      shouldPersist: true,
-    }
-  })
-
-  if (!writeResult.ok) {
-    return errorResponse(writeResult.code, writeResult.message)
-  }
-
-  if (!writeResult.persisted && writeResult.result && typeof writeResult.result === "object" && "code" in writeResult.result) {
-    const err = writeResult.result as { code: string; message: string }
-    return errorResponse(err.code, err.message)
-  }
-
-  return okResponse({
-    flowRunStatus: writeResult.flowRun.status,
-    task: writeResult.result as FlowControlResponse["task"],
-  })
-}
-
-async function handleRunFinalize(
-  broker: FlowBroker,
-  parentIssueNumber: number,
-): Promise<string> {
-  const writeResult = await broker.writeFlowRunWithLock<unknown>(parentIssueNumber, (flowRun) => {
-    const res = flowRunFinalize(flowRun)
-    if (!res.ok) {
-      return { flowRun, result: res.error, shouldPersist: false }
-    }
-    return {
-      flowRun: res.value,
-      result: { status: res.value.status, completedAt: res.value.completedAt },
-      shouldPersist: true,
-    }
-  })
-
-  if (!writeResult.ok) {
-    return errorResponse(writeResult.code, writeResult.message)
-  }
-
-  if (!writeResult.persisted && writeResult.result && typeof writeResult.result === "object" && "code" in writeResult.result) {
-    const err = writeResult.result as { code: string; message: string }
-    return errorResponse(err.code, err.message)
-  }
-
-  return okResponse({
-    flowRunStatus: writeResult.flowRun.status,
-  })
-}
 
 export function createOpencodeCabbage(packageRoot: string): Plugin {
   return async (ctx, _options) => {
     const sourceSkillsDir = path.join(packageRoot, "assets", "skills")
-    const contextDir = path.join(packageRoot, "assets", "context")
     const promptsDir = path.join(packageRoot, "assets", "prompts")
     const commandsDir = path.join(packageRoot, "assets", "commands")
-    const skillsDir = await setupSkillsDir(sourceSkillsDir, contextDir, promptsDir)
+    const skillsDir = await setupSkillsDir(sourceSkillsDir, promptsDir)
 
     const projectDir = ctx.worktree || ctx.directory
     const v1Client = (ctx.client as unknown as V1ClientContainer)._client
     const goalClient = createGoalClient(ctx.serverUrl, v1Client)
     const goalTool = createGoalTool(goalClient)
-    const broker = new FlowBroker()
-    const flowControlTool = createFlowControlTool(broker)
+    const sessionClient = goalClient
+
+    const flowControlTool = createFlowControlTool({ projectDir, sessionClient })
+    const taskControlTool = createTaskControlTool({ projectDir, sessionClient })
+    const setupControlTool = createSetupControlTool({ projectDir, sessionClient })
+    const tddCheckpointTool = createTddCheckpointTool({ projectDir, sessionClient })
+    const releaseControlTool = createReleaseControlTool({ projectDir, sessionClient })
 
     const agentsDir = path.join(packageRoot, "assets", "agents")
 
@@ -494,6 +244,10 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
       tool: {
         goal: goalTool,
         flow_control: flowControlTool,
+        task_control: taskControlTool,
+        setup_control: setupControlTool,
+        tdd_checkpoint: tddCheckpointTool,
+        release_control: releaseControlTool,
       },
 
       config: async (rawConfig) => {

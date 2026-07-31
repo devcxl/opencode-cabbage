@@ -20,8 +20,8 @@ import { worktreeStart, destroyWorktree } from "./worktree.js"
 import { createTaskRecord, readFlowRecord, readTddEvidenceComment, extractEvidenceBlock } from "./records.js"
 import { captureWorkspaceBaseline, type WorkspaceBaseline } from "./tdd/evidence.js"
 import { evaluateTddCompliance } from "./tdd/evaluator.js"
-// merge 门禁复用 flowrun/merge.ts 的既有实现（spec §4.1：mergeTaskPR / checkBranchProtection；批 15 统一迁 kernel/review.ts）
-import { mergeTaskPR, checkBranchProtection } from "../flowrun/merge.js"
+// merge 门禁复用 kernel/review.ts 的既有实现（spec §4.1：mergeTaskPR / checkBranchProtection）
+import { mergeTaskPR, checkBranchProtection } from "./review.js"
 import type {
   AcceptanceCriterion,
   FinalVerificationEvidence,

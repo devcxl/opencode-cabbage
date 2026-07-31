@@ -27,7 +27,7 @@ worktree 创建与 Planning PR 创建均由内核工具完成，创建动作全�
 
 ## CONTEXT.md 术语
 
-阅读项目根 CONTEXT.md 与 skills 内 `_context/CONTEXT.md` 了解领域术语；
+阅读项目根 CONTEXT.md（领域术语权威，已自动注入内容与 digest）；
 设计中发现的新术语经用户确认后写入根 CONTEXT.md（术语权威）。
 
 ## Output

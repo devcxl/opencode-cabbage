@@ -20,21 +20,19 @@
 }
 ```
 
-Once started, the plugin automatically injects 9 slash commands, 9 flow skills, and 5 agents.
+Once started, the plugin automatically injects 7 slash commands, 8 flow skills, 5 agents, and 5 deterministic lifecycle tools.
 
 ## Command Overview
 
 | Command | Stage | Output |
 |---------|-------|--------|
-| `/setup` | Setup | `docs/` directory structure and environment validation |
-| `/requirements` | Requirements | PRD → `docs/prd/` + GitHub Issue |
-| `/design` | Design | Technical specification + ADR → `docs/dev/specs/` + `docs/adr/` |
-| `/tasks` | Task decomposition | DAG tasks + Sub Issues → `docs/dev/tasks/` |
-| `/code` | Coding | Branch + code + unit tests + PR |
-| `/test` | Testing | Trigger CI + monitor + report |
+| `/setup` | Setup | `docs/` directory structure, Project Profile, CI/release workflow validation |
+| `/requirements` | Requirements | PRD → `docs/prd/` + Draft Parent Issue |
+| `/design` | Design | Technical specification + necessary ADR → `docs/dev/specs/` + `docs/adr/` |
+| `/tasks` | Task decomposition | DAG tasks + Sub Issues (GitHub 权威源) |
+| `/code` | Coding | Task + Runtime TDD evidence + PR |
 | `/review` | Review | Dual-axis review + automatic merge |
-| `/release` | ⚠️ Manual release | Version → Changelog → Release → npm publish |
-| `/handoff` | Handoff | Package context for transfer across sessions |
+| `/release` | ⚠️ Manual release | Version proposal → Release PR → tag push → workflow monitor |
 
 ## Quick Start
 
@@ -60,19 +58,36 @@ npm install @devcxl/opencode-cabbage
 src/                          # Thin TypeScript layer
 ├── index.ts                  # Plugin entry point
 ├── plugin.ts                 # Package root resolution
-└── plugin/
-    ├── server.ts             # Main factory: injects skills, commands, and agents
-    ├── commands.ts           # Command loader
-    ├── skills.ts             # Skill loader
-    ├── prompts.ts            # Prompt loader
-    ├── bootstrap.ts          # Startup guidance
-    └── agents.ts             # Agent injection
+├── plugin/                   # Loaders + tool factories
+│   ├── server.ts             # Main factory: injects skills, commands, agents, 5 lifecycle tools
+│   ├── commands.ts           # Command loader
+│   ├── skills.ts             # Skill loader
+│   ├── prompts.ts            # Prompt loader
+│   ├── bootstrap.ts          # Startup guidance
+│   ├── agents.ts             # Agent injection
+│   ├── setup-control.ts      # setup_control tool
+│   ├── flow-control.ts       # flow_control tool
+│   ├── task-control.ts       # task_control tool
+│   ├── tdd-checkpoint.ts     # tdd_checkpoint tool
+│   └── release-control.ts    # release_control tool
+└── kernel/                   # Deterministic thin kernel
+    ├── slug.ts               # Functional slug derivation/validation
+    ├── records.ts            # Flow/Task Record CRUD (GitHub authoritative)
+    ├── worktree.ts           # Worktree lifecycle (no --force)
+    ├── tdd/                  # Runtime TDD pure functions + evidence
+    ├── review.ts             # Merge gates (CI/protection/risk/approval)
+    ├── release.ts            # Version proposal + tag immutability
+    ├── context.ts            # Root CONTEXT.md discovery/injection
+    ├── profile.ts            # AGENTS.md Project Profile parsing
+    ├── session-index.ts      # Flow→session index + takeover
+    ├── caller.ts             # Caller role matrix
+    ├── permission.ts         # Permission matching semantics
+    └── legacy.ts             # Legacy FlowRun detection
 
 assets/                       # Runtime assets
-├── commands/                 # 9 slash commands
-├── skills/                   # 9 flow-* skills
+├── commands/                 # 7 slash commands
+├── skills/                   # 8 flow-* skills
 ├── agents/                   # 5 agent definitions
-├── context/                  # Domain glossary
 └── prompts/                  # Guidance prompts and templates
 ```
 

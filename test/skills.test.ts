@@ -41,20 +41,6 @@ describe("setupSkillsDir", () => {
     expect(content).toContain("# flow-test")
   })
 
-  it("copies context directory when provided", async () => {
-    const srcDir = path.join(tmpDir, "skills-src")
-    fs.mkdirSync(srcDir, { recursive: true })
-    createSkill(srcDir, "x", "# x")
-
-    const contextDir = path.join(tmpDir, "context")
-    fs.mkdirSync(contextDir, { recursive: true })
-    fs.writeFileSync(path.join(contextDir, "CONTEXT.md"), "# Context", "utf8")
-
-    const result = await setupSkillsDir(srcDir, contextDir)
-
-    expect(fs.existsSync(path.join(result, "_context", "CONTEXT.md"))).toBe(true)
-  })
-
   it("replaces .opencode/skills/ references in SKILL.md", async () => {
     const srcDir = path.join(tmpDir, "skills-src")
     fs.mkdirSync(srcDir, { recursive: true })
@@ -67,7 +53,7 @@ describe("setupSkillsDir", () => {
     expect(content).not.toContain(".opencode/skills/")
   })
 
-  it("handles non-existent context dir gracefully", async () => {
+  it("handles non-existent prompts dir gracefully（签名不再接收 context）", async () => {
     const srcDir = path.join(tmpDir, "skills-src")
     fs.mkdirSync(srcDir, { recursive: true })
     createSkill(srcDir, "a", "# a")

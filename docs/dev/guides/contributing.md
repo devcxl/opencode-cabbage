@@ -31,8 +31,4 @@ npm run typecheck    # 类型检查
 
 ## 发布
 
-```bash
-npm version patch|minor|major
-git push origin main --tags
-npm publish
-```
+发布走项目自身的 Release 流程：按 Profile 的版本规则更新版本文件 → 创建 Release PR → 人工批准合并 → 打 tag push → 由 `.github/workflows/release-publish.yml`（或项目配置的 release workflow）自动发布。不直接手动 `npm publish`。

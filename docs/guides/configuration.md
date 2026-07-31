@@ -44,33 +44,29 @@
 
 ## 插件自动注入的配置
 
-### 9 个 Slash Command
+### 7 个 Slash Command
 
 | 命令 | 触发 agent | 说明 |
 |------|-----------|------|
-| `/setup` | — | 初始化：检测 gh CLI、配置 GitHub、创建 docs/ |
-| `/requirements` | — | 需求访谈 → PRD → GitHub Issue |
-| `/design` | `@architect` | 技术方案 + ADR |
+| `/setup` | — | 初始化：检测 gh CLI、Project Profile、CI/release workflow |
+| `/requirements` | — | 需求访谈 → PRD → Draft Parent Issue |
+| `/design` | `@architect` | 技术方案 + 必要 ADR（planning worktree） |
 | `/tasks` | `@architect` | DAG 任务拆解 → Sub Issues |
-| `/code` | — | 分支 → 编码 + 单测 → PR |
-| `/test` | — | 触发 CI → 监控 → 汇报 |
+| `/code` | — | Task 编码 + Runtime TDD → PR |
 | `/review` | `@reviewer` | 双轴审查 → 自动合并 |
-| `/release` | — | 版本 → Changelog → Release → npm publish |
-| `/handoff` | — | 打包上下文，跨会话传递 |
+| `/release` | — | 版本提议 → Release PR → tag push → workflow 监控 |
 
-每个 command 对应一个 `flow-*` skill，定义在 `assets/skills/` 目录中。
+每个 command 对应一个 `flow-*` skill，定义在 `assets/skills/` 目录中；所有命令共享单一 Stage contract（`assets/prompts/stage-contract.md`）。
 
 ### 5 个 Agent
 
 | Agent | 模式 | 角色 |
 |-------|------|------|
 | `@dev-lifecycle` | primary | 全流程编排器，自动串联各阶段 |
-| `@architect` | subagent | 架构设计、技术方案、DAG 拆解 |
-| `@developer` | subagent | 技术栈无关代码 TDD 实现 |
+| `@architect` | subagent | 架构设计、技术方案、DAG 拆解（仅 planning worktree 文档可写） |
+| `@developer` | subagent | 技术栈无关代码 TDD 实现（仅 worktree 内可写） |
 | `@reviewer` | subagent | 只读代码审查，输出结构化报告 |
-| `@goal-verify` | subagent | 独立验证 Goal 完成状态（唯一可调用 `goal({op:"complete"})`） |
-
-另有内置 Agent：`@architect`、`@developer`。
+| `@goal-verify` | subagent | 独立验证 Flow 完成状态（唯一可调用 `flow_control{complete-flow}`） |
 
 ### 9 个 Flow Skills
 
@@ -81,41 +77,35 @@
 | `flow-design` | `/design` | 技术设计 |
 | `flow-tasks` | `/tasks` | 任务拆解 |
 | `flow-code` | `/code` | 编码实现 |
-| `flow-test` | `/test` | CI 测试 |
+| `flow-tdd` | — | TDD 协议唯一来源（tdd_checkpoint op 映射） |
 | `flow-review` | `/review` | 代码审查 |
 | `flow-release` | `/release` | 发布 |
-| `flow-handoff` | `/handoff` | 上下文交接 |
 
-Skills 被复制到系统临时目录（`/tmp/opencode-cabbage-skills-*`）中运行，不会污染项目目录。
+Skills 被复制到固定目录（`~/.config/opencode/cabbage/skills`）中运行，不会污染项目目录。
 
-## FlowRun 引擎配置
+## Thin Kernel 工具
 
-FlowRun 是插件的自动编排引擎，状态存储在 GitHub Issue body 中。经 Spike 验证（2026-07-15），阶段性接入中。
+### 5 个生命周期工具
 
-### FlowRun 状态
-
-```
-planned → running → blocked/merging → completed/cancelled
-```
-
-### `flow_control` 操作
-
-| 操作 | 说明 |
+| 工具 | 职责 |
 |------|------|
-| `run-start` | 启动 FlowRun: planned → running，并绑定 Goal |
-| `stage-start` | 启动阶段（requirements/design/tasks/code） |
-| `stage-complete` | 完成阶段（requirements/design/tasks），验证所有 checkpoints |
-| `task-start` | 启动任务（pending/ready → running），冻结 TDD policy |
-| `run-finalize` | **终态绑定**：所有 Task merged 后，顺序标记 code→test→review→merge 为 pass，设置 FlowRun 为 completed。幂等。 |
+| `setup_control` | probe / generate-workflows / confirm-profile（readiness 报告） |
+| `flow_control` | create-flow / status / planning-start / planning-pr / stage / complete-flow / cancel / takeover |
+| `task_control` | create-task / start-task / submit-task / submit-review / merge-task / cancel / destroy / status |
+| `tdd_checkpoint` | cycle-start / red / green / final-regression / final-verification / abandon / status / not-applicable / exempt |
+| `release_control` | propose-version / open-release-pr / merge-release-pr / monitor |
 
-### 7 个阶段
+### 5 个 Stage
 
-`requirements → design → tasks → code → test → review → merge`
+`requirements → design → tasks → code → review`
 
-每个阶段有准入/准出检查：
+每个阶段有前置门禁（由工具校验）：
 
-- **准入**：前序阶段必须完成（status: pass）
-- **准出**：所有 checkpoints 通过、required artifacts 就绪
+- **requirements**：需求基线须用户确认一次
+- **design**：产出技术方案 + 必要 ADR；高风险方案在 design→tasks 间暂停确认
+- **tasks**：Planning Baseline 合并后才能创建 Sub Issues
+- **code**：Planning Baseline 已合并、依赖 Task 已 merged、并行 < 5
+- **review**：CI checks + 分支保护 + 风险双层判定 + 高风险非作者 approval
 
 ### Task DAG
 
@@ -132,26 +122,26 @@ task-4:
   dependsOn: [task-2, task-3]  # 依赖前两者都完成
 ```
 
-### PR 合并检查点
+### 合并门禁
 
-每个 PR 必须通过 6 个检查点才能自动合并：
+PR 合并前必须通过：
 
 | 检查点 | 说明 |
 |--------|------|
-| localChecks | 本地代码检查（类型检查、lint、测试） |
-| ciChecks | CI 流水线通过 |
-| reviewerApproval | reviewer 审查通过 |
-| goalVerification | goal-verify 验证通过 |
-| branchProtection | main 分支保护规则满足 |
-| mergeResult | 合并操作成功 |
+| CI checks | 全部 SUCCESS（statusCheckRollup） |
+| branchProtection | main 分支保护规则存在 |
+| 风险双层判定 | 模型初判 + 内核按 diff 升级（只升不降） |
+| 高风险 approval | 非作者人类 APPROVED review（高风险任务） |
+| mergeResult | 合并操作成功（--match-head-commit） |
 
 ### 弹性配置
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| maxRuntime | 86400000 (24h) | FlowRun 最大运行时间 |
-| continuationCount | 50 | 自动 continuation 最大次数 |
-| errorRetryCount | 3 → skip, 5 → pause | 错误重试策略 |
+| 并行上限 | 5 | 同时运行的 Task 数 |
+| Task 重试 | 3 | 失败自动重试次数 |
+| Review 轮次 | 3 | 自动修复上限 |
+| 停滞判定 | 3 | 连续无进展 continuation 次数后暂停 |
 | compactionThreshold | 20 | 每 20 次 continuation 自动 compact |
 
 ## 文档目录结构
@@ -164,13 +154,14 @@ docs/
 ├── adr/              # 架构决策记录
 ├── dev/
 │   ├── specs/        # 技术方案
-│   ├── tasks/        # 任务定义
+│   ├── tasks/        # 任务定义（历史归档）
 │   ├── api/          # API 文档
 │   ├── db/           # 数据库设计
-│   ├── guides/       # 开发指南
-│   └── handoff/      # 交接文档
+│   └── guides/       # 开发指南
 └── index.md          # 本站首页
 ```
+
+工程状态以 GitHub Issues/PRs/Checks 为权威事实，`docs/dev/tasks/` 仅保留历史任务记录。
 
 ## 环境要求
 

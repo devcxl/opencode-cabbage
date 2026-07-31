@@ -20,21 +20,19 @@
 }
 ```
 
-插件启动后自动注入 9 个 slash command、9 个 flow skill、5 个 agent。
+插件启动后自动注入 7 个 slash command、8 个 flow skill、5 个 agent 与 5 个确定性生命周期工具。
 
 ## 命令一览
 
 | 命令 | 阶段 | 产出 |
 |------|------|------|
-| `/setup` | 初始化 | `docs/` 目录结构、环境验证 |
-| `/requirements` | 需求 | PRD → `docs/prd/` + GitHub Issue |
-| `/design` | 设计 | 技术方案 + ADR → `docs/dev/specs/` + `docs/adr/` |
-| `/tasks` | 任务拆解 | DAG 任务 + Sub Issues → `docs/dev/tasks/` |
-| `/code` | 编码 | 分支 + 代码 + 单测 + PR |
-| `/test` | 测试 | 触发 CI + 监控 + 汇报 |
+| `/setup` | 初始化 | `docs/` 目录结构、Project Profile、CI/release workflow 校验 |
+| `/requirements` | 需求 | PRD → `docs/prd/` + Draft Parent Issue |
+| `/design` | 设计 | 技术方案 + 必要 ADR → `docs/dev/specs/` + `docs/adr/` |
+| `/tasks` | 任务拆解 | DAG 任务 + Sub Issues（GitHub 权威源） |
+| `/code` | 编码 | Task + Runtime TDD evidence + PR |
 | `/review` | 审查 | 双轴审查 + 自动合并 |
-| `/release` | ⚠️ 手动发布 | 版本 → Changelog → Release → npm publish |
-| `/handoff` | 交接 | 打包上下文，跨会话传递 |
+| `/release` | ⚠️ 手动发布 | 版本提议 → Release PR → tag push → workflow 监控 |
 
 ## 快速开始
 
@@ -69,10 +67,9 @@ src/                          # TypeScript 薄层
     └── agents.ts             # Agent 注入
 
 assets/                       # 运行时资源
-├── commands/                 # 9 个 slash command
-├── skills/                   # 9 个 flow-* skill
+├── commands/                 # 7 个 slash command
+├── skills/                   # 8 个 flow-* skill
 ├── agents/                   # 5 个 agent 定义
-├── context/                  # 领域词汇表
 └── prompts/                  # 引导提示词 + 模板
 ```
 

@@ -13,7 +13,7 @@ function resolveSkillsPath(): string {
   return path.join(homedir(), ".config", "opencode", "cabbage", "skills")
 }
 
-export async function setupSkillsDir(sourceSkillsDir: string, contextDir?: string, promptsDir?: string): Promise<string> {
+export async function setupSkillsDir(sourceSkillsDir: string, promptsDir?: string): Promise<string> {
   const destDir = resolveSkillsPath()
 
   // 清理旧内容，确保与插件版本一致
@@ -21,12 +21,6 @@ export async function setupSkillsDir(sourceSkillsDir: string, contextDir?: strin
   await mkdir(destDir, { recursive: true })
 
   await cp(sourceSkillsDir, destDir, { recursive: true })
-
-  if (contextDir) {
-    try {
-      await cp(contextDir, path.join(destDir, "_context"), { recursive: true })
-    } catch {}
-  }
 
   if (promptsDir) {
     try {

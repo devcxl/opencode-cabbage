@@ -1,5 +1,12 @@
 # PRD: Thin Kernel + Project Context 工作流重构
 
+**状态:** Approved（访谈确认 + Planning PR 审查通过）
+**日期:** 2026-08-01
+
+## 用户故事
+
+作为使用低质量模型的开发者，我希望流程的关键动作（slug、Worktree、TDD、merge、Release）由确定性内核强制，而不是依赖模型自觉，从而在弱模型下也能获得可靠、可审计的交付。
+
 ## 背景
 
 当前 opencode-cabbage 处于危险的中间态：约 2900 行 FlowRun/TDD 运行时代码已实现并通过 468 个单测，但没有任何 prompt/agent 指引调用它们；与此同时 README 与 guides 仍把这些能力描述为已驱动流程。低质量模型在本仓库中只能靠自由文本 prompt 执行，无任何代码兜底。
@@ -69,12 +76,12 @@
 
 ### R5 Worktree 生命周期
 
-- 创建/复用校验/销毁全部由 `task_control` 管理。
+- Task Worktree 的创建/复用校验/销毁全部由 `task_control` 管理；Planning Worktree（design 阶段 architect 写文档用）由 `flow_control` 管理。
 - PR 已合并且 worktree 干净 → 自动销毁；脏 worktree → 拒绝；Task 取消或 PR 未合并 → 人工确认且分支已推送；无 `--force`。
 
 ### R6 Runtime TDD 硬门禁
 
-- 行为变更 Task 必须 Runtime TDD；纯文档自动 `not-applicable`；其他豁免必须用户批准。
+- 行为变更 Task 必须 Runtime TDD；纯文档任务由内核校验变更范围后标记 `not-applicable`；其他豁免必须用户批准并记录原因。
 - `worktree-start` 记录干净基线；工具亲自执行 RED（必须因缺失行为失败、实现文件相对基线未变）与 GREEN（同一测试通过、输入未偷换）；final regression 必须通过。
 - 证据 append 到 Task Record 的单个受控 comment（criterion、cycle、命令、exit code、failure kind、tree/digest、状态）。
 - `task-submit` 检查 TDD evidence 完整，否则拒绝创建 PR。
@@ -148,8 +155,16 @@
 | 自动 merge 风险 | 分支保护 + required checks + 高风险人类 approval |
 | 工具执行 GitHub 写操作认证失败 | 复用现有 gh auth，工具内部调用 gh CLI |
 
+## 技术约束
+
+- 基于 OpenCode 插件架构（`tool()` 工厂、`config` hook、message transform、event 处理）。
+- 复用现有 `gh auth`，不建设第二套 broker 凭据。
+- 权限依赖 OpenCode permission 语义（bash 模式规则、最后匹配优先、auto 模式 deny 生效）；精确语义以目标版本文档为准，用 adversarial 测试锁定。
+- 迁移 `src/flowrun/{state,adapter,digest,evaluator}.ts` 纯函数到 `src/kernel/tdd/`，不改逻辑。
+
 ## 相关文档
 
 - `CONTEXT.md`（根）：领域术语权威。
 - `AGENTS.md`（根）：项目规则 + Project Profile。
 - `docs/adr/0002-adopt-thin-workflow-kernel.md`：架构决策。
+- `docs/dev/specs/thin-kernel-workflow.md`：技术方案（含 §14 假设与不确定项，实施前逐项落定）。

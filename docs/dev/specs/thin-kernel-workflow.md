@@ -10,7 +10,7 @@
 - 高风险 git/gh 写操作全部收敛到工具内执行（复用宿主 `gh auth`），Agent shell 不再清空 `GH_TOKEN/GH_CONFIG_DIR`（修 server.ts:543 缺陷），改为 permission 规则兜底：**allow 白名单只读 + deny 黑名单写操作（deny 置尾，最后匹配优先）**。
 - 根 `CONTEXT.md` 通过 message transform（bootstrap/continuation/子 agent 首条消息）自动注入，按 mtime 缓存刷新。
 - 删除清单见 §6：cabinet 写路径、broker、transitions/gate/migration/validator/resilience/coverage/audit、flow-handoff/flow-test、内置 context、session-state.json、out-of-scope.md。
-- 实施按 11 批（18 个任务）DAG 推进，每批独立合入且测试保持绿色，最后一批做 adversarial 测试 + 1.0.0 发布。
+- 实施按 18 个任务、按依赖分 11 个执行波次（§13）DAG 推进，每批独立合入且测试保持绿色，最后一批做 adversarial 测试 + 1.0.0 发布。
 
 ---
 
@@ -163,9 +163,9 @@ args: {
 |----|-------------|
 | `create-task` | `validateTitle` → slug → `gh issue create` Sub Issue（body 含 acceptance criteria、依赖、`Closes` 约定），关联 Parent。 |
 | `start-task` | 前置门禁：Planning Baseline 已合并、依赖 Task 已 merged、并行数 < 5。`worktree-start`（§4）→ 记录干净基线 digest（`computeWorkspaceDigest`）→ 冻结 TDD policy（来自 Profile）→ 写 Task Record 状态。 |
-| `submit-task` | **TDD 硬门禁**（§5.4）：evidence 不完整 → 拒绝创建 PR。通过后：从 worktree push 分支 → `gh pr create`（body 引用 Task Record + evidence comment 链接）→ 标记 reviewing。 |
+| `submit-task` | **TDD 硬门禁**（§4.4）：evidence 不完整 → 拒绝创建 PR。通过后：从 worktree push 分支 → `gh pr create`（body 引用 Task Record + evidence comment 链接）→ 标记 reviewing。 |
 | `submit-review` | 由 primary 提交 reviewer 的双轴审查结果：`gh pr review --approve/--request-changes`。reviewer 本身只读，不直接调用。 |
-| `merge-task` | 合并门禁（§7）：CI checks 通过 + 分支保护存在 + 风险双层判定 + 高风险需非作者人类 approval → `mergeTaskPR(prNumber, verifiedSha)`（`--match-head-commit`，复用 flowrun/merge.ts）→ 关闭 Sub Issue → worktree 干净销毁（§4）。 |
+| `merge-task` | 合并门禁（§4.1 review.ts 风险双层判定 + §7.2 permission）：CI checks 通过 + 分支保护存在 + 风险双层判定 + 高风险需非作者人类 approval → `mergeTaskPR(prNumber, verifiedSha)`（`--match-head-commit`，复用 flowrun/merge.ts）→ 关闭 Sub Issue → worktree 干净销毁（§3.3）。 |
 | `cancel-task` / `destroy-worktree` | 受控取消 / worktree preflight 销毁（§4），均要求 `user_confirmed`（除非 PR 已合并且干净）。 |
 | `status-task` | 读 Task Record + PR + checks 汇总。 |
 
@@ -173,7 +173,7 @@ caller：primary 全量；developer 不允许调用 task_control（无门禁绕�
 
 #### tdd_checkpoint — Runtime TDD 证据（复用 tdd-tool.ts）
 
-op 枚举沿用现有 `src/plugin/tdd-tool.ts` 并扩展（PRD R6）：
+op 枚举沿用现有 `src/plugin/tdd-tool.ts` 并扩展（PRD R6）；现有 `alternative-command` op（tdd-tool.ts:195，C2 未实现）**删除**，与 R6"工具亲执、不接受内联 evidence"一致：
 
 ```ts
 args: {
@@ -358,8 +358,8 @@ compliance.status !== "pass" && enforcement === "runtime" → 拒绝，返回缺
 | `plugin/agents.ts` | 删 `tools` 布尔 + `capabilities` 解析（已废弃死代码），保留 `permission` 解析 |
 | `plugin/shell.ts` | 重写 `createIsolatedShellEnv`（§8.3 修正），删 `detectAmbientCredentials`（advisory 降级机制废弃） |
 | `plugin/skills.ts` | 删 `_context`/`_prompts` 拷贝逻辑（内置 context 注入删除），仅安装 8 个 skill |
-| `plugin/prompts.ts` `bootstrap.ts` | 保留；bootstrap 内容重写（§7.3） |
-| `plugin/commands.ts` | 保留；命令裁剪为 7 个（§7.3） |
+| `plugin/prompts.ts` `bootstrap.ts` | 保留；bootstrap 内容重写（§6.4） |
+| `plugin/commands.ts` | 保留；命令裁剪为 7 个（§6.4） |
 | `util/paths.ts` | 删 `devHandoffDir/outOfScopePath`，加 session-index 路径 |
 
 ### 5.2 `assets/` 与 docs 删除/迁移
@@ -401,7 +401,7 @@ color: '#4caf50'
 permission:
   bash:   # §8.2
     "*": "deny"
-    "npm *": "allow"
+    "<profile-test-command>*": "allow"   # 白名单测试命令由 Profile（§9.1）生成，不硬编码 npm
     "git status*": "allow"   # …只读 git/gh 白名单…
     "git add*": "allow"
     "git commit*": "allow"
@@ -471,7 +471,7 @@ permission:
   bash:
     "*": "deny"                # 兜底：auto 模式默认拒绝
     # ── allow 白名单（只读）──
-    "npm *": "allow"
+    "<profile-test-command>*": "allow"   # 白名单测试命令由 Profile（§9.1）生成，不硬编码 npm
     "git status*": "allow"
     "git diff*": "allow"
     "git log*": "allow"
@@ -702,32 +702,36 @@ export async function detectLegacyFlowRun(parentIssueNumber): Promise<{ legacy: 
 
 | 批 | 任务 | 内容摘要 | 依赖 | 变更类型 | 风险 |
 |----|------|---------|------|---------|------|
-| 0 | kernel-foundation | kernel/ 目录、types、slug、mutex 提取；flowrun 纯函数迁移骨架 | 无 | refactor | 中 |
+| 0 | kernel-foundation | kernel/ 目录、types、slug、mutex 提取（**不迁移 flowrun 代码**） | 无 | refactor | 中 |
 | 1 | context-injection | kernel/context + server message transform 注入 + agent prompt 指针 | 0 | refactor | 中 |
 | 2 | project-profile-parser | kernel/profile + Profile 区块格式 | 0 | new | 低 |
 | 3 | session-index | session-index.json + goal 最小化 + 双 session | 0 | refactor | 中 |
-| 4 | flow-record-layer | kernel/records（Flow/Task Record CRUD、evidence comment、labels、mutex 写入） | 3 | new | 中 |
+| 4 | flow-record-layer | kernel/records（Flow/Task Record CRUD、evidence comment、labels、mutex 写入） | 0 | new | 中 |
 | 5 | worktree-lifecycle | kernel/worktree 创建/复用/销毁 preflight | 4 | new | 高 |
 | 6 | tdd-kernel-wiring | state/adapter/digest/evaluator 迁入 kernel/tdd + evidence append + 基线 | 4 | refactor | 高 |
-| 7 | setup-control-tool | setup_control 三 op + caller | 2, 4 | new | 中 |
+| 7 | setup-control-tool | setup_control 三 op + **首次实现 caller.ts（§2.2 requireCaller）** | 2, 4 | new | 中 |
 | 8 | flow-control-tool | flow_control（create/status/planning/stage/complete/cancel/takeover）+ legacy 检测 | 3, 4, 5 | new | 高 |
 | 9 | task-control-tool | task_control（create/start/submit/merge/cancel/destroy） | 5, 6, 8 | new | 高 |
 | 10 | tdd-checkpoint-tool | tdd_checkpoint 注册 + 工具亲执 RED/GREEN + submit 门禁 | 6, 9 | new | 高 |
-| 11 | release-control-tool | release_control 四 op | 2, 4 | new | 中 |
-| 12 | permission-model | shell env 修正 + agents.ts 清理 + caller 矩阵 + permission 白/黑名单 | 0 | refactor | 高 |
+| 11 | release-control-tool | release_control 四 op | 2 | new | 中 |
+| 12 | permission-model | shell env 修正 + agents.ts 清理 + **caller 矩阵测试（依赖 7 提供的 caller.ts）** + permission 白/黑名单 | 0, 7 | refactor | 高 |
 | 13 | developer-agent-merge | developer.md 合并，删 backend/frontend | 12 | refactor | 中 |
 | 14 | skill-convergence | 8 skills + 删 handoff/test + 命令收敛 + bootstrap/stage-contract + prompt-lint | 13, 9, 10 | refactor | 中 |
 | 15 | dead-code-removal | flowrun cabinet 写路径/broker/transitions/gate/migration/validator/resilience/coverage/audit 删除 + 测试随批清理 + 内置 context/out-of-scope 删除 | 8, 9, 10, 11, 14 | delete | 高 |
 | 16 | adversarial-tests | §12 十二项对抗测试 | 9, 10, 12, 15 | test | 中 |
 | 17 | release-1-0-0 | 1.0.0 版本 + release workflow 建立 + GitHub Actions 发布 | 16 | release | 高 |
 
-> 批 7–11（5 个工具）理论可并行，但共享 caller/mutex/records，建议按 7→8→9→10→11 串行或两两合并开发，降低合并冲突。
+**server.ts 接线批次串行约束**（HIGH 2 修订）：多个批次修改 `src/plugin/server.ts`（批 1 message transform、批 3 continuation/双 session、批 7–11 工具注册、批 12 shell env/permission），必须串行推进避免文件冲突，顺序：批 1 → 批 3 → 批 7 → 批 8 → 批 9 → 批 10 → 批 11 → 批 12。每个批次只改动自己对应的 server.ts 区块（工具注册块 / event 块 / config 块），合并后下一批再基于最新 main 开发。
+
+**依赖边修订**（MEDIUM 4）：批 4 依赖改为 `0`（records 是 Issue CRUD，不依赖 session-index）；批 11 依赖改为 `2`（release 聚合 commits，不触碰 Task Record）。原 4→3、7→4、11→4 三条伪依赖已剪除，扩大并行度。
+
+**caller.ts 归属**（LOW）：caller.ts 核心实现在批 7 首次落地；批 12 只做 config 层第二道门（`configureLifecycleTools`）+ 全组合矩阵测试，不重复实现。
 
 ---
 
 ## 14. 假设与不确定项
 
-1. **planning worktree 归属**：PRD R4 仅说"architect 仅 Planning Worktree 文档"，未明确 planning worktree 由哪个工具管理；本方案归 `flow_control{planning-start, planning-pr}`（flow 级），若评审认为应归 task_control 可在批 8 前调整。
+1. **planning worktree 归属（已定）**：归 `flow_control{planning-start, planning-pr}`（flow 级）；Task Worktree 归 `task_control`。PRD R5 已同步此归属。
 2. **OpenCode permission 模式匹配**：本方案按"bash 前缀/glob 匹配 + 最后匹配优先 + auto 模式 deny 生效"设计；精确语义以目标 OpenCode 版本文档为准，批 12 用 adversarial 测试锁定行为。
 3. **`gh pr review` 的执行者**：reviewer 只读，审查意见由 primary 经 `task_control{submit-review}` 提交——与 PRD R8"同一 reviewer Agent 并行双轴审查"一致，但审查的**内容生成**仍由 reviewer 完成。
 4. **TDD 豁免**：`not-applicable` 判定（纯文档）由 primary 调用工具记录，豁免（`exempt-request`）必须用户批准；具体豁免记录格式（写入 Task Record comment）在批 10 细化。

@@ -1,140 +1,38 @@
 ---
 name: flow-code
-description: 分支 → 编码 + 单测 → PR 提交（Worktree 模式）
+description: 编码实现 — task_control 创建 worktree + TDD（flow-tdd 协议）
 ---
 
 # flow-code
 
-认领 Sub Issue，创建 worktree，实现代码+单测，提交 PR。
+认领 Task Record（Sub Issue），在 worktree 内按 TDD 实现代码与单测。
+worktree 创建、PR 提交由内核工具 `task_control` 完成，本 skill 不复制 shell 实现。
 
-## Prerequisites
-- `/tasks` 已完成 → Sub Issues 就绪
-- 阅读 `docs/adr/` 确保实现与 ADR 兼容
-- 确认 task 的 `worktree_root` 字段（来自 task 文件 frontmatter）
+## 核心：调用 task_control + flow-tdd
 
-## Workflow
+1. `task_control{op:"start-task", task_id:"<slug>", ...}` — 创建 worktree + 记录基线 + 冻结 TDD policy
+2. 加载 `flow-tdd` skill，按 Task 的 `tdd` 配置执行 RED→GREEN cycle
+3. 每个 stage 通过 `tdd_checkpoint` 提交证据（唯一证据源，缺证据的 PR 会被拒绝）
+4. 本地 `git add` + `git commit`（多次提交）
+5. **不 push、不创建 PR** — 由 primary 的 `task_control{op:"submit-task"}` 完成
 
-### 1. 选择任务
-选择一个可执行的 Sub Issue（前置依赖已满足）。
+## 编码约束
 
-### 2. 检查 ADR 约束
-阅读相关 ADR，确保实现方案不违反已有架构决策。
+- 只改 Task 相关的文件；遵循项目现有代码规范与分层结构
+- 遵循工程原则（KISS/YAGNI/DRY/SRP/最小变更，单份引用仓库 AGENTS.md）
+- 文档同步：涉及 guides/api/db 变更时随代码同 PR 更新
 
-### 3. 创建/复用 Worktree
-```bash
-# 探测默认分支
-BASE=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+## TDD 引用
 
-# 检查和创建 worktree
-WORKTREE=".worktree/<task-slug>"
-BRANCH="feat/<task-slug>"
-
-if [ -d "$WORKTREE" ]; then
-  # Worktree 目录已存在 → 验证一致性
-  EXISTING=$(git -C "$WORKTREE" rev-parse --abbrev-ref HEAD 2>/dev/null)
-  if [ "$EXISTING" != "$BRANCH" ]; then
-    echo "ERROR: $WORKTREE exists but tracks branch '$EXISTING' (expected '$BRANCH')"
-    exit 1
-  fi
-  echo "Worktree 已存在，复用：$WORKTREE"
-else
-  # 检查分支是否已存在
-  if git show-ref --verify "refs/heads/$BRANCH" >/dev/null 2>&1; then
-    # 分支已存在，检查是否已合并
-    if git branch --merged "$BASE" | grep -q "$BRANCH"; then
-      git branch -D "$BRANCH"
-    else
-      echo "ERROR: 分支 '$BRANCH' 已存在，请先处理"
-      exit 1
-    fi
-  fi
-  # 创建 worktree + 分支
-  git worktree add -b "$BRANCH" "$WORKTREE" "$BASE"
-fi
-
-# 进入 worktree
-cd "$WORKTREE"
-```
-### 4. 安装依赖
-
-```bash
-npm install
-```
-
-### 5. 编码 + 单测
-```bash
-# 实现代码 + 单元测试
-npm test
-```
-
-#### TDD Advisory Protocol
-
-编码阶段必须遵循 `flow-tdd` skill 定义的 TDD 流程。Agent 在编写任何功能代码前加载 `flow-tdd` skill。
-
-**TDD 检查点（commit 前自检）：**
-- [ ] 每个功能的代码变更都有对应的测试
-- [ ] 测试在修改前是 RED（失败），修改后是 GREEN（通过）
-- [ ] 已完成 `final-regression`（全部测试通过）
-- [ ] 已完成 `final-verification`（对照 acceptance_criteria）
-- [ ] self-report 已写入 commit message 或 PR body
-
-> 引用：`flow-tdd` skill 是 TDD 协议的唯一来源，包含完整的 RED→GREEN cycle 状态机、abandon-cycle 规则和 final-regression/verification 流程。
-
-### 6. 文档同步检查
-完成编码后，逐项检查以下文档是否需要同步更新：
-
-```
-## 文档同步检查清单
-□ guides/quickstart.md — 安装方式或前置条件有变化吗？
-□ guides/configuration.md — 新增/修改了配置项吗？
-□ guides/usage.md — 命令或行为有变化吗？
-□ guides/architecture.md — 架构或流程有变化吗？
-□ docs/dev/guides/contributing.md — 开发流程有变化吗？
-```
-
-- 逐项评估，无需修改的跳过
-- 需要修改的文档随代码一起提交到同一个 PR
-- PR body 中列出已同步的文档
-
-### 7. 提交 PR
-```bash
-# 在 worktree 内执行
-
-# 根据 task 预期文件和 git status 确定待暂存文件
-# Task 文件通常包含 frontmatter expected_files 字段
-git status --short
-
-# 显式暂存任务相关文件（不是 git add .）
-# 示例：git add src/plugin/goal.ts test/goal.test.ts assets/agents/team/reviewer.md
-git add <file1> <file2> ...
-
-# 提交前检查：确保无密钥、无超大文件、无任务范围外文件
-git diff --cached --name-only
-
-git commit -m "feat(<scope>): <title>"
-git push origin feat/<task-slug>
-mkdir -p docs/dev/handoff
-echo "Closes #<issue-num>" > docs/dev/handoff/pr-body.md
-gh pr create --title "<title>" --body-file docs/dev/handoff/pr-body.md
-```
-
-### 8. 更新开发文档
-如涉及 API 变更 → 更新 `docs/dev/api/`
-如涉及数据模型变更 → 更新 `docs/dev/db/`
+> `flow-tdd` skill 是 TDD 协议的唯一来源，包含完整的 RED→GREEN cycle 状态机、
+> abandon-cycle 规则和 final-regression/verification 流程，以及 `tdd_checkpoint` 各 op 的调用方式。
 
 ## Output
-- Worktree 已创建/复用（`.worktree/<task-slug>/`）
-- 代码已推送
-- PR 已创建并关联 Sub Issue（PR body 含 `Closes #<issue-num>`）
-- 文档同步 checklist 已完成
-- 已同步的文档随 PR 提交
-- dev docs 已更新
-
-## 上下文管理
-如果上下文窗口压力大，使用 `../flow-handoff` 打包进度。
+- Worktree 已创建（task_control）
+- TDD evidence 已提交（tdd_checkpoint）
+- 本地 commit 就绪（分支推送与 PR 由 task_control 完成）
 
 ## 后续
-- **/test** — 触发 CI E2E 测试
 - **/review** — 审查 PR
 
 ## Contract
@@ -143,33 +41,33 @@ gh pr create --title "<title>" --body-file docs/dev/handoff/pr-body.md
 由 `/code` 命令或 `@dev-lifecycle` Phase 3 触发。
 
 ### Inputs
-- Sub Issue 编号（来源：`/tasks` 产出）
-- task 文件 frontmatter 中的 `worktree_root`（来源：task 文件）
+- Task Record（Sub Issue 编号与标题，来源：`/tasks` 产出）
 
 ### Preconditions
 - `/tasks` 已完成 → Sub Issues 就绪
-- 前置依赖任务已合并
+- Planning Baseline 已合入；前置依赖任务已合并（task_control 门禁）
 
 ### Procedure
-1. 选择依赖已满足的 Sub Issue
-2. 创建或复用 Worktree（`git worktree add -b`）
-3. 安装依赖 → 编码 + 单测 → commit + push
-4. 编排器创建 PR
+1. 调用 `task_control{op:"start-task"}` 创建/复用 worktree
+2. 加载 `flow-tdd`，按 Task 的 tdd 配置执行 RED→GREEN cycle
+3. 通过 `tdd_checkpoint` 提交证据
+4. 本地 git add + commit（不 push）
+5. 交回 primary 调用 `task_control{op:"submit-task"}` 创建 PR
 
 ### Outputs
 - Worktree 已创建（`.worktree/<task-slug>/`）
-- 代码已推送
-- PR 已创建（Orchestrator 执行）
+- TDD evidence（Task Record 单评论）
+- 本地 commit
 
 ### Failure
-- Worktree 创建失败 → 检查分支冲突或目录残留
-- 测试失败 → 修复后重试
+- worktree 创建失败 → 检查分支冲突或目录残留（task_control 报错）
+- 测试失败 → 修复后重试（不跳过 RED）
 
 ### Idempotency
-- Worktree 已存在 → 复用
+- worktree 已存在 → task_control 校验分支一致性后复用
 - 代码已提交 → 追加提交
 
 ### Prohibited Actions
-- Worker 不创建 PR、不操作 Issue
+- 不 push、不创建 PR、不操作 Issue（由 task_control 完成）
 - 不使用 `git add .`
-- 不直接 push 到默认分支
+- 不绕过 task_control 直接执行 worktree 创建 / PR 创建 / 分支推送

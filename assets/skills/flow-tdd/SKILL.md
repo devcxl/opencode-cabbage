@@ -1,6 +1,6 @@
 ---
 name: flow-tdd
-description: TDD Prompt 协议 — Phase A Advisory 层，定义 RED→GREEN self-reported 流程
+description: TDD Prompt 协议 — RED→GREEN 状态机 + tdd_checkpoint Runtime 证据
 ---
 
 # flow-tdd
@@ -10,7 +10,7 @@ TDD（Test-Driven Development）Prompt 协议，为所有编码阶段提供统�
 
 ## Advisory Procedure
 
-Phase A Advisory 层协议：Agent 自行遵循 TDD 流程并 self-report 状态，无需工具拦截。
+Agent 自行遵循 TDD 流程并 self-report 状态。每个 stage 同时通过 `tdd_checkpoint` 提交证据。
 
 ### Cycle 状态机
 
@@ -64,7 +64,7 @@ Phase A Advisory 层协议：Agent 自行遵循 TDD 流程并 self-report 状态
 
 **约束：**
 - 测试必须有明确的 fail/pass 边界
-- 测试运行命令必须与 `test_commands` 中定义的一致
+- 测试运行命令必须与 Task 的 `test_commands` 中定义的一致
 - 记录测试失败输出作为 RED evidence
 
 **self-report 格式：**
@@ -119,7 +119,7 @@ Phase A Advisory 层协议：Agent 自行遵循 TDD 流程并 self-report 状态
 所有 cycle 完成后，运行项目全部测试套件，确认无回归。
 
 **约束：**
-- 必须运行 `test_commands` 中定义的全部命令
+- 必须运行 Task `test_commands` 中定义的全部命令
 - 所有测试必须通过
 - 如有失败 → 修复（不要求新 cycle，但需记录修复内容）
 
@@ -145,21 +145,19 @@ Phase A Advisory 层协议：Agent 自行遵循 TDD 流程并 self-report 状态
 
 ## Runtime Procedure
 
-> **Phase C 启用** — 以下为 Runtime Enforcement 协议占位，当前阶段不生效。
->
-> Phase C 将引入 `tdd_checkpoint` 工具在运行时拦截 RED/GREEN 状态切换，
-> 并将 evidence 写入 FlowRun 存储。Agent 不直接调用这些工具的时机和方式
-> 由 Phase C 的 `tdd_checkpoint` 工具实现决定。
+每个 stage 通过 `tdd_checkpoint` 提交证据到 Task Record 单个受控评论（marker 包裹，唯一证据源）。
+工具亲自执行测试，不接受内联 evidence；RED 有效性校验（失败分类 + 实现文件相对基线未变 + 输入未偷换）。
 
-<!--
-Phase C 启用后的 Runtime Procedure:
-1. cycle-start → tdd_checkpoint({ stage: "cycle-start", task_id })
-2. red → tdd_checkpoint({ stage: "red", evidence: test_output, task_id })
-3. green → tdd_checkpoint({ stage: "green", evidence: test_output, task_id })
-4. abandon-cycle → tdd_checkpoint({ stage: "abandon-cycle", reason, task_id })
-5. final-regression → tdd_checkpoint({ stage: "final-regression", evidence: full_test_output, task_id })
-6. final-verification → tdd_checkpoint({ stage: "final-verification", evidence: criteria_checklist, task_id })
--->
+| Stage | tdd_checkpoint op |
+|-------|-------------------|
+| cycle-start | `tdd_checkpoint{op:"cycle-start", task_id, criterion_id, test_paths, test_selector}` |
+| red | `tdd_checkpoint{op:"red", task_id, cycle_id, test_selector}` — 测试失败 + 实现文件未变 |
+| green | `tdd_checkpoint{op:"green", task_id, cycle_id, test_selector}` — 同 selector 通过 |
+| abandon-cycle | `tdd_checkpoint{op:"abandon-cycle", task_id, cycle_id, reason}` |
+| final-regression | `tdd_checkpoint{op:"final-regression", task_id}` — 全量测试通过 |
+| final-verification | `tdd_checkpoint{op:"final-verification", task_id}` — 每条 criterion 有 pass cycle |
+
+纯文档变更豁免：`tdd_checkpoint{op:"not-applicable"}`（仅 primary）；其他豁免须用户批准（`exempt-request`）。
 
 ## Contract
 
@@ -167,27 +165,27 @@ Phase C 启用后的 Runtime Procedure:
 由编码阶段（`flow-code`）自动触发。Agent 在开始编码任务时加载 `flow-tdd` skill 获取 TDD 流程约束。
 
 ### Inputs
-- Task 定义中的 `acceptance_criteria`（来源：`flow-tasks` 产出）
-- Task 定义中的 `test_commands`（来源：`flow-tasks` 产出）
-- Task 定义中的 `verify_commands`（来源：`flow-tasks` 产出）
-- Task 定义中的 `tdd` 配置块 — `mode`（`strict`/`advisory`）、`min_cycles`（来源：`flow-tasks` 产出）
+- Task Record 中的 `acceptance_criteria`（来源：`flow-tasks` 产出）
+- Task Record 中的 `test_commands`（来源：`flow-tasks` 产出）
+- Task Record 中的 `verify_commands`（来源：`flow-tasks` 产出）
+- Task Record 中的 `tdd` 配置块 — `mode`（`strict`/`advisory`）、`min_cycles`（来源：`flow-tasks` 产出）
 
 ### Preconditions
-- Task 文件存在，包含 `acceptance_criteria`、`test_commands`、`tdd` 配置块
-- 测试运行环境就绪（`npm install` 已完成）
+- Task Record 存在，包含 `acceptance_criteria`、`test_commands`、`tdd` 配置块
+- 测试运行环境就绪（worktree 内依赖已安装）
 
 ### Procedure
 1. 读取 Task 的 `acceptance_criteria`、`test_commands`、`verify_commands`
-2. **Advisory Mode**：为每个验收标准识别对应的测试用例
-3. 执行 `cycle-start` → 声明当前 cycle 目标
-4. 执行 `red` → 编写测试，验证失败
-5. 执行 `green` → 最小实现，验证通过
+2. 为每个验收标准识别对应的测试用例
+3. 执行 `cycle-start` → 声明当前 cycle 目标并调用 tdd_checkpoint
+4. 执行 `red` → 编写测试，验证失败，提交 evidence
+5. 执行 `green` → 最小实现，验证通过，提交 evidence
 6. 重复 cycle 直到所有 criterion 覆盖
 7. 执行 `final-regression` → 运行全部测试
 8. 执行 `final-verification` → 逐条对照 acceptance_criteria
 
 ### Outputs
-- 每个 cycle 的 self-report（提交到 commit message 或 PR body）
+- 每个 cycle 的 self-report + tdd_checkpoint evidence（Task Record 评论）
 - `final-regression` 报告（测试通过/失败统计）
 - `final-verification` 报告（criterion 覆盖情况）
 
@@ -205,4 +203,5 @@ Phase C 启用后的 Runtime Procedure:
 - 不跳过 RED 阶段直接进入 GREEN
 - 不跳过 final-regression 直接 commit
 - 不在 abandon-cycle 后保留修改
-- 不修改 `tdd` 配置块中的 `mode` 和 `min_cycles` 值
+- 不修改 Task `tdd` 配置块中的 `mode` 和 `min_cycles` 值
+- 不伪造/内联 tdd_checkpoint evidence（工具亲自执行测试）

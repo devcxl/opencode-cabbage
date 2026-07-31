@@ -39,6 +39,39 @@ describe("resolveCaller", () => {
     const client = sessionClient({ sess_x: "parent" })
     await expect(resolveCaller(ctx("some-unknown-agent"), client)).resolves.toBe("reviewer")
   })
+
+  it("fails closed to reviewer when session query throws", async () => {
+    const client: CallerSessionClient = {
+      session: {
+        async get() {
+          throw new Error("session.get failed")
+        },
+      },
+    }
+    await expect(resolveCaller(ctx("dev-lifecycle"), client)).resolves.toBe("reviewer")
+  })
+
+  it("fails closed to reviewer when session query returns no data", async () => {
+    const client: CallerSessionClient = {
+      session: {
+        async get() {
+          return {} as { data?: { parentID?: string | null } }
+        },
+      },
+    }
+    await expect(resolveCaller(ctx("dev-lifecycle"), client)).resolves.toBe("reviewer")
+  })
+
+  it("fails closed to reviewer when session query returns an error payload", async () => {
+    const client: CallerSessionClient = {
+      session: {
+        async get() {
+          return { error: "not found" } as unknown as { data?: { parentID?: string | null } }
+        },
+      },
+    }
+    await expect(resolveCaller(ctx("dev-lifecycle"), client)).resolves.toBe("reviewer")
+  })
 })
 
 describe("requireCaller", () => {

@@ -31,11 +31,21 @@ const ROLE_BY_AGENT: Record<string, CallerRole> = {
   "goal-verify": "goal-verify",
 }
 
-/** 解析调用者角色：无 parentID → primary；子会话按 agent 名映射；未知 agent → reviewer */
+/**
+ * 解析调用者角色：无 parentID（session 查询成功且 data 存在）→ primary；
+ * 查询失败/无 data → 保守视为 reviewer（最低权限，fail-closed）；
+ * 子会话按 agent 名映射；未知 agent → reviewer。
+ */
 export async function resolveCaller(ctx: CallerContext, client: CallerSessionClient): Promise<CallerRole> {
-  const session = await client.session.get({ sessionID: ctx.sessionID })
-  if (!session?.data?.parentID) return "primary"
-  return ROLE_BY_AGENT[ctx.agent] ?? "reviewer"
+  let session
+  try {
+    session = await client.session.get({ sessionID: ctx.sessionID })
+  } catch {
+    return "reviewer"
+  }
+  if (!session?.data) return "reviewer"
+  if (session.data.parentID) return ROLE_BY_AGENT[ctx.agent] ?? "reviewer"
+  return "primary"
 }
 
 /**

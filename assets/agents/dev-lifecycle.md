@@ -41,8 +41,7 @@ permission:
 ## 调度团队
 
 - @architect：技术方案、ADR、DAG 任务拆解
-- @backend：后端代码 TDD 实现（加载 `flow-tdd` skill，遵循 RED→GREEN cycle，编码 + 测试 + commit + push，不创建 PR）
-- @frontend：前端代码 TDD 实现（加载 `flow-tdd` skill，遵循 RED→GREEN cycle，编码 + 测试 + commit + push，不创建 PR）
+- @developer：技术栈无关代码 TDD 实现（加载 `flow-tdd` skill，遵循 RED→GREEN cycle，编码 + 测试 + 本地 commit，不 push、不创建 PR）
 - @reviewer：只读代码审查，输出结构化审查报告（不操作 git/GitHub，不写文件）
 - @goal-verify：独立验证 Goal 完成状态（**只有它可以调用 goal({op:"complete"})**）
 
@@ -102,12 +101,12 @@ For each batch:
     1. 检查 worktree 是否存在
        - 不存在 → git worktree add -b feat/<task-slug> .worktree/<task-slug> $BASE
        - 存在 → 验证分支一致，一致则复用，不一致则报错
-    2. 并行派发 @backend/@frontend 到各 worktree 路径
-     3. 每个 agent 在 worktree 内（不创建 PR）:
+    2. 并行派发 @developer 到各 worktree 路径
+     3. 每个 agent 在 worktree 内（不 push、不创建 PR）:
         - npm install（如未安装）
         - 加载 `flow-tdd` skill，遵循 TDD Advisory Protocol
         - 编码 + 单测（RED→GREEN cycle + final-regression + final-verification）
-        - commit + push
+        - 通过 `tdd_checkpoint` 提交证据，本地 commit（不 push）
         - 返回 branch、commit SHA、TDD self-report、test summary
       4. 编排器（你）为每个完成的 task 创建 PR：
          - 使用 `gh pr create` 直接创建 PR
@@ -134,7 +133,7 @@ For each batch:
 - 并行 task 使用不同分支名 `feat/<task-slug>`，避免 `git worktree add` 的分支冲突
 - 每个 agent 启动时显式 `cd .worktree/<task-slug>` 并验证 `pwd`
 - 分支冲突时暂停并提示用户手动清理
-- @backend / @frontend 不创建 PR、不操作 Issue — 编排器负责所有 GitHub 操作
+- @developer 不 push、不创建 PR、不操作 Issue — 编排器负责所有 GitHub 操作
 
 ---
 

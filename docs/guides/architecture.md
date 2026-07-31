@@ -27,7 +27,7 @@
 │                                                             │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │           Agent 团队 (5 agents + 1 goal-verify)       │  │
-│  │  @dev-lifecycle → @architect → @backend/@frontend     │  │
+│  │  @dev-lifecycle → @architect → @developer        │  │
 │  │                    → @reviewer → @goal-verify          │  │
 │  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
@@ -128,7 +128,7 @@ DAG 任务图，支持依赖关系和并行执行：
 interface TaskState {
   id: string
   dependsOn: string[]     // 依赖的任务 ID
-  area: "backend" | "frontend" | "common"
+  area: "developer" | "common"
   parallelSafe: boolean   // 是否可并行
   prNumber: number | null // 关联 PR
   // ...
@@ -196,7 +196,7 @@ FlowRun 写入时检测 Issue body 是否被其他进程修改，防止并发冲
 - 子 agent 禁止调用 `goal({op:"create"|"pause"|"resume"|"cancel"})` — 生命周期操作限制在主 session
 - 只有 `@goal-verify` 可以调用 `goal({op:"complete"})` — 防止过早完成
 - `goal({op:"complete"})` 内部验证 FlowRun 终态：如绑定 FlowRunRef，要求 FlowRun 必须先由 `flow_control({op:"run-finalize"})` 完成终态绑定
-- Agent 工具权限由 frontmatter 控制（reviewer 只读，backend/frontend 读写）
+- Agent 工具权限由 frontmatter 控制（reviewer 只读，developer 本地读写）
 
 ## 依赖关系
 

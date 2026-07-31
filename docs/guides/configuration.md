@@ -66,12 +66,11 @@
 |-------|------|------|
 | `@dev-lifecycle` | primary | 全流程编排器，自动串联各阶段 |
 | `@architect` | subagent | 架构设计、技术方案、DAG 拆解 |
-| `@backend` | subagent | 后端代码 TDD 实现 |
-| `@frontend` | subagent | 前端代码 TDD 实现 |
+| `@developer` | subagent | 技术栈无关代码 TDD 实现 |
 | `@reviewer` | subagent | 只读代码审查，输出结构化报告 |
 | `@goal-verify` | subagent | 独立验证 Goal 完成状态（唯一可调用 `goal({op:"complete"})`） |
 
-另有内置 Agent：`@architect`、`@backend`、`@frontend`。
+另有内置 Agent：`@architect`、`@developer`。
 
 ### 9 个 Flow Skills
 

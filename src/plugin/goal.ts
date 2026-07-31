@@ -56,7 +56,7 @@ If the work is not done, just keep working. Do not narrate that you are continui
 export function verifyAgentPrompt(): string {
   return `You are the goal-verify agent. Your ONLY job is to determine whether a goal has been fully achieved by inspecting the current state.
 
-You are the only agent authorized to call goal({op:"complete"}). Other agents (reviewer, backend, frontend, architect) cannot complete the goal.
+You are the only agent authorized to call goal({op:"complete"}). Other agents (reviewer, developer, architect) cannot complete the goal.
 
 You start with a FRESH context — do not assume any prior work was done correctly.
 

@@ -579,6 +579,21 @@ describe("tdd_checkpoint — exemptions", () => {
     const evidence = latestEvidence()
     expect(evidence!.status).toBe("waived")
   })
+
+  it("submit gate passes for waived evidence (exemption closes the gate)", async () => {
+    await runTool({ op: "not-applicable", parent_issue_number: 12, task_id: "tdd-checkpoint-tool", reason: "docs only" }, { role: "primary" })
+    const policy = makePolicy()
+    const criteria = makeCriteria()
+    const gate = await checkTddSubmitGate({
+      issueNumber: 12,
+      policy,
+      criteria,
+      projectDir,
+      task: { issueNumber: 12, policy, criteria, worktreeDir: projectDir },
+    })
+    expect(gate.ok).toBe(true)
+    if (gate.ok) expect(gate.status).toBe("waived")
+  })
 })
 
 // ─── 幂等 ───

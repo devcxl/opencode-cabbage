@@ -13,7 +13,7 @@
  */
 import { tool } from "@opencode-ai/plugin/tool"
 import { createHash } from "node:crypto"
-import { resolve } from "node:path"
+import { resolve, sep as pathSep } from "node:path"
 import { requireToolCaller, CALLER_NOT_AUTHORIZED } from "../kernel/caller.js"
 import type { CallerSessionClient } from "../kernel/caller.js"
 import { executeRedCheck, executeVitest } from "../kernel/tdd/adapter.js"
@@ -145,11 +145,16 @@ export async function resolveTaskContext(
   if (!block) {
     throw new Error(`TASK_TDD_BLOCK_MISSING: Task Record #${issueNumber} has no ${TASK_TDD_TAG} block`)
   }
+  // worktreeDir 必须为项目内相对路径（防目录穿越，与 digest.ts validateRelPath 一致）
+  const worktreeDir = resolve(projectDir, block.worktreeDir)
+  if (!worktreeDir.startsWith(resolve(projectDir) + pathSep) && worktreeDir !== resolve(projectDir)) {
+    throw new Error(`TASK_TDD_BLOCK_INVALID: worktreeDir "${block.worktreeDir}" escapes project root`)
+  }
   return {
     issueNumber,
     policy: block.policy,
     criteria: block.criteria,
-    worktreeDir: resolve(projectDir, block.worktreeDir),
+    worktreeDir,
   }
 }
 
@@ -394,7 +399,8 @@ async function handleGreen(args: OpArgs, deps: TddCheckpointDeps): Promise<TddCh
     return { ok: false, error: { code: "CYCLE_CONFLICT", message: `Cycle "${cycleId}" not found` } }
   }
 
-  // 工具亲自执行同一测试
+  // 工具亲自执行同一测试（GREEN 复用 executeRedCheck：它已封装 runner 调用 + 失败分类，
+  // GREEN 仅需 exitCode 0 即通过；若失败则分类为 assertion 等，语义对 GREEN 同样适用）
   const run = await executeRedCheck(task.policy.runner, testSelector, task.worktreeDir)
   const inputDigest = await computeExecutionInputDigest(task.worktreeDir, task.policy)
   const implDigest = await computeImplDigest(task.worktreeDir, task.policy)
@@ -714,6 +720,11 @@ export async function checkTddSubmitGate(input: TddSubmitGateInput): Promise<Tdd
   const evidence = extracted ? parseStateFromContent(extracted.content) : null
   if (!evidence) {
     return { ok: false, code: "TDD_EVIDENCE_INCOMPLETE", message: "Evidence comment exists but the TDD state is missing or malformed" }
+  }
+
+  // 豁免语义：not-applicable / exempt-request 记录为 waived → 放行（文档/经批准豁免任务）
+  if (evidence.status === "waived") {
+    return { ok: true, status: "waived", warnings: ["TDD waived (not-applicable or user-approved exemption)"] }
   }
 
   const compliance = evaluateTddCompliance(input.policy, evidence, input.criteria)

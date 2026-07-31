@@ -64,7 +64,7 @@ describe("release_control tool", () => {
     extra: Record<string, unknown> = {},
   ) {
     const tool = createReleaseControlTool({ projectDir: dir })
-    return tool.execute({ op, ...extra }, {} as any)
+    return tool.execute({ op, ...extra } as any, {} as any)
   }
 
   it("rejects an unknown op", async () => {
@@ -204,41 +204,62 @@ describe("release_control tool", () => {
         const ghCalls: string[] = []
         mockGh({
           "pr list --head release/v1.5.0 --json number --jq '.[0].number'": "12",
-          "pr checks 12": "",
+          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | select(.conclusion != null)] | map(.conclusion) | unique'":
+            '["SUCCESS"]',
           "pr merge 12 --squash --delete-branch": "",
           "pr view 12 --json mergeCommit --jq '.mergeCommit.oid'": "deadbeef",
           "api repos/{owner}/{repo}/tags --jq '.[] | select(.name == \"v1.5.0\") | .commit.sha'": "",
           "api repos/{owner}/{repo}/git/refs -f ref=refs/tags/v1.5.0 -f sha=deadbeef": "",
         }, ghCalls)
 
-        const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0" }))
+        const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0", user_confirmed: true }))
         expect(out).toContain("Merged #12")
         expect(out).toContain("tagged v1.5.0")
         expect(out).toContain("deadbee")
-        expect(ghCalls.some(c => c.startsWith("pr checks"))).toBe(true)
+        expect(ghCalls.some(c => c.includes("statusCheckRollup"))).toBe(true)
         expect(ghCalls.some(c => c.includes("git/refs"))).toBe(true)
+      })
+    })
+
+    it("refuses without human approval (user_confirmed)", async () => {
+      await withProject(PROFILE, { version: "1.4.2" }, async dir => {
+        const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0" }))
+        expect(out).toContain("Error")
+        expect(out).toContain("user_confirmed")
       })
     })
 
     it("refuses when the release PR does not exist", async () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
         mockGh({ "pr list --head release/v1.5.0 --json number --jq '.[0].number'": "" })
-        const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0" }))
+        const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0", user_confirmed: true }))
         expect(out).toContain("Error")
       })
     })
 
-    it("refuses when CI checks have not passed", async () => {
+    it("refuses when CI checks have failed", async () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
         mockGh({
           "pr list --head release/v1.5.0 --json number --jq '.[0].number'": "12",
-          "pr checks 12": () => {
-            throw new Error("checks failed")
-          },
+          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | select(.conclusion != null)] | map(.conclusion) | unique'":
+            '["FAILURE"]',
         })
-        const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0" }))
+        const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0", user_confirmed: true }))
         expect(out).toContain("Error")
         expect(out).toContain("CI")
+      })
+    })
+
+    it("refuses when no CI checks are reported", async () => {
+      await withProject(PROFILE, { version: "1.4.2" }, async dir => {
+        mockGh({
+          "pr list --head release/v1.5.0 --json number --jq '.[0].number'": "12",
+          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | select(.conclusion != null)] | map(.conclusion) | unique'":
+            "[]",
+        })
+        const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0", user_confirmed: true }))
+        expect(out).toContain("Error")
+        expect(out).toContain("没有任何 CI checks")
       })
     })
   })

@@ -7,6 +7,8 @@ import { gh as ghCli } from "../util/gh.js"
 import { escapeShellArg } from "../util/shell.js"
 import { readProjectProfile } from "../kernel/profile.js"
 import type { ProjectProfile } from "../kernel/profile.js"
+import { requireCaller } from "../kernel/caller.js"
+import type { CallerSessionClient } from "../kernel/caller.js"
 import {
   classifyChanges,
   buildTag,
@@ -55,6 +57,7 @@ export type ReleaseControlOp = "propose-version" | "open-release-pr" | "merge-re
 
 export interface ReleaseControlDeps {
   projectDir: string
+  sessionClient?: CallerSessionClient
 }
 
 function releaseBranch(version: string): string {
@@ -119,9 +122,22 @@ Ops:
         .describe("Release control operation"),
       proposed_version: tool.schema.string().describe("Proposed semantic version (x.y.z), required for open-release-pr / merge-release-pr"),
       release_notes: tool.schema.string().describe("Optional override for the Release Notes body"),
+      user_confirmed: tool.schema.boolean().describe("Human approval — required for merge-release-pr (release is a manual flow)"),
     },
-    async execute(args: Record<string, any>): Promise<string> {
+    async execute(args: Record<string, any>, ctx: any): Promise<string> {
       const op = args.op as ReleaseControlOp
+
+      // caller 门禁：release 为人工流程，仅 primary 可调用（§2.2/§2.3）
+      if (deps.sessionClient && ctx?.sessionID) {
+        const denied = await requireCaller(
+          { agent: ctx.agent, sessionID: ctx.sessionID },
+          ["primary"],
+          op,
+          deps.sessionClient,
+        )
+        if (denied) return `Error: ${denied}`
+      }
+
       const profile = await readProjectProfile(deps.projectDir)
 
       switch (op) {
@@ -248,16 +264,35 @@ async function mergeReleasePrOp(profile: ProjectProfile, args: Record<string, an
     return "Error: proposed_version 必填且必须为 x.y.z"
   }
 
+  // 人工批准门禁：release 为人工流程（R9），必须显式 user_confirmed
+  if (args.user_confirmed !== true) {
+    return "Error: merge-release-pr 需要人工批准（user_confirmed: true）。请先审查 Release PR 与版本提议后再确认。"
+  }
+
   const branch = releaseBranch(version)
   const prNumber = (await runGh(`pr list --head ${branch} --json number --jq '.[0].number'`)).stdout.trim()
   if (!prNumber || prNumber === "null") {
     return "Error: 未找到对应 Release PR（branch: " + branch + "）"
   }
 
+  // CI 校验：读取 statusCheckRollup，必须存在 SUCCESS check 且无失败项
+  const rollup = (await runGh(
+    `pr view ${prNumber} --json statusCheckRollup --jq '[.statusCheckRollup[] | select(.conclusion != null)] | map(.conclusion) | unique'`,
+  )).stdout.trim()
+  let conclusions: string[]
   try {
-    await runGh(`pr checks ${prNumber}`)
+    conclusions = JSON.parse(rollup) as string[]
   } catch {
-    return `Error: PR #${prNumber} 的 CI checks 未通过，无法合并`
+    return `Error: 无法解析 PR #${prNumber} 的 CI checks 状态`
+  }
+  if (conclusions.length === 0) {
+    return `Error: PR #${prNumber} 没有任何 CI checks 报告，无法自动合并（需要 CI 或人工介入）`
+  }
+  if (conclusions.includes("FAILURE") || conclusions.includes("CANCELLED") || conclusions.includes("ACTION_REQUIRED")) {
+    return `Error: PR #${prNumber} 的 CI checks 存在失败项（${conclusions.join(", ")}），无法合并`
+  }
+  if (!conclusions.every(c => c === "SUCCESS" || c === "NEUTRAL" || c === "SKIPPED")) {
+    return `Error: PR #${prNumber} 的 CI checks 尚未全部完成（conclusions: ${conclusions.join(", ")}），请稍后重试`
   }
 
   try {

@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { configureGoalTools, configureLifecycleTools } from "../../src/plugin/server.js"
+import { matchPermission } from "../../src/kernel/permission.js"
 import type { AgentEntry } from "../../src/plugin/agents.js"
 
 const mockSessionGet = vi.fn()
@@ -251,24 +252,14 @@ describe("server config hook — agent 注入（permission 规则，无 tools �
       "gh issue create --title x",
       "gh release create v1.0.0",
     ]
-    const allowOnly = (rules: Record<string, string>, command: string): boolean => {
-      let action = "ask"
-      for (const [pattern, raw] of Object.entries(rules)) {
-        if (pattern === "*") { action = raw === "allow" ? "allow" : raw === "deny" ? "deny" : "ask"; continue }
-        if (pattern.endsWith("*") && command.startsWith(pattern.slice(0, -1))) {
-          action = raw === "allow" ? "allow" : raw === "deny" ? "deny" : "ask"
-        }
-      }
-      return action === "allow"
-    }
 
-    // 每个 agent 的 bash permission：所有写命令均不得被 allow
+    // 每个 agent 的 bash permission：所有写命令均不得被 allow（复用 matchPermission，最后匹配优先）
     for (const name of Object.keys(config.agent)) {
       const agent = config.agent[name]
       const bashRules = agent?.permission?.bash as Record<string, string> | undefined
       if (!bashRules) continue
       for (const cmd of writeCommands) {
-        expect(allowOnly(bashRules, cmd), `${name} 不应 allow: ${cmd}`).toBe(false)
+        expect(matchPermission(bashRules, cmd), `${name} 不应 allow: ${cmd}`).not.toBe("allow")
       }
     }
   })

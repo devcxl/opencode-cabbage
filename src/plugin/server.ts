@@ -22,6 +22,7 @@ import type { TaskExecutionBinding, FlowControlResponse } from "../flowrun/types
 import { readFlowRun } from "../flowrun/github.js"
 import { getContextBlock, formatContextBlock, CONTEXT_MARKER } from "../kernel/context.js"
 import type { ContextBlock } from "../kernel/context.js"
+import { readProjectProfile } from "../kernel/profile.js"
 
 const abortedSessions = new Set<string>()
 const errorRetryCount = new Map<string, number>()
@@ -517,6 +518,30 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
         }
 
         config.agent = config.agent || {}
+        // 渲染 permission 占位符：`<profile-test-command>` → Profile.testCommand 首 token（§9.1）
+        const profile = await readProjectProfile(projectDir)
+        const testCommandToken = profile.testCommand?.split(" ")[0] ?? ""
+        const renderPermission = (perm: Record<string, any> | undefined): Record<string, any> | undefined => {
+          if (!perm) return perm
+          const renderRules = (rules: Record<string, string> | undefined): Record<string, string> | undefined => {
+            if (!rules) return rules
+            const out: Record<string, string> = {}
+            for (const [pattern, action] of Object.entries(rules)) {
+              if (pattern.includes("<profile-test-command>") && testCommandToken === "") {
+                // Profile 未配置测试命令 → 删除占位规则，避免渲染成 "*" 覆盖兜底 deny
+                continue
+              }
+              out[pattern.replaceAll("<profile-test-command>", testCommandToken)] = action
+            }
+            return out
+          }
+          const out: Record<string, any> = { ...perm }
+          if (perm.bash && typeof perm.bash === "object" && !Array.isArray(perm.bash)) {
+            out.bash = renderRules(perm.bash as Record<string, string>)
+          }
+          return out
+        }
+
         for (const agent of loadAgents(agentsDir)) {
           if (config.agent[agent.key]) continue
           config.agent[agent.key] = {
@@ -524,7 +549,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
             mode: agent.mode,
             color: agent.color,
             prompt: agent.prompt,
-            permission: agent.permission,
+            permission: renderPermission(agent.permission),
             shell: {
               env: createAgentShellEnv(),
             },

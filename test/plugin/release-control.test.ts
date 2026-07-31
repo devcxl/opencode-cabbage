@@ -58,19 +58,45 @@ describe("release_control tool", () => {
     })
   }
 
+  /** 构造 session client：primary 无 parentID；developer 有 parentID */
+  function sessionClient(caller: "primary" | "developer") {
+    const parentID = caller === "developer" ? "parent-session" : null
+    return {
+      session: {
+        async get({ sessionID }: { sessionID: string }) {
+          return { data: { parentID } }
+        },
+      },
+    }
+  }
+
   async function call(
     dir: string,
     op: string,
     extra: Record<string, unknown> = {},
+    opts: { caller?: "primary" | "developer" } = {},
   ) {
-    const tool = createReleaseControlTool({ projectDir: dir })
-    return tool.execute({ op, ...extra } as any, {} as any)
+    const caller = opts.caller ?? "primary"
+    const tool = createReleaseControlTool({
+      projectDir: dir,
+      sessionClient: sessionClient(caller),
+    })
+    const agent = caller === "developer" ? "developer" : "dev-lifecycle"
+    return tool.execute({ op, ...extra } as any, { agent, sessionID: "sess_x" } as any)
   }
 
   it("rejects an unknown op", async () => {
     await withProject(PROFILE, { version: "1.4.2" }, async dir => {
       const out = await call(dir, "bogus")
       expect(String(out)).toContain("Error")
+    })
+  })
+
+  it("rejects a non-primary caller with CALLER_NOT_AUTHORIZED", async () => {
+    await withProject(PROFILE, { version: "1.4.2" }, async dir => {
+      const out = await call(dir, "merge-release-pr", { proposed_version: "1.5.0", user_confirmed: true }, { caller: "developer" })
+      expect(String(out)).toContain("Error")
+      expect(String(out)).toContain("CALLER_NOT_AUTHORIZED")
     })
   })
 
@@ -204,7 +230,7 @@ describe("release_control tool", () => {
         const ghCalls: string[] = []
         mockGh({
           "pr list --head release/v1.5.0 --json number --jq '.[0].number'": "12",
-          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | select(.conclusion != null)] | map(.conclusion) | unique'":
+          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
             '["SUCCESS"]',
           "pr merge 12 --squash --delete-branch": "",
           "pr view 12 --json mergeCommit --jq '.mergeCommit.oid'": "deadbeef",
@@ -241,7 +267,7 @@ describe("release_control tool", () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
         mockGh({
           "pr list --head release/v1.5.0 --json number --jq '.[0].number'": "12",
-          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | select(.conclusion != null)] | map(.conclusion) | unique'":
+          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
             '["FAILURE"]',
         })
         const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0", user_confirmed: true }))
@@ -250,11 +276,24 @@ describe("release_control tool", () => {
       })
     })
 
+    it("refuses when CI checks are still in progress", async () => {
+      await withProject(PROFILE, { version: "1.4.2" }, async dir => {
+        mockGh({
+          "pr list --head release/v1.5.0 --json number --jq '.[0].number'": "12",
+          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
+            '["IN_PROGRESS", "SUCCESS"]',
+        })
+        const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0", user_confirmed: true }))
+        expect(out).toContain("Error")
+        expect(out).toContain("尚未全部完成")
+      })
+    })
+
     it("refuses when no CI checks are reported", async () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
         mockGh({
           "pr list --head release/v1.5.0 --json number --jq '.[0].number'": "12",
-          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | select(.conclusion != null)] | map(.conclusion) | unique'":
+          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
             "[]",
         })
         const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0", user_confirmed: true }))

@@ -57,7 +57,7 @@ export type ReleaseControlOp = "propose-version" | "open-release-pr" | "merge-re
 
 export interface ReleaseControlDeps {
   projectDir: string
-  sessionClient?: CallerSessionClient
+  sessionClient: CallerSessionClient
 }
 
 function releaseBranch(version: string): string {
@@ -125,10 +125,10 @@ Ops:
       user_confirmed: tool.schema.boolean().describe("Human approval — required for merge-release-pr (release is a manual flow)"),
     },
     async execute(args: Record<string, any>, ctx: any): Promise<string> {
-      const op = args.op as ReleaseControlOp
+      try {
+        const op = args.op as ReleaseControlOp
 
-      // caller 门禁：release 为人工流程，仅 primary 可调用（§2.2/§2.3）
-      if (deps.sessionClient && ctx?.sessionID) {
+        // caller 门禁：release 为人工流程，仅 primary 可调用（§2.2/§2.3），fail-closed
         const denied = await requireCaller(
           { agent: ctx.agent, sessionID: ctx.sessionID },
           ["primary"],
@@ -136,21 +136,23 @@ Ops:
           deps.sessionClient,
         )
         if (denied) return `Error: ${denied}`
-      }
 
-      const profile = await readProjectProfile(deps.projectDir)
+        const profile = await readProjectProfile(deps.projectDir)
 
-      switch (op) {
-        case "propose-version":
-          return proposeVersionOp(profile, deps.projectDir)
-        case "open-release-pr":
-          return openReleasePrOp(profile, args, deps.projectDir)
-        case "merge-release-pr":
-          return mergeReleasePrOp(profile, args)
-        case "monitor":
-          return monitorOp(profile)
-        default:
-          return `Error: unknown operation "${op}"`
+        switch (op) {
+          case "propose-version":
+            return proposeVersionOp(profile, deps.projectDir)
+          case "open-release-pr":
+            return openReleasePrOp(profile, args, deps.projectDir)
+          case "merge-release-pr":
+            return mergeReleasePrOp(profile, args)
+          case "monitor":
+            return monitorOp(profile)
+          default:
+            return `Error: unknown operation "${op}"`
+        }
+      } catch (err) {
+        return `Error: INTERNAL_ERROR — ${String(err)}`
       }
     },
   })
@@ -275,9 +277,9 @@ async function mergeReleasePrOp(profile: ProjectProfile, args: Record<string, an
     return "Error: 未找到对应 Release PR（branch: " + branch + "）"
   }
 
-  // CI 校验：读取 statusCheckRollup，必须存在 SUCCESS check 且无失败项
+  // CI 校验：读取 statusCheckRollup；进行中项显式标记 IN_PROGRESS，不得放行
   const rollup = (await runGh(
-    `pr view ${prNumber} --json statusCheckRollup --jq '[.statusCheckRollup[] | select(.conclusion != null)] | map(.conclusion) | unique'`,
+    `pr view ${prNumber} --json statusCheckRollup --jq '[.statusCheckRollup[] | if .conclusion == null then "IN_PROGRESS" else .conclusion end] | unique'`,
   )).stdout.trim()
   let conclusions: string[]
   try {
@@ -288,11 +290,14 @@ async function mergeReleasePrOp(profile: ProjectProfile, args: Record<string, an
   if (conclusions.length === 0) {
     return `Error: PR #${prNumber} 没有任何 CI checks 报告，无法自动合并（需要 CI 或人工介入）`
   }
+  if (conclusions.includes("IN_PROGRESS")) {
+    return `Error: PR #${prNumber} 的 CI checks 尚未全部完成，请等待完成后再重试`
+  }
   if (conclusions.includes("FAILURE") || conclusions.includes("CANCELLED") || conclusions.includes("ACTION_REQUIRED")) {
     return `Error: PR #${prNumber} 的 CI checks 存在失败项（${conclusions.join(", ")}），无法合并`
   }
   if (!conclusions.every(c => c === "SUCCESS" || c === "NEUTRAL" || c === "SKIPPED")) {
-    return `Error: PR #${prNumber} 的 CI checks 尚未全部完成（conclusions: ${conclusions.join(", ")}），请稍后重试`
+    return `Error: PR #${prNumber} 的 CI checks 存在未知结论（${conclusions.join(", ")}），无法合并`
   }
 
   try {
@@ -331,12 +336,17 @@ async function monitorOp(profile: ProjectProfile): Promise<string> {
   const { stdout } = await runGh(
     `run list --workflow ${workflow} --limit 1 --json databaseId,status,conclusion,headBranch --jq '.[0]'`,
   )
-  const trimmed = stdout.trim()
-  if (!trimmed || trimmed === "null") {
+  const runJson = stdout.trim()
+  if (!runJson || runJson === "null") {
     return "No release workflow runs found yet."
   }
 
-  const run = JSON.parse(trimmed) as { databaseId: number; status: string; conclusion: string | null; headBranch: string }
+  let run: { databaseId: number; status: string; conclusion: string | null; headBranch: string }
+  try {
+    run = JSON.parse(runJson) as { databaseId: number; status: string; conclusion: string | null; headBranch: string }
+  } catch {
+    return "Error: 无法解析 release workflow run 状态（gh 输出异常）"
+  }
   if (run.status !== "completed") {
     return `Release workflow run #${run.databaseId} is ${run.status} (branch ${run.headBranch}) — not finished, check again later`
   }

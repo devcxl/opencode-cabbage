@@ -125,6 +125,59 @@ describe("dev-lifecycle prompt", () => {
   })
 })
 
+describe("developer agent（backend+frontend 合并，§6.1）", () => {
+  const agentsDir = path.resolve(import.meta.dirname || __dirname, "..", "assets", "agents")
+
+  it("loads developer from team dir with bash whitelist + deny tail + edit whitelist", () => {
+    const agents = loadAgents(agentsDir)
+    const dev = agents.find(a => a.key === "developer")
+
+    expect(dev).toBeDefined()
+    expect(dev?.mode).toBe("subagent")
+
+    const bash = dev?.permission?.bash as Record<string, string> | undefined
+    expect(bash?.["*"]).toBe("deny")                          // 兜底 deny
+    expect(bash?.["<profile-test-command>*"]).toBe("allow")   // 测试命令由 Profile 生成，不硬编码 npm
+    expect(bash?.["git status*"]).toBe("allow")               // 只读 git 白名单
+    expect(bash?.["git add*"]).toBe("allow")                  // 本地写
+    expect(bash?.["git commit*"]).toBe("allow")
+    // 写操作 deny 置尾（最后匹配优先）
+    expect(bash?.["git push*"]).toBe("deny")
+    expect(bash?.["git worktree*"]).toBe("deny")
+    expect(bash?.["gh pr create*"]).toBe("deny")
+    expect(bash?.["gh pr merge*"]).toBe("deny")
+    expect(bash?.["gh issue create*"]).toBe("deny")
+
+    const edit = dev?.permission?.edit as Record<string, string> | undefined
+    expect(edit?.["*"]).toBe("deny")
+    expect(edit?.[".worktree/**"]).toBe("allow")
+    expect(edit?.["src/**"]).toBe("allow")
+    expect(edit?.["test/**"]).toBe("allow")
+    expect(edit?.["assets/**"]).toBe("allow")
+  })
+
+  it("body 技术栈无关：加载 flow-tdd、不内嵌三份工程原则拷贝、无 backend/frontend 残留", () => {
+    const agents = loadAgents(agentsDir)
+    const dev = agents.find(a => a.key === "developer")
+    const prompt = dev?.prompt ?? ""
+
+    expect(prompt).toContain("flow-tdd")
+    expect(prompt).not.toContain("### KISS（Keep It Simple, Stupid）") // 工程原则单份引用
+    expect(prompt).not.toContain("@backend")
+    expect(prompt).not.toContain("@frontend")
+    expect(prompt).not.toContain("npm test")
+    expect(prompt).not.toContain("git push")
+  })
+
+  it("backend/frontend 已删除，不再加载", () => {
+    const agents = loadAgents(agentsDir)
+    const keys = agents.map(a => a.key)
+    expect(keys).not.toContain("backend")
+    expect(keys).not.toContain("frontend")
+    expect(keys).toContain("developer")
+  })
+})
+
 describe("Agent permission parsing", () => {
   it("parses permission with string values", () => {
     writeAgent("perm-agent", "subagent", `permission:

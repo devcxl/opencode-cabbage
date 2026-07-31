@@ -41,6 +41,7 @@ export type TaskControlResponse = {
   evidenceRevision?: number
   verdict?: string
   risk?: string
+  warning?: string
   reason?: string
   report?: unknown
   missing?: string[]
@@ -193,7 +194,7 @@ async function handleMergeTask(deps: TaskControlDeps, args: Record<string, unkno
   if (!result.ok) {
     return errorResponse(result.code, result.message)
   }
-  return okResponse({ prNumber: result.prNumber, risk: result.risk })
+  return okResponse({ prNumber: result.prNumber, risk: result.risk, ...(result.warning ? { warning: result.warning } : {}) })
 }
 
 async function handleCancelTask(deps: TaskControlDeps, args: Record<string, unknown>): Promise<string> {

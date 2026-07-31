@@ -644,9 +644,11 @@ export async function submitTask(
     }
   }
 
-  // 跨批协议（与 tdd_checkpoint 一致）：优先解析 comment 内 JSON 状态块（cabbage-tdd-state），
-  // 取最后一个（最新）恢复完整 TddEvidence；失败则回退旧 markdown 有损解析
-  const evidence = parseJsonStateEvidence(comment.body) ?? evidenceCommentToTddEvidence(comment)
+  // 跨批协议（与 tdd_checkpoint 一致）：先提取 evidence block 内容（不含 end marker），
+  // 再解析其中 JSON 状态块（cabbage-tdd-state，取最后一个）；失败则回退旧 markdown 有损解析
+  const evidenceBlock = extractEvidenceBlock(comment.body)
+  const evidence =
+    (evidenceBlock ? parseJsonStateEvidence(evidenceBlock.content) : null) ?? evidenceCommentToTddEvidence(comment)
   if (!evidence || evidence.revision < 1) {
     return {
       ok: false,
@@ -674,14 +676,14 @@ export async function submitTask(
   return submitPr(projectDir, state, issueNumber, comment, evidence.revision, evidence, taskId)
 }
 
-/** 解析 evidence comment 内 JSON 状态块（TDD_STATE_TAG，取最后一个），失败返回 null */
+/** 解析 evidence comment 内 JSON 状态块（TDD_STATE_TAG，取最后一个），失败返回 null；schema 必须为 1 */
 function parseJsonStateEvidence(body: string): TddEvidence | null {
   const marker = "<!-- cabbage-tdd-state -->"
   const idx = body.lastIndexOf(marker)
   if (idx === -1) return null
   try {
-    const parsed = JSON.parse(body.slice(idx + marker.length)) as { schema?: number; evidence?: TddEvidence }
-    if (!parsed?.evidence) return null
+    const parsed = JSON.parse(body.slice(idx + marker.length).trim()) as { schema?: number; evidence?: TddEvidence }
+    if (parsed.schema !== 1 || !parsed?.evidence) return null
     return { ...parsed.evidence, revision: parsed.evidence.revision ?? 1 }
   } catch {
     return null
@@ -849,6 +851,17 @@ async function readPrChecks(prNumber: number): Promise<Array<{ name: string; sta
     `pr view ${prNumber} --json statusCheckRollup --jq '[.[] | {name: (.name // .context // "check"), state: (.state // .conclusion // "PENDING")}]'`,
   )
   return JSON.parse(stdout) as Array<{ name: string; state: string }>
+}
+
+/** 将原始 statusCheckRollup 映射为 {name, state}（纯函数，供测试直接验证 jq 语义） */
+export function mapCheckRollup(raw: unknown[]): Array<{ name: string; state: string }> {
+  return raw.map(item => {
+    const obj = (item ?? {}) as Record<string, unknown>
+    return {
+      name: String(obj.name ?? obj.context ?? "check"),
+      state: String(obj.state ?? obj.conclusion ?? "PENDING"),
+    }
+  })
 }
 
 /** 读 PR 变更文件路径列表（风险判定用） */

@@ -12,6 +12,7 @@ import {
   freezeTddPolicy,
   parseEvidenceComment,
   evidenceCommentToTddEvidence,
+  mapCheckRollup,
   BUILTIN_RISK_PATTERNS,
   startTask,
   submitTask,
@@ -147,6 +148,21 @@ describe("task kernel pure functions", () => {
     it("extracts dependency issue numbers", () => {
       const body = buildTaskBody("slug", [], [12, 13])
       expect(parseDependenciesFromBody(body)).toEqual([12, 13])
+    })
+  })
+
+  describe("mapCheckRollup", () => {
+    it("maps GitHub Actions CheckRuns (name + conclusion)", () => {
+      expect(mapCheckRollup([{ name: "verify", status: "COMPLETED", conclusion: "SUCCESS" }]))
+        .toEqual([{ name: "verify", state: "SUCCESS" }])
+    })
+    it("maps StatusContext (context + state)", () => {
+      expect(mapCheckRollup([{ context: "continuous-integration", state: "SUCCESS" }]))
+        .toEqual([{ name: "continuous-integration", state: "SUCCESS" }])
+    })
+    it("falls back to check/PENDING for missing fields", () => {
+      expect(mapCheckRollup([{ status: "IN_PROGRESS" }]))
+        .toEqual([{ name: "check", state: "PENDING" }])
     })
   })
 
@@ -307,6 +323,7 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
         await mkdir(join(dir, ".worktree", "user-auth-login"), { recursive: true })
         const taskBody = buildTaskBody("user-auth-login", [{ id: "c1", description: "x", verification: "tdd" }], [14])
         const parentBody = "## Stages\n\n- [x] requirements\n- [x] design\n- [ ] tasks"
+        const patchCalls: string[] = []
         setTaskGhExecutor(async args => {
           if (args.includes("--json number,labels")) {
             return { stdout: JSON.stringify([{ number: 20, labels: ["cabbage:task:running"] }]), stderr: "" }
@@ -315,7 +332,10 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
           if (args.includes("issue view 13 --json body")) return { stdout: taskBody, stderr: "" }
           if (args.includes("issue view 13 --json labels")) return { stdout: "", stderr: "" }
           if (args.includes("issue edit 13")) return { stdout: "", stderr: "" }
-          if (args.includes("issues/13 -X PATCH")) return { stdout: "", stderr: "" }
+          if (args.includes("issues/13 -X PATCH")) {
+            patchCalls.push(args)
+            return { stdout: "", stderr: "" }
+          }
           if (args.includes("issue view 14")) return { stdout: "CLOSED", stderr: "" }
           if (args.includes("repo view")) return { stdout: "main", stderr: "" }
           throw new Error(`unexpected task gh: ${args}`)
@@ -338,6 +358,12 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
           expect(result.policy.enforcement).toBe("runtime")
           expect(result.baseline.digest.algorithm).toBe("sha256-content-v1")
         }
+        // 跨批协议：Task Record body 必须写入 cabbage-task-tdd 块（含 policy/criteria/worktreeDir）
+        expect(patchCalls.length).toBeGreaterThanOrEqual(1)
+        const patchBody = patchCalls.join("")
+        expect(patchBody).toContain("<!-- cabbage-task-tdd -->")
+        expect(patchBody).toContain('"policy"')
+        expect(patchBody).toContain("user-auth-login")
       })
     })
 
@@ -502,6 +528,110 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
           expect(createCall).toContain("#13")
         }
         expect(calls.some(c => c.includes("issue edit 13"))).toBe(true)
+      })
+    })
+
+    it("parses JSON TDD state block (cabbage-tdd-state) taking the last block", async () => {
+      await withProjectDir(async dir => {
+        await writeTaskStateForTest(dir)
+        setTaskGhExecutor(async args => {
+          if (args.includes("issue list")) return { stdout: "13", stderr: "" }
+          if (args.includes("issue view 13 --json body")) {
+            return { stdout: buildTaskBody("user-auth-login", [{ id: "c1", description: "x", verification: "tdd" }], []), stderr: "" }
+          }
+          if (args.includes("repo view")) return { stdout: "acme/repo", stderr: "" }
+          if (args.includes("pr create")) return { stdout: "42", stderr: "" }
+          if (args.includes("issue view 13 --json labels")) return { stdout: "", stderr: "" }
+          if (args.includes("issue edit 13")) return { stdout: "", stderr: "" }
+          throw new Error(`unexpected task gh: ${args}`)
+        })
+        setTaskGitExecutor(async args => {
+          if (args.includes("push -u origin")) return { stdout: "", stderr: "" }
+          throw new Error(`unexpected task git: ${args}`)
+        })
+        const state = {
+          schema: 1,
+          evidence: {
+            revision: 4,
+            status: "pass",
+            reworkRevision: 0,
+            taskStart: { status: "pass", headSha: null, treeSha: null, startedAt: null },
+            cycles: [{
+              cycleId: "cyc-1",
+              criterionId: "c1",
+              status: "pass",
+              startWorkspaceDigest: { algorithm: "sha256-content-v1", value: "0".repeat(64) },
+              redAttempts: [],
+              greenEvidence: null,
+              redEvidence: null,
+            }],
+            regression: { status: "pass", headSha: null, treeSha: null, reworkRevision: 0, runs: [] },
+            verification: { status: "pass", headSha: null, treeSha: null, runs: [] },
+            alternativeValidation: [],
+            reworks: [],
+            warnings: [],
+            updatedAt: null,
+          },
+        }
+        const jsonComment =
+          `<!-- cabbage-tdd-evidence:start --> revision:1\n### stage: green\n- status: pass\n<!-- cabbage-tdd-state -->\n${JSON.stringify(state)}\n<!-- cabbage-tdd-evidence:end -->`
+        setRecordsGhExecutor(async args => {
+          if (args.includes("--json comments")) {
+            return { stdout: JSON.stringify({ id: 6, body: jsonComment }), stderr: "" }
+          }
+          throw new Error(`unexpected records gh: ${args}`)
+        })
+
+        const result = await submitTask(dir, 12, "user-auth-login")
+        expect(result.ok).toBe(true)
+        if (result.ok) expect(result.evidenceRevision).toBe(4)
+      })
+    })
+
+    it("passes the gate for waived evidence (not-applicable / exempt)", async () => {
+      await withProjectDir(async dir => {
+        await writeTaskStateForTest(dir)
+        setTaskGhExecutor(async args => {
+          if (args.includes("issue list")) return { stdout: "13", stderr: "" }
+          if (args.includes("issue view 13 --json body")) {
+            return { stdout: buildTaskBody("user-auth-login", [{ id: "c1", description: "x", verification: "tdd" }], []), stderr: "" }
+          }
+          if (args.includes("repo view")) return { stdout: "acme/repo", stderr: "" }
+          if (args.includes("pr create")) return { stdout: "42", stderr: "" }
+          if (args.includes("issue view 13 --json labels")) return { stdout: "", stderr: "" }
+          if (args.includes("issue edit 13")) return { stdout: "", stderr: "" }
+          throw new Error(`unexpected task gh: ${args}`)
+        })
+        setTaskGitExecutor(async args => {
+          if (args.includes("push -u origin")) return { stdout: "", stderr: "" }
+          throw new Error(`unexpected task git: ${args}`)
+        })
+        const waivedState = {
+          schema: 1,
+          evidence: {
+            revision: 1,
+            status: "waived",
+            reworkRevision: 0,
+            taskStart: { status: "pass", headSha: null, treeSha: null, startedAt: null },
+            cycles: [],
+            regression: { status: "pending", headSha: null, treeSha: null, reworkRevision: 0, runs: [] },
+            verification: { status: "pending", headSha: null, treeSha: null, runs: [] },
+            alternativeValidation: [],
+            reworks: [],
+            warnings: ["not-applicable"],
+            updatedAt: null,
+          },
+        }
+        const waivedComment = `<!-- cabbage-tdd-evidence:start --> revision:1\n### stage: waived\n- status: waived\n<!-- cabbage-tdd-state -->\n${JSON.stringify(waivedState)}\n<!-- cabbage-tdd-evidence:end -->`
+        setRecordsGhExecutor(async args => {
+          if (args.includes("--json comments")) {
+            return { stdout: JSON.stringify({ id: 7, body: waivedComment }), stderr: "" }
+          }
+          throw new Error(`unexpected records gh: ${args}`)
+        })
+
+        const result = await submitTask(dir, 12, "user-auth-login")
+        expect(result.ok).toBe(true)
       })
     })
   })

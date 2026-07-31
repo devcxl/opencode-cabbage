@@ -58,13 +58,31 @@ npm install @devcxl/opencode-cabbage
 src/                          # TypeScript 薄层
 ├── index.ts                  # 插件入口
 ├── plugin.ts                 # 包路径解析
-└── plugin/
-    ├── server.ts             # 主工厂：注入 skills/commands/agents
-    ├── commands.ts           # Command 加载器
-    ├── skills.ts             # Skill 加载器
-    ├── prompts.ts            # Prompt 加载器
-    ├── bootstrap.ts          # 启动引导
-    └── agents.ts             # Agent 注入
+├── plugin/                   # 加载器 + 工具工厂
+│   ├── server.ts             # 主工厂：注入 skills/commands/agents/5 个生命周期工具
+│   ├── commands.ts           # Command 加载器
+│   ├── skills.ts             # Skill 加载器
+│   ├── prompts.ts            # Prompt 加载器
+│   ├── bootstrap.ts          # 启动引导
+│   ├── agents.ts             # Agent 注入
+│   ├── setup-control.ts      # setup_control 工具
+│   ├── flow-control.ts       # flow_control 工具
+│   ├── task-control.ts       # task_control 工具
+│   ├── tdd-checkpoint.ts     # tdd_checkpoint 工具
+│   └── release-control.ts    # release_control 工具
+└── kernel/                   # 确定性薄内核
+    ├── slug.ts               # Functional Slug 派生/校验
+    ├── records.ts            # Flow/Task Record CRUD（GitHub 权威源）
+    ├── worktree.ts           # Worktree 生命周期（无 --force）
+    ├── tdd/                  # Runtime TDD 纯函数 + evidence
+    ├── review.ts             # 合并门禁（CI/分支保护/风险/approval）
+    ├── release.ts            # 版本提议 + tag 不可变校验
+    ├── context.ts            # 根 CONTEXT.md 发现/注入
+    ├── profile.ts            # AGENTS.md Project Profile 解析
+    ├── session-index.ts      # Flow→session 索引 + takeover
+    ├── caller.ts             # 调用者角色矩阵
+    ├── permission.ts         # 权限匹配语义
+    └── legacy.ts             # 旧 FlowRun 检测
 
 assets/                       # 运行时资源
 ├── commands/                 # 7 个 slash command

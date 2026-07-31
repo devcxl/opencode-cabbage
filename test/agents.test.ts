@@ -60,34 +60,6 @@ describe("loadAgents", () => {
     expect(result[0].prompt).toContain("You are a test agent")
   })
 
-  it("extracts tools from frontmatter", () => {
-    writeAgent("readonly", "subagent", "tools:\n  read: true\n  bash: false\n  write: false\n  edit: false")
-    const result = loadAgents(tmpDir)
-    expect(result).toHaveLength(1)
-    expect(result[0].tools).toEqual({
-      read: true,
-      bash: false,
-      write: false,
-      edit: false,
-    })
-  })
-
-  it("defaults tools to undefined when not specified", () => {
-    writeAgent("no-tools", "primary")
-    const result = loadAgents(tmpDir)
-    expect(result[0].tools).toBeUndefined()
-  })
-
-  it("handles partial tools specification", () => {
-    writeAgent("partial", "subagent", "tools:\n  read: true")
-    const result = loadAgents(tmpDir)
-    expect(result[0].tools).toBeDefined()
-    expect(result[0].tools!.read).toBe(true)
-    expect(result[0].tools!.bash).toBe(false)
-    expect(result[0].tools!.write).toBe(false)
-    expect(result[0].tools!.edit).toBe(false)
-  })
-
   it("loads agents from both root and team dir", () => {
     writeAgent("root-agent", "primary")
     writeTeamAgent("team-agent")
@@ -111,6 +83,20 @@ describe("loadAgents", () => {
     const result = loadAgents(tmpDir)
     expect(result).toHaveLength(1)
     expect(result[0].color).toBe("#abc")
+  })
+
+  it("ignores deprecated tools frontmatter（tools 布尔已废弃）", () => {
+    writeAgent("tools-agent", "primary", "tools:\n  read: true\n  bash: true\n  write: true\n  edit: true")
+    const result = loadAgents(tmpDir)
+    expect(result).toHaveLength(1)
+    expect(result[0].tools).toBeUndefined()
+  })
+
+  it("ignores deprecated capabilities frontmatter（capabilities 已废弃）", () => {
+    writeAgent("cap-agent", "primary", "capabilities:\n  create_pr: false\n  merge_pr: false\n  modify_files: true")
+    const result = loadAgents(tmpDir)
+    expect(result).toHaveLength(1)
+    expect(result[0].capabilities).toBeUndefined()
   })
 
   it("skips files without frontmatter", () => {
@@ -141,12 +127,7 @@ describe("dev-lifecycle prompt", () => {
 
 describe("Agent permission parsing", () => {
   it("parses permission with string values", () => {
-    writeAgent("perm-agent", "subagent", `tools:
-  read: true
-  bash: true
-  write: true
-  edit: true
-permission:
+    writeAgent("perm-agent", "subagent", `permission:
   bash: "npm test|git push|npm run build"
   write: ".worktree/"
   edit: "src/,test/,assets/"`)
@@ -159,12 +140,7 @@ permission:
   })
 
   it("parses permission with deny values", () => {
-    writeAgent("deny-agent", "subagent", `tools:
-  read: true
-  bash: true
-  write: false
-  edit: false
-permission:
+    writeAgent("deny-agent", "subagent", `permission:
   bash: "gh pr view|diff|checks"
   write: deny
   edit: deny`)
@@ -190,24 +166,27 @@ permission:
     expect(result[0].permission!.edit).toBeUndefined()
   })
 
-  it("keeps capabilities field for lint usage", () => {
-    writeAgent("cap-agent", "subagent", `capabilities:
-  create_pr: false
-  merge_pr: false
-  modify_files: true
-  run_tests: true
-  push_branch: true
-  approve_review: false
-  complete_goal: false
-permission:
-  bash: "npm test|git push"
-  write: ".worktree/"
-  edit: "src/,test/"`)
+  it("parses nested permission rule objects（OpenCode 语义：pattern → action）", () => {
+    writeAgent("nested-perm", "subagent", `permission:
+  bash:
+    "*": "deny"
+    "npm *": "allow"
+    "git status*": "allow"
+    "git push*": "deny"
+  edit:
+    "*": "deny"
+    ".worktree/**": "allow"`)
     const result = loadAgents(tmpDir)
-    expect(result[0].capabilities).toBeDefined()
-    expect(result[0].capabilities!.modify_files).toBe(true)
-    expect(result[0].capabilities!.run_tests).toBe(true)
-    expect(result[0].capabilities!.create_pr).toBe(false)
-    expect(result[0].permission).toBeDefined()
+    expect(result).toHaveLength(1)
+    expect(result[0].permission!.bash).toEqual({
+      "*": "deny",
+      "npm *": "allow",
+      "git status*": "allow",
+      "git push*": "deny",
+    })
+    expect(result[0].permission!.edit).toEqual({
+      "*": "deny",
+      ".worktree/**": "allow",
+    })
   })
 })

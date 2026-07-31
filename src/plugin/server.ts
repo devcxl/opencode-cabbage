@@ -7,7 +7,7 @@ import { initBootstrap, getBootstrapContent } from "./bootstrap.js"
 import { loadCommands } from "./commands.js"
 import { setupSkillsDir } from "./skills.js"
 import { loadAgents } from "./agents.js"
-import { createIsolatedShellEnv, detectAmbientCredentials } from "./shell.js"
+import { createAgentShellEnv } from "./shell.js"
 import { createGoalClient, createGoalTool, readGoal, writeGoal, MAX_CONTINUATIONS, continuationPrompt, formatGoal } from "./goal.js"
 import { readIndex, updateFlowSession } from "../kernel/session-index.js"
 import { FlowBroker } from "./broker.js"
@@ -22,6 +22,7 @@ import type { TaskExecutionBinding, FlowControlResponse } from "../flowrun/types
 import { readFlowRun } from "../flowrun/github.js"
 import { getContextBlock, formatContextBlock, CONTEXT_MARKER } from "../kernel/context.js"
 import type { ContextBlock } from "../kernel/context.js"
+import { readProjectProfile } from "../kernel/profile.js"
 
 const abortedSessions = new Set<string>()
 const errorRetryCount = new Map<string, number>()
@@ -73,6 +74,42 @@ export function configureGoalTools(config: GoalToolConfig): void {
     const agentConfig = agent as AgentToolConfig
     const canUseGoal = agentName === "dev-lifecycle" || agentName === "goal-verify"
     agentConfig.tools = { ...agentConfig.tools, goal: canUseGoal }
+  }
+}
+
+/**
+ * config 层第二道门（spec §2.2）：按 caller 矩阵把 5 个生命周期工具
+ * 对每个 agent 置 true/false。agent 名 → 角色映射与 caller.ts ROLE_BY_AGENT 一致。
+ */
+export function configureLifecycleTools(config: GoalToolConfig): void {
+  const lifecycleTools = ["setup_control", "flow_control", "task_control", "tdd_checkpoint", "release_control"] as const
+  const agentRole = (name: string): string => {
+    switch (name) {
+      case "dev-lifecycle": return "primary"
+      case "developer": return "developer"
+      case "architect": return "architect"
+      case "reviewer": return "reviewer"
+      case "goal-verify": return "goal-verify"
+      default: return "reviewer"
+    }
+  }
+  const canUseTool = (role: string, tool: string): boolean => {
+    if (role === "goal-verify") return tool === "flow_control"
+    switch (tool) {
+      case "tdd_checkpoint": return role === "primary" || role === "developer"
+      default: return role === "primary"
+    }
+  }
+
+  for (const [agentName, agent] of Object.entries(config.agent ?? {})) {
+    if (!agent || typeof agent !== "object" || Array.isArray(agent)) continue
+    const agentConfig = agent as AgentToolConfig
+    const role = agentRole(agentName)
+    const toolFlags: Record<string, boolean> = {}
+    for (const toolName of lifecycleTools) {
+      toolFlags[toolName] = canUseTool(role, toolName)
+    }
+    agentConfig.tools = { ...agentConfig.tools, ...toolFlags }
   }
 }
 
@@ -462,15 +499,6 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
       config: async (rawConfig) => {
         const config = rawConfig as Record<string, any>
 
-        // ── Ambient credential 检测 ──
-        const ambientReport = detectAmbientCredentials()
-        if (ambientReport.hasWriteCredentials) {
-          console.warn(
-            "[cabbage] ⚠️  检测到可用 GitHub 写凭证，Runtime enforcement 已降级为 advisory:",
-            ambientReport.sources.map(s => s.location).join(", "),
-          )
-        }
-
         config.skills = config.skills || {}
         config.skills.paths = config.skills.paths || []
         if (!config.skills.paths.includes(skillsDir)) {
@@ -490,6 +518,30 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
         }
 
         config.agent = config.agent || {}
+        // 渲染 permission 占位符：`<profile-test-command>` → Profile.testCommand 首 token（§9.1）
+        const profile = await readProjectProfile(projectDir)
+        const testCommandToken = profile.testCommand?.split(" ")[0] ?? ""
+        const renderPermission = (perm: Record<string, any> | undefined): Record<string, any> | undefined => {
+          if (!perm) return perm
+          const renderRules = (rules: Record<string, string> | undefined): Record<string, string> | undefined => {
+            if (!rules) return rules
+            const out: Record<string, string> = {}
+            for (const [pattern, action] of Object.entries(rules)) {
+              if (pattern.includes("<profile-test-command>") && testCommandToken === "") {
+                // Profile 未配置测试命令 → 删除占位规则，避免渲染成 "*" 覆盖兜底 deny
+                continue
+              }
+              out[pattern.replaceAll("<profile-test-command>", testCommandToken)] = action
+            }
+            return out
+          }
+          const out: Record<string, any> = { ...perm }
+          if (perm.bash && typeof perm.bash === "object" && !Array.isArray(perm.bash)) {
+            out.bash = renderRules(perm.bash as Record<string, string>)
+          }
+          return out
+        }
+
         for (const agent of loadAgents(agentsDir)) {
           if (config.agent[agent.key]) continue
           config.agent[agent.key] = {
@@ -497,15 +549,15 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
             mode: agent.mode,
             color: agent.color,
             prompt: agent.prompt,
-            tools: agent.tools ?? { read: true, bash: true, edit: true },
-            permission: agent.permission,
+            permission: renderPermission(agent.permission),
             shell: {
-              env: createIsolatedShellEnv(agent),
+              env: createAgentShellEnv(),
             },
           }
         }
 
         configureGoalTools(config)
+        configureLifecycleTools(config)
       },
 
       "experimental.chat.messages.transform": async (_input, output) => {

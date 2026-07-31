@@ -46,15 +46,10 @@ describe("prompt-lint", () => {
 
 describe("prompt-lint: agent permission rules", () => {
   it("warns when agent frontmatter is missing permission field", () => {
-    // dev-lifecycle.md has no permission field
+    // 批 12 后所有 agent 均已声明 permission —— 不应有 missing-permission 告警
     const { findings } = lintAll(PROJECT_ROOT)
     const missing: LintFinding[] = findings.filter((f: LintFinding) => f.rule === "missing-permission")
-    expect(missing.length).toBeGreaterThanOrEqual(1)
-    for (const m of missing) {
-      expect(m.severity).toBe("warn")
-    }
-    const devLifecycle = missing.find((m: LintFinding) => m.file.includes("dev-lifecycle"))
-    expect(devLifecycle).toBeDefined()
+    expect(missing.length).toBe(0)
   })
 
   it("errors when worker has gh pr create|merge in permission.bash", () => {
@@ -85,8 +80,7 @@ describe("prompt-lint: agent permission rules", () => {
     const permRules = findings.filter((f: LintFinding) =>
       ["missing-permission", "worker-gh-write-permission", "reviewer-write-permission", "capability-permission-mismatch"].includes(f.rule)
     )
-    // We should have findings for the permission rules
-    // At minimum: architect.md missing permission
-    expect(permRules.length).toBeGreaterThanOrEqual(1)
+    // 批 12 后所有 agent 均合规（permission 齐全、无 worker 写 gh、reviewer 只读、capabilities 已删）
+    expect(permRules.length).toBe(0)
   })
 })

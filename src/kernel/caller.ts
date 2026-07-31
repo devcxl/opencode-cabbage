@@ -7,6 +7,40 @@
 
 export type CallerRole = "primary" | "developer" | "architect" | "reviewer" | "goal-verify"
 
+/** 5 个生命周期工具（spec §2.2 / PRD R4） */
+export const LIFECYCLE_TOOLS = [
+  "setup_control",
+  "flow_control",
+  "task_control",
+  "tdd_checkpoint",
+  "release_control",
+] as const
+
+/** 工具默认允许角色矩阵：primary 全量；developer 仅 tdd_checkpoint；其余角色默认无工具 */
+const TOOL_ROLES: Record<string, CallerRole[]> = {
+  setup_control: ["primary"],
+  flow_control: ["primary"],
+  task_control: ["primary"],
+  tdd_checkpoint: ["primary", "developer"],
+  release_control: ["primary"],
+}
+
+/** op 级覆盖（最后匹配优先）：architect 仅 flow_control.status 只读；goal-verify 仅 complete-flow */
+const OP_ROLES: Record<string, Record<string, CallerRole[]>> = {
+  flow_control: {
+    "complete-flow": ["goal-verify"],
+    status: ["primary", "architect"],
+  },
+}
+
+/**
+ * 解析工具（+op）允许的角色集。op 级覆盖优先；未知工具保守返回空集（fail-closed）。
+ */
+export function rolesForTool(tool: string, op?: string): CallerRole[] {
+  if (op && OP_ROLES[tool]?.[op]) return OP_ROLES[tool][op]
+  return TOOL_ROLES[tool] ?? []
+}
+
 /** requireCaller 拒绝时的错误码 */
 export const CALLER_NOT_AUTHORIZED = "CALLER_NOT_AUTHORIZED"
 
@@ -61,4 +95,19 @@ export async function requireCaller(
   const role = await resolveCaller(ctx, client)
   if (allowedRoles.includes(role)) return null
   return `${CALLER_NOT_AUTHORIZED}: caller "${ctx.agent}" resolved as "${role}" is not allowed to call "${op}" (allowed: ${allowedRoles.join(", ")})`
+}
+
+/**
+ * 工具级 caller 门禁：按工具（+op）矩阵解析允许角色后校验。
+ * 供各生命周期工具 execute 内调用（spec §2.2 第一道门；config 层为第二道门）。
+ */
+export async function requireToolCaller(
+  ctx: CallerContext,
+  tool: string,
+  op: string | undefined,
+  client: CallerSessionClient,
+): Promise<string | null> {
+  const allowed = rolesForTool(tool, op)
+  const label = op ? `${tool}:{op:"${op}"}` : tool
+  return requireCaller(ctx, allowed, label, client)
 }

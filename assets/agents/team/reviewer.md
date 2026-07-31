@@ -21,6 +21,8 @@ permission:
     "*": "deny"
     "gh pr view": "allow"
     "gh pr view *": "allow"
+    "gh pr diff": "allow"
+    "gh pr diff *": "allow"
     "diff": "allow"
     "diff *": "allow"
     "gh pr checks": "allow"

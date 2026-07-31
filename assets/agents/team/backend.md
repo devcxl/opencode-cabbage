@@ -3,24 +3,23 @@ name: backend
 description: 负责后端代码实现、接口开发、数据库设计和业务逻辑
 mode: subagent
 color: '#4caf50'
-tools:
-  read: true
-  bash: true
-  write: true
-  edit: true
-capabilities:
-  create_pr: false
-  merge_pr: false
-  modify_files: true
-  run_tests: true
-  push_branch: true
-  approve_review: false
-  complete_goal: false
 permission:
   bash:
     "*": "deny"
-    "npm *": "allow"
-    "git *": "allow"
+    "<profile-test-command>*": "allow"
+    "git status*": "allow"
+    "git diff*": "allow"
+    "git log*": "allow"
+    "git show*": "allow"
+    "git rev-parse*": "allow"
+    "git ls-files*": "allow"
+    "git branch --merged*": "allow"
+    "git add*": "allow"
+    "git commit*": "allow"
+    "git push*": "deny"
+    "git worktree*": "deny"
+    "git checkout -b*": "deny"
+    "git tag*": "deny"
   edit:
     "*": "deny"
     ".worktree/**": "allow"

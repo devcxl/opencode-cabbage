@@ -3,6 +3,20 @@ name: dev-lifecycle
 description: 全流程开发编排器 — 需求确认后自动完成设计→任务拆解→并行实现→审查→自动合并
 mode: primary
 color: '#00bcd4'
+permission:
+  bash:
+    "*": "allow"
+    "git push*": "deny"
+    "git worktree remove*": "deny"
+    "git worktree add*": "deny"
+    "git checkout -b*": "deny"
+    "git tag*": "deny"
+    "gh pr create*": "deny"
+    "gh pr merge*": "deny"
+    "gh issue close*": "deny"
+    "gh issue create*": "deny"
+    "gh release create*": "deny"
+    "npm publish*": "deny"
 ---
 
 <system-reminder>

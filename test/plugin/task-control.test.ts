@@ -315,6 +315,7 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
           if (args.includes("issue view 13 --json body")) return { stdout: taskBody, stderr: "" }
           if (args.includes("issue view 13 --json labels")) return { stdout: "", stderr: "" }
           if (args.includes("issue edit 13")) return { stdout: "", stderr: "" }
+          if (args.includes("issues/13 -X PATCH")) return { stdout: "", stderr: "" }
           if (args.includes("issue view 14")) return { stdout: "CLOSED", stderr: "" }
           if (args.includes("repo view")) return { stdout: "main", stderr: "" }
           throw new Error(`unexpected task gh: ${args}`)
@@ -699,6 +700,45 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
         }
         expect(calls.some(c => c.includes("issue close 13"))).toBe(true)
         expect(calls.some(c => c.includes("--add-label 'cabbage:task:merged'"))).toBe(true)
+      })
+    })
+
+    it("merges when CI checks are GitHub Actions CheckRuns (conclusion field)", async () => {
+      await withProjectDir(async dir => {
+        await writeStateFor(dir)
+        await mkdir(join(dir, ".worktree", "user-auth-login"), { recursive: true })
+        setTaskGhExecutor(async args => {
+          if (args.includes("issue list")) return { stdout: "13", stderr: "" }
+          if (args.includes("pr list --head")) {
+            return { stdout: JSON.stringify({ number: 42, headRefOid: "sha1", author: { login: "dev" } }), stderr: "" }
+          }
+          if (args.includes("pr view 42 --json statusCheckRollup")) {
+            // 真实 gh 经 jq 转换：CheckRun（name+conclusion）→ {name, state}
+            return { stdout: JSON.stringify([{ name: "verify", state: "SUCCESS" }]), stderr: "" }
+          }
+          if (args.includes("repo view")) return { stdout: "acme/repo", stderr: "" }
+          if (args.includes("pr view 42 --json files")) return { stdout: "[]", stderr: "" }
+          if (args.includes("issue close 13")) return { stdout: "", stderr: "" }
+          if (args.includes("issue view 13 --json labels")) return { stdout: "", stderr: "" }
+          if (args.includes("issue edit 13")) return { stdout: "", stderr: "" }
+          throw new Error(`unexpected task gh: ${args}`)
+        })
+        setMergeGhExecutor(async args => {
+          if (args.includes("branches/main/protection")) {
+            return {
+              stdout: JSON.stringify({
+                required_pull_request_reviews: { dismiss_stale_reviews: false },
+                required_status_checks: { checks: [] },
+              }),
+              stderr: "",
+            }
+          }
+          if (args.includes("pr merge 42")) return { stdout: "", stderr: "" }
+          throw new Error(`unexpected merge gh: ${args}`)
+        })
+        setWorktreeGitExecutor(async () => ({ stdout: "", stderr: "" }))
+        const result = await mergeTask(dir, 12, "user-auth-login", "low")
+        expect(result.ok).toBe(true)
       })
     })
 

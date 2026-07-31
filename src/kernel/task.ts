@@ -51,7 +51,7 @@ export const BUILTIN_RISK_PATTERNS = [
   "**/.env*",
   "**/*.pem",
   "**/*.key",
-  "**/api/**",
+  "src/**/api/**",
 ]
 
 // ─── 可替换的 gh/git executor（测试用，仿 flow.ts） ───
@@ -117,6 +117,25 @@ export function buildTaskBody(slug: string, criteria: AcceptanceCriterion[], dep
     "<!-- PR 约定：提交 PR 时 body 必须包含 `Closes #<issueNumber>` 以在合并时关闭本 Sub Issue -->",
     "",
   ].join("\n")
+}
+
+/** TDD 跨批协议：Task Record body 内 TDD 上下文块 marker（tdd_checkpoint 工具解析；spec §2.3/§4） */
+export const TASK_TDD_TAG = "<!-- cabbage-task-tdd -->"
+
+/** 构造 TDD 上下文块 JSON（policy + criteria + worktreeDir），供 tdd_checkpoint resolveTaskContext 解析 */
+export function buildTaskTddBlock(policy: TddPolicy, criteria: AcceptanceCriterion[], worktreePath: string): string {
+  return `${TASK_TDD_TAG}\n${JSON.stringify({ schema: 1, policy, criteria, worktreeDir: worktreePath }, null, 2)}`
+}
+
+/** 更新 Sub Issue body（保留既有内容，替换/追加 TDD 块） */
+async function updateTaskBody(issueNumber: number, newBody: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const bodyArg = escapeShellArg(newBody)
+    await taskGh(`api repos/{owner}/{repo}/issues/${issueNumber} -X PATCH -f body=${bodyArg} --silent`)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
 }
 
 /** 解析 create-task 传入的 acceptance_criteria JSON（字符串数组 → AcceptanceCriterion[]）；非法返回 null */
@@ -538,6 +557,17 @@ export async function startTask(
     generatedArtifactPatterns: policy.generatedArtifactPatterns,
   })
 
+  // 跨批协议：将 policy/criteria/worktree 写入 Task Record body 的 cabbage-task-tdd 块（tdd_checkpoint 解析）
+  const criteria = parseCriteriaFromBody(taskBody)
+  const tddBlock = buildTaskTddBlock(policy, criteria, wt.path)
+  const updatedBody = taskBody.includes(TASK_TDD_TAG)
+    ? taskBody
+    : `${taskBody}\n${tddBlock}\n`
+  const bodyUpdate = await updateTaskBody(issueNumber, updatedBody)
+  if (!bodyUpdate.ok) {
+    return { ok: false, code: "TASK_TDD_BLOCK_WRITE_FAILED", message: bodyUpdate.error ?? "failed to write TDD block" }
+  }
+
   await writeTaskState(projectDir, {
     slug: taskId,
     parentIssueNumber,
@@ -603,7 +633,7 @@ export async function submitTask(
   const taskBody = await readTaskBody(issueNumber)
   const criteria = parseCriteriaFromBody(taskBody)
 
-  // TDD 硬门禁（§4.4）：evidence comment 存在且 revision ≥ 1
+  // TDD 硬门禁（§4.4）：evidence comment 存在且状态可解析；waived（豁免）放行
   const comment = await readTddEvidenceComment(issueNumber)
   if (!comment) {
     return {
@@ -613,7 +643,10 @@ export async function submitTask(
       missing: ["evidence-comment"],
     }
   }
-  const evidence = evidenceCommentToTddEvidence(comment)
+
+  // 跨批协议（与 tdd_checkpoint 一致）：优先解析 comment 内 JSON 状态块（cabbage-tdd-state），
+  // 取最后一个（最新）恢复完整 TddEvidence；失败则回退旧 markdown 有损解析
+  const evidence = parseJsonStateEvidence(comment.body) ?? evidenceCommentToTddEvidence(comment)
   if (!evidence || evidence.revision < 1) {
     return {
       ok: false,
@@ -621,6 +654,11 @@ export async function submitTask(
       message: "evidence comment is malformed or has no revision",
       missing: ["evidence-revision"],
     }
+  }
+
+  // 豁免语义：not-applicable / exempt-request → waived → 放行
+  if (evidence.status === "waived") {
+    return submitPr(projectDir, state, issueNumber, comment, evidence.revision, evidence, taskId)
   }
 
   const compliance = evaluateTddCompliance(state.policy, evidence, criteria)
@@ -633,6 +671,33 @@ export async function submitTask(
     }
   }
 
+  return submitPr(projectDir, state, issueNumber, comment, evidence.revision, evidence, taskId)
+}
+
+/** 解析 evidence comment 内 JSON 状态块（TDD_STATE_TAG，取最后一个），失败返回 null */
+function parseJsonStateEvidence(body: string): TddEvidence | null {
+  const marker = "<!-- cabbage-tdd-state -->"
+  const idx = body.lastIndexOf(marker)
+  if (idx === -1) return null
+  try {
+    const parsed = JSON.parse(body.slice(idx + marker.length)) as { schema?: number; evidence?: TddEvidence }
+    if (!parsed?.evidence) return null
+    return { ...parsed.evidence, revision: parsed.evidence.revision ?? 1 }
+  } catch {
+    return null
+  }
+}
+
+/** 创建 PR 的公共流程（evidence 通过后） */
+async function submitPr(
+  projectDir: string,
+  state: TaskRuntimeState,
+  issueNumber: number,
+  comment: { id: number },
+  revision: number,
+  _evidence: TddEvidence,
+  taskId: string,
+): Promise<SubmitTaskResult> {
   // push 分支（工具内以宿主凭据执行）
   try {
     await gitIn(state.worktreePath, `push -u origin ${state.branch}`)
@@ -660,7 +725,7 @@ export async function submitTask(
     return { ok: false, code: "LABEL_UPDATE_FAILED", message: label.error ?? "label update failed" }
   }
 
-  return { ok: true, prNumber, evidenceRevision: evidence.revision }
+  return { ok: true, prNumber, evidenceRevision: revision }
 }
 
 // ─── submit-review ───
@@ -691,7 +756,7 @@ export async function submitReview(
 // ─── merge-task ───
 
 export type MergeTaskResult =
-  | { ok: true; prNumber: number; risk: "low" | "high" }
+  | { ok: true; prNumber: number; risk: "low" | "high"; warning?: string }
   | { ok: false; code: string; message: string }
 
 /**
@@ -769,15 +834,20 @@ export async function mergeTask(
   await taskGh(`issue close ${issueNumber}`)
   await setTaskStatusLabel(issueNumber, "merged")
 
-  // 8. worktree 干净销毁（PR 已合并且干净 → 自动）
-  await destroyWorktree({ worktreeDir: state.worktreePath, branch: state.branch, prMerged: true, userConfirmed: false })
+  // 8. worktree 干净销毁（PR 已合并且干净 → 自动）；失败仅警告，不阻塞合并结果
+  const cleanup = await destroyWorktree({ worktreeDir: state.worktreePath, branch: state.branch, prMerged: true, userConfirmed: false })
+  if (!cleanup.ok && cleanup.reason === "DIRTY_WORKTREE") {
+    return { ok: true, prNumber: pr.number, risk, warning: "PR merged but worktree has uncommitted changes; clean it manually" }
+  }
 
   return { ok: true, prNumber: pr.number, risk }
 }
 
-/** 读 PR 的 statusCheckRollup 精简列表 */
+/** 读 PR 的 statusCheckRollup 精简列表（CheckRun 用 conclusion、StatusContext 用 state） */
 async function readPrChecks(prNumber: number): Promise<Array<{ name: string; state: string }>> {
-  const { stdout } = await taskGh(`pr view ${prNumber} --json statusCheckRollup --jq '[.[] | {name, state}]'`)
+  const { stdout } = await taskGh(
+    `pr view ${prNumber} --json statusCheckRollup --jq '[.[] | {name: (.name // .context // "check"), state: (.state // .conclusion // "PENDING")}]'`,
+  )
   return JSON.parse(stdout) as Array<{ name: string; state: string }>
 }
 

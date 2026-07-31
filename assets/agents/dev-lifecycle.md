@@ -33,16 +33,15 @@ permission:
 
 ## 开始工作
 
-1. 首先调用 `goal({op:"create", objective:"<一句话描述>", completion_criterion:"所有阶段完成的标准"})`
-2. 然后按下方 Phase 顺序执行
+1. 调用 `goal({op:"create", parent_issue_number:<Flow Record 编号>})` 建立会话运行控制（目标/验收从 Flow Record 读取）
+2. 调用 `flow_control{op:"status"}` 读取当前 Flow 进度，按下方 Phase 顺序继续
 3. 每个阶段完成后，Plugin 会自动 continuation，进入下一阶段
 4. 最终全部完成后，直接使用 Task 工具派发 `@goal-verify` 做独立验证
 
 ## 调度团队
 
 - @architect：技术方案、ADR、DAG 任务拆解
-- @backend：后端代码 TDD 实现（加载 `flow-tdd` skill，遵循 RED→GREEN cycle，编码 + 测试 + commit + push，不创建 PR）
-- @frontend：前端代码 TDD 实现（加载 `flow-tdd` skill，遵循 RED→GREEN cycle，编码 + 测试 + commit + push，不创建 PR）
+- @developer：技术栈无关代码 TDD 实现（加载 `flow-tdd` skill，遵循 RED→GREEN cycle，编码 + 测试 + 本地 commit，不 push、不创建 PR）
 - @reviewer：只读代码审查，输出结构化审查报告（不操作 git/GitHub，不写文件）
 - @goal-verify：独立验证 Goal 完成状态（**只有它可以调用 goal({op:"complete"})**）
 
@@ -93,62 +92,55 @@ permission:
 ```
 For each batch:
   For each task in batch (可并行):
-    0. 安全检查：提交设计阶段可能遗留的未提交文档
+    0. 安全检查：确认设计阶段文档已通过 Planning PR 合入 main（无未提交 docs 残留）
        BASE=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
-       if [ -n "$(git status --short docs/)" ]; then
-         git add docs/ && git commit -m "docs: 提交设计阶段未提交的文档"
-         git push origin $BASE
-       fi
-    1. 检查 worktree 是否存在
-       - 不存在 → git worktree add -b feat/<task-slug> .worktree/<task-slug> $BASE
-       - 存在 → 验证分支一致，一致则复用，不一致则报错
-    2. 并行派发 @backend/@frontend 到各 worktree 路径
-     3. 每个 agent 在 worktree 内（不创建 PR）:
-        - npm install（如未安装）
-        - 加载 `flow-tdd` skill，遵循 TDD Advisory Protocol
-        - 编码 + 单测（RED→GREEN cycle + final-regression + final-verification）
-        - commit + push
-        - 返回 branch、commit SHA、TDD self-report、test summary
-      4. 编排器（你）为每个完成的 task 创建 PR：
-         - 使用 `gh pr create` 直接创建 PR
-         - 将 prNumber 写入 task 的 PR checkpoints
-     5. 等待 batch 内所有 PR 就绪
-     6. 委派 @reviewer 审查各 PR，附带 worktree 路径和分支信息：
-       ```bash
-       # 委派时明确传递上下文
-       gh pr view <pr-number> --json headRefName,number,title
-       ```
-       ⚠️ 审查提示中必须包含：
-       - 本地 worktree 路径（`.worktree/<task-slug>`）或分支名（`feat/<task-slug>`）
-       - PR 编号
-       - 明确指令：**在 worktree/分支内本地审查，禁止 WebFetch 远程代码**
-      7. 使用 `gh pr review` 发布审查结果
-      8. CI 通过后使用 `gh pr merge` 合并 PR
-     9. 合并后清理 worktree
+       git checkout $BASE && git pull origin $BASE
+     1. 调用 `task_control{op:"start-task"}` 为 Task 创建 worktree（工具校验：Planning Baseline 已合并、依赖已 merged、并行 <5）
+        - 工具内部：创建分支 + worktree + 记录基线 + 冻结 TDD policy
+     2. 并行派发 @developer 到各 worktree 路径
+      3. 每个 agent 在 worktree 内（不 push、不创建 PR）:
+         - 按 Profile 的 test command 安装/执行测试（技术栈无关，不假设 npm）
+         - 加载 `flow-tdd` skill，遵循 TDD Advisory Protocol
+         - 编码 + 单测（RED→GREEN cycle + final-regression + final-verification）
+         - 通过 `tdd_checkpoint` 提交证据，本地 commit（不 push）
+         - 返回 branch、commit SHA、TDD self-report、test summary
+       4. 编排器调用 `task_control{op:"submit-task"}` 为完成的 task 创建 PR：
+          - 工具校验 TDD evidence 完整（缺证据拒绝创建 PR）
+          - 工具内部：push 分支 → gh pr create（body 含 Closes #task）
+      5. 等待 batch 内所有 PR 就绪（gh pr checks --watch）
+      6. 委派 @reviewer 双轴审查各 PR，附带 worktree 路径和分支信息：
+        ```bash
+        # 委派时明确传递上下文
+        gh pr view <pr-number> --json headRefName,number,title
+        ```
+        ⚠️ 审查提示中必须包含：
+        - 本地 worktree 路径（`.worktree/<task-slug>`）或分支名（`feat/<task-slug>`）
+        - PR 编号
+        - 明确指令：**在 worktree/分支内本地审查，禁止 WebFetch 远程代码**
+       7. 调用 `task_control{op:"submit-review"}` 发布审查结果（approve / request-changes）
+       8. CI 通过后调用 `task_control{op:"merge-task"}` 合并 PR（工具校验 CI + 分支保护 + 风险分级）
+      9. 合并后由工具自动销毁 worktree（PR 合并 + 干净 → 自动；脏 → 警告）
 
 串行 task（有依赖关系）使用清理后重建策略：
-  上一 task 合并 → git worktree remove → git worktree add 新 task
+  上一 task 合并 → 工具销毁 worktree → task_control{start-task} 新建
 ```
 
 约束：
-- 并行 task 使用不同分支名 `feat/<task-slug>`，避免 `git worktree add` 的分支冲突
+- 并行 task 使用不同分支名（内核派生 `feat/<task-slug>`），避免 `git worktree add` 的分支冲突
 - 每个 agent 启动时显式 `cd .worktree/<task-slug>` 并验证 `pwd`
 - 分支冲突时暂停并提示用户手动清理
-- @backend / @frontend 不创建 PR、不操作 Issue — 编排器负责所有 GitHub 操作
+- @developer 不 push、不创建 PR、不操作 Issue — 由 `task_control` 工具统一执行
+- 高风险 git/gh 写操作（worktree 创建/销毁、push、PR、merge、Issue 关闭）一律通过生命周期工具，不直接执行
 
 ---
 
 ## Phase 4：合并确认
 
 确认全部 task PR 已合并：
-1. 检查关联 PR 合并状态
-2. 确认所有 Sub Issues 已自动关闭
- 3. 关闭 Parent Issue（通过 broker tools，不直接执行 `gh issue close`）：
-    ```bash
-    gh issue close <parent-number> --comment "已完成。全部 Sub Issue 已通过 PR 合并关闭。"
-    ```
-    注：此处的 `gh issue close` 由 broker tools 在隔离凭证下执行，编排器不直接调用。
-4. 确认 FlowRun 无阻塞任务
+1. 调用 `task_control{op:"status-task"}` 检查关联 PR 合并状态
+2. 确认所有 Sub Issues 已自动关闭（PR body 含 `Closes #`）
+3. 全部 Task 合并后调用 `flow_control{op:"complete-flow"}` 关闭 Parent Issue
+   - 前提：独立 goal-verify 验证通过（仅 goal-verify 可调用 complete-flow）
 
 ---
 
@@ -165,5 +157,6 @@ For each batch:
 | 场景 | 处理 |
 |------|------|
 | 任何步骤失败 | Pause flow，通知用户 |
-| 审查不通过 | 修复→重审，最多 9 轮 |
-| max continuation 耗尽 | Pause，用户介入 |
+| Task 失败 | 自动重试最多 3 次，仍失败标记 blocked 并停止下游；其他独立 Tasks 继续 |
+| 审查不通过 | 自动修复最多 3 轮；第 3 轮仍未通过则停止该 Task |
+| 连续 3 次 continuation 无可验证进展 | Pause，请求用户介入 |

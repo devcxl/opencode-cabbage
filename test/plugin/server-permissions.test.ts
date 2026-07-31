@@ -36,7 +36,7 @@ describe("configureGoalTools", () => {
       agent: {
         "dev-lifecycle": { tools: { read: true } },
         "goal-verify": { tools: { read: true, write: false } },
-        backend: { tools: { read: true, goal: true } },
+        developer: { tools: { read: true, goal: true } },
       },
     }
 
@@ -45,7 +45,7 @@ describe("configureGoalTools", () => {
     expect(config.tools).toEqual({ read: true, goal: false })
     expect(config.agent["dev-lifecycle"].tools).toEqual({ read: true, goal: true })
     expect(config.agent["goal-verify"].tools).toEqual({ read: true, write: false, goal: true })
-    expect(config.agent.backend.tools).toEqual({ read: true, goal: false })
+    expect(config.agent.developer.tools).toEqual({ read: true, goal: false })
   })
 
   it("configures agents that do not already declare tools", () => {
@@ -112,8 +112,7 @@ describe("reviewer permission enforcement", () => {
       agent: {
         "dev-lifecycle": {},
         "goal-verify": {},
-        backend: {},
-        frontend: {},
+        developer: {},
         reviewer: {},
         architect: {},
       },
@@ -126,8 +125,7 @@ describe("reviewer permission enforcement", () => {
     expect(config.agent["goal-verify"].tools?.goal).toBe(true)
 
     // All others should be denied
-    expect(config.agent.backend.tools?.goal).toBe(false)
-    expect(config.agent.frontend.tools?.goal).toBe(false)
+    expect(config.agent.developer.tools?.goal).toBe(false)
     expect(config.agent.reviewer.tools?.goal).toBe(false)
     expect(config.agent.architect.tools?.goal).toBe(false)
   })

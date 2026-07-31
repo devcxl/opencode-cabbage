@@ -60,7 +60,7 @@ graph TD
 ---
 name: "<task-name>"
 depends_on: ["<前置任务>"]
-labels: ["backend"]
+labels: ["developer"]
 worktree_root: ".worktree/<task-name>/"
 test_commands:
   - "npm test -- <test-file>"

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest"
 import { lintAll, type LintFinding } from "../../src/plugin/prompt-lint.js"
 import path from "node:path"
+import fs from "node:fs"
+import os from "node:os"
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname || __dirname, "..", "..")
 
@@ -55,9 +57,37 @@ describe("prompt-lint: agent permission rules", () => {
   it("errors when worker has gh pr create|merge in permission.bash", () => {
     const { findings } = lintAll(PROJECT_ROOT)
     const violations: LintFinding[] = findings.filter((f: LintFinding) => f.rule === "worker-gh-write-permission")
-    // After we update backend/frontend, this should be 0 — but the rule must exist
-    // The test verifies the rule engine runs (no false positives on non-violating workers)
+    // developer（backend+frontend 合并后唯一 worker）应合规 — 但规则必须存在并命中 developer
     expect(violations.length).toBe(0)
+  })
+
+  it("applies worker-gh-write-permission rule to developer agent", () => {
+    // 构造临时 assets 目录：developer.md 声明 gh pr create allow → lint 必须报违规
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cabbage-lint-"))
+    try {
+      fs.mkdirSync(path.join(tmpDir, "assets", "agents", "team"), { recursive: true })
+      fs.writeFileSync(
+        path.join(tmpDir, "assets", "agents", "team", "developer.md"),
+        `---
+name: developer
+mode: subagent
+permission:
+  bash:
+    "*": "deny"
+    "gh pr create*": "allow"
+  edit: "deny"
+---
+
+worker prompt
+`,
+        "utf8",
+      )
+      const { findings } = lintAll(tmpDir)
+      const violations = findings.filter(f => f.rule === "worker-gh-write-permission")
+      expect(violations.length).toBe(1)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
   })
 
   it("errors when reviewer declares write permission", () => {

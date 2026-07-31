@@ -89,14 +89,14 @@ describe("loadAgents", () => {
     writeAgent("tools-agent", "primary", "tools:\n  read: true\n  bash: true\n  write: true\n  edit: true")
     const result = loadAgents(tmpDir)
     expect(result).toHaveLength(1)
-    expect(result[0].tools).toBeUndefined()
+    expect((result[0] as unknown as Record<string, unknown>).tools).toBeUndefined()
   })
 
   it("ignores deprecated capabilities frontmatter（capabilities 已废弃）", () => {
     writeAgent("cap-agent", "primary", "capabilities:\n  create_pr: false\n  merge_pr: false\n  modify_files: true")
     const result = loadAgents(tmpDir)
     expect(result).toHaveLength(1)
-    expect(result[0].capabilities).toBeUndefined()
+    expect((result[0] as unknown as Record<string, unknown>).capabilities).toBeUndefined()
   })
 
   it("skips files without frontmatter", () => {
@@ -122,6 +122,60 @@ describe("dev-lifecycle prompt", () => {
     expect(agent?.prompt).toContain("直接使用 Task 工具派发 `@goal-verify`")
     expect(agent?.prompt).not.toContain("如果被 BLOCKED")
     expect(agent?.prompt).not.toContain("最终全部完成后调用 `goal({op:\"complete\"})`")
+  })
+})
+
+describe("developer agent（backend+frontend 合并，§6.1）", () => {
+  const agentsDir = path.resolve(import.meta.dirname || __dirname, "..", "assets", "agents")
+
+  it("loads developer from team dir with bash whitelist + deny tail + edit whitelist", () => {
+    const agents = loadAgents(agentsDir)
+    const dev = agents.find(a => a.key === "developer")
+
+    expect(dev).toBeDefined()
+    expect(dev?.mode).toBe("subagent")
+
+    const bash = dev?.permission?.bash as Record<string, string> | undefined
+    expect(bash?.["*"]).toBe("deny")                          // 兜底 deny
+    expect(bash?.["<profile-test-command>*"]).toBe("allow")   // 测试命令由 Profile 生成，不硬编码 npm
+    expect(bash?.["git status*"]).toBe("allow")               // 只读 git 白名单
+    expect(bash?.["git add*"]).toBe("allow")                  // 本地写
+    expect(bash?.["git commit*"]).toBe("allow")
+    // 写操作 deny 置尾（最后匹配优先）
+    expect(bash?.["git push*"]).toBe("deny")
+    expect(bash?.["git worktree*"]).toBe("deny")
+    expect(bash?.["gh pr create*"]).toBe("deny")
+    expect(bash?.["gh pr merge*"]).toBe("deny")
+    expect(bash?.["gh issue create*"]).toBe("deny")
+
+    const edit = dev?.permission?.edit as Record<string, string> | undefined
+    expect(edit?.["*"]).toBe("deny")
+    expect(edit?.[".worktree/**"]).toBe("allow")
+    // 单一基准：仅 worktree 内可编辑（避免仓库根双基准）
+    expect(edit?.["src/**"]).toBeUndefined()
+    expect(edit?.["test/**"]).toBeUndefined()
+    expect(edit?.["assets/**"]).toBeUndefined()
+  })
+
+  it("body 技术栈无关：加载 flow-tdd、不内嵌三份工程原则拷贝、无 backend/frontend 残留", () => {
+    const agents = loadAgents(agentsDir)
+    const dev = agents.find(a => a.key === "developer")
+    const prompt = dev?.prompt ?? ""
+
+    expect(prompt).toContain("flow-tdd")
+    expect(prompt).not.toContain("### KISS（Keep It Simple, Stupid）") // 工程原则单份引用
+    expect(prompt).not.toContain("@backend")
+    expect(prompt).not.toContain("@frontend")
+    expect(prompt).not.toContain("npm test")
+    expect(prompt).not.toContain("git push")
+  })
+
+  it("backend/frontend 已删除，不再加载", () => {
+    const agents = loadAgents(agentsDir)
+    const keys = agents.map(a => a.key)
+    expect(keys).not.toContain("backend")
+    expect(keys).not.toContain("frontend")
+    expect(keys).toContain("developer")
   })
 })
 

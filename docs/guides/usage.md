@@ -102,7 +102,7 @@
 ---
 name: 实现用户注册接口
 dependsOn: []           # 依赖的任务 ID
-area: backend           # backend | frontend | common
+area: developer        # developer | common
 parallelSafe: true      # 是否可以与其他任务并行
 expectedFiles:
   - src/controllers/AuthController.ts
@@ -128,14 +128,13 @@ acceptance: 用户可以通过邮箱+密码注册，收到验证邮件
 **流程**：
 1. 按拓扑排序获取 ready 任务
 2. 为每个任务创建分支 `feat/<task-slug>`
-3. 并行派发 `@backend` / `@frontend` 实现代码 + 单测
+3. 并行派发 `@developer` 实现代码 + 单测
 4. 创建 PR
 5. 委派 `@reviewer` 审查 PR
 6. CI 通过后自动合并
 
 **实现规范**：
-- 后端：Controller → Service → Repository 逐层实现
-- 前端：组件 → 页面 → 路由 → 接口对接
+- 遵循技术方案定义的分层结构与项目现有代码规范（技术栈无关）
 - TDD 优先：先写测试 → 最小实现 → 重构
 - Conventional Commits，多次提交
 
@@ -230,7 +229,7 @@ acceptance: 用户可以通过邮箱+密码注册，收到验证邮件
 ```
 Phase 1: 技术方案 + ADR         (委派 @architect)
 Phase 2: DAG 任务拆解 + Sub Issues (委派 @architect)
-Phase 3: 并行编码实现              (委派 @backend / @frontend / @reviewer)
+Phase 3: 并行编码实现              (委派 @developer / @reviewer)
 Phase 4: 合并确认
 Complete: goal 验证 + 完成
 ```

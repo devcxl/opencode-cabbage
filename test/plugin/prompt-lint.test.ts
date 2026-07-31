@@ -114,3 +114,89 @@ worker prompt
     expect(permRules.length).toBe(0)
   })
 })
+
+describe("prompt-lint: skill/command convergence (R12)", () => {
+  const EXPECTED_SKILLS = [
+    "flow-setup", "flow-requirements", "flow-design", "flow-tasks",
+    "flow-code", "flow-tdd", "flow-review", "flow-release",
+  ]
+  const EXPECTED_COMMANDS = ["setup", "requirements", "design", "tasks", "code", "review", "release"]
+
+  function writeSkill(root: string, name: string, body: string) {
+    const dir = path.join(root, "assets", "skills", name)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, "SKILL.md"), `# ${name}\n\n${body}`, "utf8")
+  }
+
+  function writeCommand(root: string, name: string, body: string) {
+    const dir = path.join(root, "assets", "commands")
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, `${name}.md`), `---\ndescription: ${name}\n---\n\n${body}`, "utf8")
+  }
+
+  function makeValidAssets(root: string) {
+    for (const s of EXPECTED_SKILLS) writeSkill(root, s, `## Contract\n### Trigger\n### Inputs\n### Preconditions\n### Procedure\n### Outputs\n### Failure\n### Idempotency\n### Prohibited Actions`)
+    for (const c of EXPECTED_COMMANDS) writeCommand(root, c, "body")
+  }
+
+  it("passes a valid 8-skill / 7-command assets tree", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cabbage-lint-conv-"))
+    try {
+      makeValidAssets(tmp)
+      const { findings } = lintAll(tmp)
+      const conv = findings.filter(f => f.rule.startsWith("skill-") || f.rule.startsWith("command-"))
+      expect(conv.length).toBe(0)
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it("flags removed skills flow-handoff / flow-test", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cabbage-lint-conv-"))
+    try {
+      makeValidAssets(tmp)
+      writeSkill(tmp, "flow-handoff", "## Contract\n### Trigger\n### Inputs\n### Preconditions\n### Procedure\n### Outputs\n### Failure\n### Idempotency\n### Prohibited Actions")
+      writeSkill(tmp, "flow-test", "## Contract\n### Trigger\n### Inputs\n### Preconditions\n### Procedure\n### Outputs\n### Failure\n### Idempotency\n### Prohibited Actions")
+      const { findings } = lintAll(tmp)
+      const removed = findings.filter(f => f.rule === "skill-removed")
+      expect(removed.length).toBeGreaterThanOrEqual(2)
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it("flags removed commands /test and /handoff", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cabbage-lint-conv-"))
+    try {
+      makeValidAssets(tmp)
+      writeCommand(tmp, "test", "请加载 flow-test 技能")
+      writeCommand(tmp, "handoff", "请加载 flow-handoff 技能")
+      const { findings } = lintAll(tmp)
+      const removed = findings.filter(f => f.rule === "command-removed")
+      expect(removed.length).toBeGreaterThanOrEqual(2)
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it("flags handoff/test residue inside skill/command/bootstrap content", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cabbage-lint-conv-"))
+    try {
+      makeValidAssets(tmp)
+      writeSkill(tmp, "flow-code", "加载 flow-handoff 打包进度；触发 /test 诊断")
+      const { findings } = lintAll(tmp)
+      const residue = findings.filter(f => f.rule === "handoff-test-residue")
+      expect(residue.length).toBeGreaterThanOrEqual(1)
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it("current assets have no removed skills/commands and no handoff/test residue", () => {
+    const { findings } = lintAll(PROJECT_ROOT)
+    const violations = findings.filter(f =>
+      f.rule === "skill-removed" || f.rule === "command-removed" || f.rule === "handoff-test-residue"
+    )
+    expect(violations.length).toBe(0)
+  })
+})

@@ -91,6 +91,15 @@ function checkForbiddenPatterns(content: string, filePath: string): LintFinding[
   return findings
 }
 
+function parseAgentName(frontmatter: string): string | undefined {
+  try {
+    const parsed = parseYaml(frontmatter) as Record<string, unknown>
+    return typeof parsed?.name === "string" ? parsed.name : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function checkAgentCapabilityConsistency(content: string, filePath: string): LintFinding[] {
   const findings: LintFinding[] = []
   const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/)
@@ -127,7 +136,7 @@ function checkAgentCapabilityConsistency(content: string, filePath: string): Lin
   }
 
   // Check worker agents: create_pr must be false
-  if (filePath.includes("backend") || filePath.includes("frontend")) {
+  if (parseAgentName(fm) === "developer") {
     if (/create_pr:\s*true/.test(fm)) {
       findings.push({
         severity: "error",
@@ -149,8 +158,10 @@ function checkAgentCapabilityConsistency(content: string, filePath: string): Lin
   return findings
 }
 
-function isWorkerAgent(filePath: string): boolean {
-  return filePath.includes("backend") || filePath.includes("frontend")
+function isWorkerAgent(content: string): boolean {
+  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/)
+  if (!frontmatterMatch) return false
+  return parseAgentName(frontmatterMatch[1]) === "developer"
 }
 
 function isReviewerAgent(filePath: string): boolean {
@@ -222,7 +233,7 @@ function checkAgentPermission(content: string, filePath: string): LintFinding[] 
   } catch {}
 
   // Rule: Worker must not have gh pr create|merge in permission.bash
-  if (isWorkerAgent(filePath)) {
+  if (isWorkerAgent(content)) {
     const bashPerm = permissionParsed?.bash
     if (permissionValueAllowsCommand(bashPerm, "gh pr create") ||
         permissionValueAllowsCommand(bashPerm, "gh pr merge")) {

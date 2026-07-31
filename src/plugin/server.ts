@@ -76,6 +76,42 @@ export function configureGoalTools(config: GoalToolConfig): void {
   }
 }
 
+/**
+ * config 层第二道门（spec §2.2）：按 caller 矩阵把 5 个生命周期工具
+ * 对每个 agent 置 true/false。agent 名 → 角色映射与 caller.ts ROLE_BY_AGENT 一致。
+ */
+export function configureLifecycleTools(config: GoalToolConfig): void {
+  const lifecycleTools = ["setup_control", "flow_control", "task_control", "tdd_checkpoint", "release_control"] as const
+  const agentRole = (name: string): string => {
+    switch (name) {
+      case "dev-lifecycle": return "primary"
+      case "developer": return "developer"
+      case "architect": return "architect"
+      case "reviewer": return "reviewer"
+      case "goal-verify": return "goal-verify"
+      default: return "reviewer"
+    }
+  }
+  const canUseTool = (role: string, tool: string): boolean => {
+    if (role === "goal-verify") return tool === "flow_control"
+    switch (tool) {
+      case "tdd_checkpoint": return role === "primary" || role === "developer"
+      default: return role === "primary"
+    }
+  }
+
+  for (const [agentName, agent] of Object.entries(config.agent ?? {})) {
+    if (!agent || typeof agent !== "object" || Array.isArray(agent)) continue
+    const agentConfig = agent as AgentToolConfig
+    const role = agentRole(agentName)
+    const toolFlags: Record<string, boolean> = {}
+    for (const toolName of lifecycleTools) {
+      toolFlags[toolName] = canUseTool(role, toolName)
+    }
+    agentConfig.tools = { ...agentConfig.tools, ...toolFlags }
+  }
+}
+
 async function queueContinuation(
   client: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient>,
   sessionID: string,
@@ -496,6 +532,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
         }
 
         configureGoalTools(config)
+        configureLifecycleTools(config)
       },
 
       "experimental.chat.messages.transform": async (_input, output) => {

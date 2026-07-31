@@ -3,24 +3,23 @@ name: frontend
 description: 负责前端页面开发、交互实现、组件封装和接口对接
 mode: subagent
 color: '#2196f3'
-tools:
-  read: true
-  bash: true
-  write: true
-  edit: true
-capabilities:
-  create_pr: false
-  merge_pr: false
-  modify_files: true
-  run_tests: true
-  push_branch: true
-  approve_review: false
-  complete_goal: false
 permission:
   bash:
     "*": "deny"
-    "npm *": "allow"
-    "git *": "allow"
+    "<profile-test-command>*": "allow"
+    "git status*": "allow"
+    "git diff*": "allow"
+    "git log*": "allow"
+    "git show*": "allow"
+    "git rev-parse*": "allow"
+    "git ls-files*": "allow"
+    "git branch --merged*": "allow"
+    "git add*": "allow"
+    "git commit*": "allow"
+    "git push*": "deny"
+    "git worktree*": "deny"
+    "git checkout -b*": "deny"
+    "git tag*": "deny"
   edit:
     "*": "deny"
     ".worktree/**": "allow"

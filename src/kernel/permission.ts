@@ -25,7 +25,7 @@ export function matchPermission(rules: Record<string, string>, command: string):
   let action: PermissionAction = "ask"
   for (const [pattern, raw] of Object.entries(rules)) {
     if (!permissionPatternMatches(pattern, command)) continue
-    action = raw === "allow" ? "allow" : "deny"
+    action = raw === "allow" ? "allow" : raw === "deny" ? "deny" : "ask"
   }
   return action
 }

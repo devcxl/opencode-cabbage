@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { configureGoalTools } from "../../src/plugin/server.js"
+import { configureGoalTools, configureLifecycleTools } from "../../src/plugin/server.js"
 import type { AgentEntry } from "../../src/plugin/agents.js"
 
 const mockSessionGet = vi.fn()
@@ -132,6 +132,54 @@ describe("reviewer permission enforcement", () => {
   })
 })
 
+describe("configureLifecycleTools（config 层第二道门）", () => {
+  it("primary（dev-lifecycle）获得全部 5 个生命周期工具", () => {
+    const config: TestConfig = { agent: { "dev-lifecycle": {} } }
+    configureLifecycleTools(config)
+    const tools = config.agent["dev-lifecycle"].tools
+    expect(tools?.setup_control).toBe(true)
+    expect(tools?.flow_control).toBe(true)
+    expect(tools?.task_control).toBe(true)
+    expect(tools?.tdd_checkpoint).toBe(true)
+    expect(tools?.release_control).toBe(true)
+  })
+
+  it("developer 仅获得 tdd_checkpoint", () => {
+    const config: TestConfig = { agent: { developer: {} } }
+    configureLifecycleTools(config)
+    const tools = config.agent.developer.tools
+    expect(tools?.tdd_checkpoint).toBe(true)
+    expect(tools?.setup_control).toBe(false)
+    expect(tools?.flow_control).toBe(false)
+    expect(tools?.task_control).toBe(false)
+    expect(tools?.release_control).toBe(false)
+  })
+
+  it("reviewer/architect 无任何生命周期工具", () => {
+    const config: TestConfig = { agent: { reviewer: {}, architect: {} } }
+    configureLifecycleTools(config)
+    for (const name of ["reviewer", "architect"]) {
+      const tools = config.agent[name].tools
+      expect(tools?.setup_control).toBe(false)
+      expect(tools?.flow_control).toBe(false)
+      expect(tools?.task_control).toBe(false)
+      expect(tools?.tdd_checkpoint).toBe(false)
+      expect(tools?.release_control).toBe(false)
+    }
+  })
+
+  it("goal-verify 仅获得 flow_control（complete-flow）", () => {
+    const config: TestConfig = { agent: { "goal-verify": {} } }
+    configureLifecycleTools(config)
+    const tools = config.agent["goal-verify"].tools
+    expect(tools?.flow_control).toBe(true)
+    expect(tools?.tdd_checkpoint).toBe(false)
+    expect(tools?.setup_control).toBe(false)
+    expect(tools?.task_control).toBe(false)
+    expect(tools?.release_control).toBe(false)
+  })
+})
+
 describe("server config hook — agent 注入（permission 规则，无 tools 布尔）", () => {
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 
@@ -186,6 +234,43 @@ describe("server config hook — agent 注入（permission 规则，无 tools �
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_TERMINAL_PROMPT: "0",
     })
+  })
+
+  it("§7.4 — 注入后的 agent permission 中高风险写命令均不在 allow 集合（deny/ask 置尾生效）", async () => {
+    const config: Record<string, any> = { agent: {} }
+    await plugin.config(config)
+
+    const writeCommands = [
+      "git push origin feat/x",
+      "git worktree remove .worktree/x",
+      "git checkout -b feat/x",
+      "git tag v1.0.0",
+      "gh pr create --title x",
+      "gh pr merge 1",
+      "gh issue close 1",
+      "gh issue create --title x",
+      "gh release create v1.0.0",
+    ]
+    const allowOnly = (rules: Record<string, string>, command: string): boolean => {
+      let action = "ask"
+      for (const [pattern, raw] of Object.entries(rules)) {
+        if (pattern === "*") { action = raw === "allow" ? "allow" : raw === "deny" ? "deny" : "ask"; continue }
+        if (pattern.endsWith("*") && command.startsWith(pattern.slice(0, -1))) {
+          action = raw === "allow" ? "allow" : raw === "deny" ? "deny" : "ask"
+        }
+      }
+      return action === "allow"
+    }
+
+    // 每个 agent 的 bash permission：所有写命令均不得被 allow
+    for (const name of Object.keys(config.agent)) {
+      const agent = config.agent[name]
+      const bashRules = agent?.permission?.bash as Record<string, string> | undefined
+      if (!bashRules) continue
+      for (const cmd of writeCommands) {
+        expect(allowOnly(bashRules, cmd), `${name} 不应 allow: ${cmd}`).toBe(false)
+      }
+    }
   })
 
   it("用户 config 已定义的 agent 不被覆盖", async () => {

@@ -58,6 +58,25 @@ describe("createFlowRecord", () => {
     }
   })
 
+  it("autoMode adds the cabbage:auto label on creation", async () => {
+    const calls: string[] = []
+    setRecordsGhExecutor(async (args) => {
+      calls.push(args)
+      if (args.startsWith("label create")) return { stdout: "", stderr: "" }
+      return { stdout: "https://github.com/devcxl/opencode-cabbage/issues/43", stderr: "" }
+    })
+
+    const result = await createFlowRecord({ slug: "full-auto-flow", body: "b", autoMode: true })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.ref.parentIssueNumber).toBe(43)
+    const createCall = calls.find(c => c.includes("issue create"))
+    expect(createCall).toBeDefined()
+    if (createCall) {
+      expect(createCall).toContain("--label 'cabbage:flow' --label 'cabbage:auto'")
+    }
+    expect(calls.some(c => c.includes("label create 'cabbage:auto' --force"))).toBe(true)
+  })
+
   it("returns error when gh fails", async () => {
     setRecordsGhExecutor(async () => {
       throw new Error("gh auth failed")

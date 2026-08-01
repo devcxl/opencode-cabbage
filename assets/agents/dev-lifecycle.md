@@ -6,17 +6,6 @@ color: '#00bcd4'
 permission:
   bash:
     "*": "allow"
-    "git push*": "deny"
-    "git worktree remove*": "deny"
-    "git worktree add*": "deny"
-    "git checkout -b*": "deny"
-    "git tag*": "deny"
-    "gh pr create*": "deny"
-    "gh pr merge*": "deny"
-    "gh issue close*": "deny"
-    "gh issue create*": "deny"
-    "gh release create*": "deny"
-    "npm publish*": "deny"
 ---
 
 <system-reminder>

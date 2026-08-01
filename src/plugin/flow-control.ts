@@ -61,7 +61,7 @@ export function createFlowControlTool(deps: FlowControlDeps) {
 
 Operations:
 - create-flow: Validate the functional title, derive the slug, create a Draft Parent Issue (body contains goal/acceptance/stage checklist, label cabbage:flow), bind the session, and write the minimal goal. When parent_issue_number is given, bind an existing issue instead (legacy FlowRun detection + double-session check).
-- status: Aggregate the Flow Record body, subtasks (issue list --search parent:N), and related PR checks into one report.
+- status: Aggregate the Flow Record body, subtasks (issue list --json parent 过滤), and related PR checks into one report.
 - planning-start: Create the planning worktree .worktree/planning-<slug> for the architect.
 - planning-pr: Commit/push the planning worktree changes and open the Planning PR (Planning Baseline).
 - stage-start / stage-complete: Enforce stage gates (requirements baseline confirmed once; design must complete before tasks; high-risk flows pause between design and tasks) and update the Parent Issue checklist + cabbage:stage:* label.
@@ -75,6 +75,10 @@ Caller: primary for all ops except complete-flow (goal-verify only).`,
         .enum(["create-flow", "status", "planning-start", "planning-pr", "stage-start", "stage-complete", "complete-flow", "cancel-flow", "takeover"])
         .describe("Flow control operation"),
       title: tool.schema.string().optional().describe("Functional title (kebab-case slug) for create-flow"),
+      auto_mode: tool.schema
+        .boolean()
+        .optional()
+        .describe("Full-auto mode: label the flow cabbage:auto so stage confirmation gates (requirements/high-risk) pass without user_confirmed"),
       parent_issue_number: tool.schema.number().optional().describe("Parent GitHub Issue number of the Flow Record"),
       stage: tool.schema
         .enum(["requirements", "design", "tasks", "code", "review"])
@@ -147,6 +151,7 @@ async function handleCreateFlow(
     projectDir: deps.projectDir,
     title,
     sessionID,
+    autoMode: args.auto_mode === true,
     parentIssueNumber: parent,
   })
   if (!result.ok) {

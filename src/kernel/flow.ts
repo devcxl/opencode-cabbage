@@ -10,7 +10,7 @@ import { escapeShellArg } from "../util/shell.js"
 import { pathExists } from "../util/fs.js"
 import { validateTitle } from "./slug.js"
 import { readProjectProfile } from "./profile.js"
-import { STAGE_LABEL_PREFIX, createFlowRecord, readFlowRecord, updateFlowRecord, setStageLabel } from "./records.js"
+import { STAGE_LABEL_PREFIX, AUTO_LABEL, createFlowRecord, readFlowRecord, updateFlowRecord, setStageLabel } from "./records.js"
 import { worktreeStart } from "./worktree.js"
 import {
   readIndex,
@@ -264,7 +264,7 @@ export async function readFlowStatus(parentIssueNumber: number): Promise<FlowSta
     }
 
     const { stdout: subtasksOut } = await flowGh(
-      `issue list --state all --limit 100 --search parent:${parentIssueNumber} --json number,title,state --jq '[.[] | {number, title, state}]'`,
+      `issue list --state all --limit 100 --json number,title,state,parent --jq '[.[] | select(.parent.number == ${parentIssueNumber}) | {number, title, state}]'`,
     )
     const subtasks = JSON.parse(subtasksOut) as SubtaskSummary[]
 
@@ -425,6 +425,8 @@ export interface CreateFlowInput {
   projectDir: string
   title: string
   sessionID: string
+  /** 全自动模式：创建时打 cabbage:auto 标签，阶段确认门禁自动放行 */
+  autoMode?: boolean
   /** 提供时对已有 Issue 建立 Flow 绑定（不新建）——legacy 检测 + 双 session 检查 */
   parentIssueNumber?: number
 }
@@ -453,7 +455,7 @@ export async function createFlow(input: CreateFlowInput): Promise<CreateFlowResu
       }
     }
 
-    const created = await createFlowRecord({ slug: validated.slug, body: buildFlowBody(validated.slug) })
+    const created = await createFlowRecord({ slug: validated.slug, body: buildFlowBody(validated.slug), autoMode: input.autoMode })
     if (!created.ok) {
       return { ok: false, code: "ISSUE_CREATE_FAILED", message: created.error }
     }
@@ -584,8 +586,11 @@ export async function applyStageOp(
   const completed = getCompletedStages(record.body)
   const labels = await readIssueLabels(parentIssueNumber)
   const highRisk = labels.includes(RISK_LABEL) || declaredRisk === "high"
+  // 全自动授权：cabbage:auto 标签 = 用户全局授权，阶段确认门禁（requirements/高风险）自动放行
+  const autoApproved = labels.includes(AUTO_LABEL)
+  const effectiveConfirmed = userConfirmed || autoApproved
 
-  const gate = checkStageGate(op, stage, completed, highRisk, userConfirmed)
+  const gate = checkStageGate(op, stage, completed, highRisk, effectiveConfirmed)
   if (!gate.ok) {
     return { ok: false, code: gate.code, message: gate.message }
   }

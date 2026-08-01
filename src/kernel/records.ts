@@ -9,6 +9,9 @@ export const EVIDENCE_MARKER_END = "<!-- cabbage-tdd-evidence:end -->"
 
 /** Flow Record（Parent Issue）标签 */
 export const FLOW_LABEL = "cabbage:flow"
+
+/** 全自动授权标签：用户打此标签 = 该 flow 全自动运行，阶段确认门禁（requirements/高风险）自动放行 */
+export const AUTO_LABEL = "cabbage:auto"
 /** 阶段标签前缀：cabbage:stage:<stage> */
 export const STAGE_LABEL_PREFIX = "cabbage:stage:"
 
@@ -82,6 +85,8 @@ async function writeBody(issueNumber: number, body: string): Promise<void> {
 export interface CreateFlowRecordInput {
   slug: string
   body: string
+  /** 全自动模式：创建时同时打 cabbage:auto 标签（阶段确认门禁自动放行） */
+  autoMode?: boolean
 }
 
 /** 创建 Parent Issue（Flow Record），打 cabbage:flow 标签（gh 2.96：issue create 无 --draft/--json） */
@@ -90,9 +95,13 @@ export async function createFlowRecord(
 ): Promise<{ ok: true; ref: FlowRecordRef } | { ok: false; error: string }> {
   try {
     await ensureLabel(FLOW_LABEL)
+    if (input.autoMode) await ensureLabel(AUTO_LABEL)
     const escapedBody = escapeShellArg(input.body)
+    const labelArgs = input.autoMode
+      ? `--label '${FLOW_LABEL}' --label '${AUTO_LABEL}'`
+      : `--label '${FLOW_LABEL}'`
     const { stdout } = await gh(
-      `issue create --title '${escapeShellArg(input.slug)}' --body '${escapedBody}' --label '${FLOW_LABEL}'`,
+      `issue create --title '${escapeShellArg(input.slug)}' --body '${escapedBody}' ${labelArgs}`,
     )
     // issue create 不支持 --json：解析 stdout 中的 issue URL
     const number = parsePrUrlNumber(stdout)

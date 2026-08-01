@@ -681,6 +681,52 @@ describe("createFlowControlTool (spec §2.3 flow_control)", () => {
     })
   })
 
+  it("stage-complete requirements passes without confirmation when the flow has the cabbage:auto label", async () => {
+    await withProjectDir(async dir => {
+      const body = "## Stages\n\n- [ ] requirements\n- [ ] design"
+      setRecordsGhExecutor(async args => {
+        if (args.includes("--jq .body")) return { stdout: body, stderr: "" }
+        if (args.includes('join(" ")')) return { stdout: "", stderr: "" }
+        if (args.includes("issue edit")) return { stdout: "", stderr: "" }
+        throw new Error(`unexpected gh: ${args}`)
+      })
+      setFlowGhExecutor(async args => {
+        if (args.includes("issue view")) return { stdout: '["cabbage:flow", "cabbage:auto"]', stderr: "" }
+        throw new Error(`unexpected gh: ${args}`)
+      })
+
+      const resp = await executeOp(dir, makeSessionClient(), "stage-complete", {
+        parent_issue_number: 12,
+        stage: "requirements",
+      })
+      expect(resp.ok).toBe(true)
+      expect(resp.completedStages).toContain("requirements")
+    })
+  })
+
+  it("cabbage:auto label also lifts the high-risk tasks gate (全自动授权)", async () => {
+    await withProjectDir(async dir => {
+      const body = "## Stages\n\n- [x] requirements\n- [x] design\n- [ ] tasks"
+      setRecordsGhExecutor(async args => {
+        if (args.includes("--jq .body")) return { stdout: body, stderr: "" }
+        if (args.includes('join(" ")')) return { stdout: "", stderr: "" }
+        if (args.includes("issue edit")) return { stdout: "", stderr: "" }
+        throw new Error(`unexpected gh: ${args}`)
+      })
+      setFlowGhExecutor(async args => {
+        if (args.includes("issue view")) return { stdout: '["cabbage:flow", "cabbage:auto", "cabbage:risk:high"]', stderr: "" }
+        throw new Error(`unexpected gh: ${args}`)
+      })
+
+      const resp = await executeOp(dir, makeSessionClient(), "stage-start", {
+        parent_issue_number: 12,
+        stage: "tasks",
+        risk: "high",
+      })
+      expect(resp.ok).toBe(true)
+    })
+  })
+
   it("stage-complete requirements with confirmation updates the checklist and label", async () => {
     await withProjectDir(async dir => {
       const body = "## Stages\n\n- [ ] requirements\n- [ ] design"

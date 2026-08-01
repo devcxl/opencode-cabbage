@@ -136,7 +136,7 @@ export async function resolveTaskContext(
   projectDir: string,
 ): Promise<TddTaskContext> {
   const { stdout } = await gh(
-    `issue list --state all --limit 100 --search parent:${parentIssueNumber} --json number,title --jq '[.[] | select(.title == ${JSON.stringify(taskId)}) | .number] | first'`,
+    `issue list --state all --limit 100 --json number,title,parent --jq '[.[] | select(.parent.number == ${parentIssueNumber} and .title == ${JSON.stringify(taskId)}) | .number] | first'`,
   )
   const issueNumber = Number(stdout.trim())
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {

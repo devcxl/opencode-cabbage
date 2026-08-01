@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { matchPermission, isAllowedInAutoMode } from "../../src/kernel/permission.js"
+import { matchPermission, isAllowedInAutoMode, permissionPatternMatches } from "../../src/kernel/permission.js"
 
 /**
  * OpenCode permission 语义（spec §7.2 / PRD 假设 2）：
@@ -95,6 +95,30 @@ describe("matchPermission — 最后匹配优先", () => {
     expect(matchPermission(rules, "gh pr diff 12")).toBe("allow")
     expect(matchPermission(rules, "gh pr checks 12")).toBe("allow")
     expect(matchPermission(rules, "gh issue view 5")).toBe("allow")
+  })
+})
+
+describe("matchPermission — glob（`**`）路径规则（对齐引擎 edit/read 语义）", () => {
+  it("docs/** 匹配任意层级子路径", () => {
+    const rules = { "*": "deny", "docs/**": "allow" }
+    expect(matchPermission(rules, "docs/prd/x.md")).toBe("allow")
+    expect(matchPermission(rules, "docs/dev/specs/x.md")).toBe("allow")
+    expect(matchPermission(rules, "src/index.ts")).toBe("deny")
+  })
+
+  it(".worktree/<slug>/docs/** 放行 planning worktree 内交付物", () => {
+    const rules = { "*": "deny", "docs/**": "allow", ".worktree/**/docs/**": "allow" }
+    expect(matchPermission(rules, ".worktree/planning-user-auth/docs/prd/x.md")).toBe("allow")
+    expect(matchPermission(rules, ".worktree/planning-user-auth/docs/dev/specs/x.md")).toBe("allow")
+    // worktree 内非 docs 仍拒绝
+    expect(matchPermission(rules, ".worktree/planning-user-auth/src/index.ts")).toBe("deny")
+  })
+
+  it("`*` 单段不跨目录、`**` 跨目录", () => {
+    expect(permissionPatternMatches("docs/*.md", "docs/a.md")).toBe(true)
+    expect(permissionPatternMatches("docs/*.md", "docs/sub/a.md")).toBe(false)
+    expect(permissionPatternMatches("docs/**/*.md", "docs/sub/a.md")).toBe(true)
+    expect(permissionPatternMatches("**/agent-out/**", "a/b/agent-out/x.txt")).toBe(true)
   })
 })
 

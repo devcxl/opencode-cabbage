@@ -57,6 +57,25 @@ describe("adversarial #6 — 直接 gh/git 写命令绕过必须被拒", () => {
     }
   })
 
+  it("architect 的 edit 规则放行主工作区与 planning worktree 的 docs/assets 交付物", () => {
+    const agents = loadAgents(AGENTS_DIR)
+    const arch = agents.find((a: AgentEntry) => a.key === "architect")
+    expect(arch, "architect agent must exist").toBeDefined()
+    const edit = arch!.permission?.edit as Record<string, string> | undefined
+    expect(edit, "architect must declare edit permission rules").toBeDefined()
+
+    // 主工作区交付物
+    expect(matchPermission(edit!, "docs/prd/x.md")).toBe("allow")
+    expect(matchPermission(edit!, "docs/dev/specs/x.md")).toBe("allow")
+    // planning worktree 内交付物（相对主工作区路径，§7.4 缺陷回归）
+    expect(matchPermission(edit!, ".worktree/planning-user-auth/docs/prd/x.md")).toBe("allow")
+    expect(matchPermission(edit!, ".worktree/planning-user-auth/docs/dev/specs/x.md")).toBe("allow")
+    // worktree 内非交付物仍拒绝
+    expect(matchPermission(edit!, ".worktree/planning-user-auth/src/index.ts")).toBe("deny")
+    // 主工作区非 docs 仍拒绝
+    expect(matchPermission(edit!, "src/index.ts")).toBe("deny")
+  })
+
   it("最后匹配优先：deny 置尾覆盖前序 allow，规避模型注入规则顺序", () => {
     const rules = { "*": "allow", "git push*": "deny" }
     expect(matchPermission(rules, "git push origin main")).toBe("deny")

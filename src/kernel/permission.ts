@@ -9,8 +9,16 @@
 
 export type PermissionAction = "allow" | "deny" | "ask"
 
-/** pattern 是否命中 command：`*` 全匹配，`前缀*` 前缀匹配，否则精确匹配 */
+/** 含 `**` 的 pattern 按 glob 语义匹配（`**` 跨目录、`*` 单段，对齐引擎 edit/read 路径规则） */
+function globPatternMatches(pattern: string, value: string): boolean {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+  const regex = new RegExp(`^${escaped.replace(/\*\*/g, "\u0000").replace(/\*/g, "[^/]*").replace(/\u0000/g, ".*")}$`)
+  return regex.test(value)
+}
+
+/** pattern 是否命中 command：含 `/` 的路径规则走 glob（`**` 跨目录、`*` 单段，对齐引擎 edit/read 语义）；否则 bash 规则：`*` 全匹配、`前缀*` 前缀匹配、无通配精确匹配 */
 export function permissionPatternMatches(pattern: string, command: string): boolean {
+  if (pattern.includes("/")) return globPatternMatches(pattern, command)
   if (pattern === "*") return true
   if (pattern.endsWith("*")) return command.startsWith(pattern.slice(0, -1))
   return command === pattern

@@ -5,7 +5,7 @@
 import { exec } from "node:child_process"
 import { promisify } from "node:util"
 import path from "node:path"
-import { gh as ghCli } from "../util/gh.js"
+import { gh as ghCli, parsePrUrlNumber } from "../util/gh.js"
 import { escapeShellArg } from "../util/shell.js"
 import { pathExists } from "../util/fs.js"
 import { validateTitle } from "./slug.js"
@@ -385,9 +385,13 @@ export async function planningPr(projectDir: string, parentIssueNumber: number):
     const prTitle = `docs: planning baseline for ${slug}`
     const prBody = `Planning Baseline for Flow #${parentIssueNumber}: CONTEXT.md + PRD + Design + ADR (spec PRD R11).`
     const { stdout } = await flowGh(
-      `pr create --title '${escapeShellArg(prTitle)}' --body '${escapeShellArg(prBody)}' --base '${escapeShellArg(base)}' --head '${escapeShellArg(branch)}' --json number --jq .number`,
+      `pr create --title '${escapeShellArg(prTitle)}' --body '${escapeShellArg(prBody)}' --base '${escapeShellArg(base)}' --head '${escapeShellArg(branch)}'`,
     )
-    const prNumber = Number(stdout.trim())
+    // gh pr create 不支持 --json：解析 stdout 中的 PR URL
+    const prNumber = parsePrUrlNumber(stdout)
+    if (prNumber === null) {
+      return { ok: false, code: "GITHUB_ERROR", message: `invalid PR create output: ${stdout}` }
+    }
     return { ok: true, worktreePath: worktreeDir, branch, prNumber }
   } catch (err) {
     const message = String(err)

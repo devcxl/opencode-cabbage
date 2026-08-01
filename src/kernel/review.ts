@@ -5,7 +5,7 @@
  * - createRevertPR：回滚 PR
  */
 
-import { gh as ghCli } from "../util/gh.js"
+import { gh as ghCli, parsePrUrlNumber } from "../util/gh.js"
 import { escapeShellArg } from "../util/shell.js"
 
 // ─── 可替换的 gh executor（用于测试） ───
@@ -102,7 +102,7 @@ export async function createRevertPR(prNumber: number, reason: string): Promise<
     const { stdout: newPR } = await gh(
       `pr create --title '${escapeShellArg(revertTitle)}' --body '${escapeShellArg(revertBody)}' --base main --head main`,
     )
-    return { prNumber: parseInt(newPR.trim().split("/").pop() || "0", 10) }
+    return { prNumber: parsePrUrlNumber(newPR) ?? 0 }
   } catch (err) {
     return { error: String(err) }
   }

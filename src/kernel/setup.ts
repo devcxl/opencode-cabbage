@@ -5,6 +5,7 @@ import { join, basename } from "node:path"
 import { readProjectProfile, upsertProjectProfile } from "./profile.js"
 import { KeyedMutex } from "./mutex.js"
 import { escapeShellArg } from "../util/shell.js"
+import { parsePrUrlNumber } from "../util/gh.js"
 
 const execAsync = promisify(exec)
 
@@ -278,14 +279,15 @@ export async function generateWorkflows(
     await runGit(`push -u origin ${SETUP_WORKFLOWS_BRANCH}`, projectDir)
 
     const { stdout } = await runGh(
-      `pr create --title ${shellQuote(prTitle)} --body ${shellQuote(prBody)} --base ${defaultBranch ?? "main"} --head ${SETUP_WORKFLOWS_BRANCH} --json number --jq .number`,
+      `pr create --title ${shellQuote(prTitle)} --body ${shellQuote(prBody)} --base ${defaultBranch ?? "main"} --head ${SETUP_WORKFLOWS_BRANCH}`,
     )
     return {
       ok: true,
       created,
       existing,
       branch: SETUP_WORKFLOWS_BRANCH,
-      prNumber: Number(stdout.trim()) || null,
+      // gh pr create 不支持 --json：解析 stdout 中的 PR URL
+      prNumber: parsePrUrlNumber(stdout),
     }
   } catch (err) {
     return { ok: false, created, existing, branch: null, prNumber: null, error: String(err) }

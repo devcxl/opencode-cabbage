@@ -4,7 +4,7 @@ import { readFile, writeFile } from "node:fs/promises"
 import { join, resolve, sep } from "node:path"
 import { tool } from "@opencode-ai/plugin/tool"
 import { resolveProjectDir } from "../util/paths.js"
-import { gh as ghCli } from "../util/gh.js"
+import { gh as ghCli, parsePrUrlNumber } from "../util/gh.js"
 import { escapeShellArg } from "../util/shell.js"
 import { readProjectProfile } from "../kernel/profile.js"
 import type { ProjectProfile } from "../kernel/profile.js"
@@ -276,9 +276,14 @@ async function openReleasePrOp(profile: ProjectProfile, args: Record<string, any
 
   try {
     const { stdout } = await runGh(
-      `pr create --base main --head '${escapeShellArg(branch)}' --title 'release: ${escapeShellArg(tag)}' --body '${escapeShellArg(notes)}' --json number --jq .number`,
+      `pr create --base main --head '${escapeShellArg(branch)}' --title 'release: ${escapeShellArg(tag)}' --body '${escapeShellArg(notes)}'`,
     )
-    return `Release PR created: #${stdout.trim()} (branch ${branch}, tag ${tag})`
+    // gh pr create 不支持 --json：解析 stdout 中的 PR URL
+    const prNumber = parsePrUrlNumber(stdout)
+    if (prNumber === null) {
+      return `Error: 创建 Release PR 失败：无法解析 PR 编号（${stdout.trim()}）`
+    }
+    return `Release PR created: #${prNumber} (branch ${branch}, tag ${tag})`
   } catch (err) {
     return `Error: 创建 Release PR 失败：${String(err)}`
   }

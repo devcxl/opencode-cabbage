@@ -9,7 +9,7 @@ import { exec } from "node:child_process"
 import { promisify } from "node:util"
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { gh as ghCli } from "../util/gh.js"
+import { gh as ghCli, parsePrUrlNumber } from "../util/gh.js"
 import { escapeShellArg } from "../util/shell.js"
 import { pathExists } from "../util/fs.js"
 import { PLUGIN_ID } from "../util/paths.js"
@@ -720,11 +720,12 @@ async function submitPr(
   const prTitle = `feat: ${taskId}`
   const prBody = [`# ${taskId}`, "", `- Task Record: #${issueNumber}`, `- TDD evidence: ${evidenceLink}`, "", `Closes #${issueNumber}`, ""].join("\n")
   const { stdout: prOut } = await taskGh(
-    `pr create --title '${escapeShellArg(prTitle)}' --body '${escapeShellArg(prBody)}' --base '${escapeShellArg(base)}' --head '${escapeShellArg(state.branch)}' --json number --jq .number`,
+    `pr create --title '${escapeShellArg(prTitle)}' --body '${escapeShellArg(prBody)}' --base '${escapeShellArg(base)}' --head '${escapeShellArg(state.branch)}'`,
   )
-  const prNumber = Number(prOut.trim())
-  if (!Number.isInteger(prNumber)) {
-    return { ok: false, code: "PR_CREATE_FAILED", message: `invalid PR number: ${prOut}` }
+  // gh pr create 不支持 --json：解析 stdout 中的 PR URL
+  const prNumber = parsePrUrlNumber(prOut)
+  if (prNumber === null) {
+    return { ok: false, code: "PR_CREATE_FAILED", message: `invalid PR create output: ${prOut}` }
   }
 
   // PR 已创建成功；状态标签失败仅降级 warning（不把已建 PR 报为整体失败）

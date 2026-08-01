@@ -543,6 +543,8 @@ async function readIssueLabels(parentIssueNumber: number): Promise<string[]> {
 /**
  * stage-start / stage-complete：
  * 门禁（checkStageGate）→ stage-complete 更新 body checklist（乐观锁）→ setStageLabel。
+ * declaredRisk：模型显式声明高风险（"high"）时即使 Issue 无 cabbage:risk:high 标签，
+ * 同样触发 R11 确认门禁；确认通过后持久化 RISK_LABEL（后续环节可见）。
  */
 export async function applyStageOp(
   _projectDir: string,
@@ -550,6 +552,7 @@ export async function applyStageOp(
   op: StageOp,
   stage: FlowStage,
   userConfirmed: boolean,
+  declaredRisk?: "high" | "low",
 ): Promise<ApplyStageResult> {
   const record = await readFlowRecord(parentIssueNumber)
   if (!record.ok) {
@@ -558,7 +561,7 @@ export async function applyStageOp(
 
   const completed = getCompletedStages(record.body)
   const labels = await readIssueLabels(parentIssueNumber)
-  const highRisk = labels.includes(RISK_LABEL)
+  const highRisk = labels.includes(RISK_LABEL) || declaredRisk === "high"
 
   const gate = checkStageGate(op, stage, completed, highRisk, userConfirmed)
   if (!gate.ok) {
@@ -572,6 +575,14 @@ export async function applyStageOp(
     }
   }
 
+  // 模型声明高风险且已确认：持久化 RISK_LABEL（R11 状态真实化，后续环节可见）
+  if (declaredRisk === "high" && !labels.includes(RISK_LABEL)) {
+    const riskLabel = await addRiskLabel(parentIssueNumber)
+    if (!riskLabel.ok) {
+      return { ok: false, code: "LABEL_UPDATE_FAILED", message: riskLabel.error ?? "risk label update failed" }
+    }
+  }
+
   const labelResult = await setStageLabel(parentIssueNumber, stage)
   if (!labelResult.ok) {
     return { ok: false, code: "LABEL_UPDATE_FAILED", message: labelResult.error ?? "label update failed" }
@@ -579,4 +590,14 @@ export async function applyStageOp(
 
   const newCompleted = op === "stage-complete" ? [...completed, stage] : completed
   return { ok: true, stage, completedStages: newCompleted, highRisk }
+}
+
+/** 给 Parent Issue 打高风险标签（模型声明 + 用户确认后持久化） */
+async function addRiskLabel(parentIssueNumber: number): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await flowGh(`issue edit ${parentIssueNumber} --add-label '${escapeShellArg(RISK_LABEL)}'`)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
 }

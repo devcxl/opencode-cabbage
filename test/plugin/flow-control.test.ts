@@ -727,6 +727,91 @@ describe("createFlowControlTool (spec §2.3 flow_control)", () => {
     })
   })
 
+  it("stage-start tasks with declared risk=high requires user confirmation (R11)", async () => {
+    await withProjectDir(async dir => {
+      const body = "## Stages\n\n- [x] requirements\n- [x] design\n- [ ] tasks"
+      setRecordsGhExecutor(async args => {
+        if (args.includes("--jq .body")) return { stdout: body, stderr: "" }
+        if (args.includes('join(" ")')) return { stdout: "", stderr: "" }
+        if (args.includes("issue edit")) return { stdout: "", stderr: "" }
+        throw new Error(`unexpected gh: ${args}`)
+      })
+      const flowCalls: string[] = []
+      setFlowGhExecutor(async args => {
+        flowCalls.push(args)
+        if (args.includes("issue view")) return { stdout: '["cabbage:flow", "cabbage:stage:requirements", "cabbage:stage:design"]', stderr: "" }
+        if (args.includes("issue edit")) return { stdout: "", stderr: "" }
+        throw new Error(`unexpected gh: ${args}`)
+      })
+
+      const denied = await executeOp(dir, makeSessionClient(), "stage-start", {
+        parent_issue_number: 12,
+        stage: "tasks",
+        risk: "high",
+      })
+      expect(denied.ok).toBe(false)
+      expect(denied.error.code).toBe("RISK_CONFIRMATION_REQUIRED")
+      // 未确认 → 不得打 RISK_LABEL
+      expect(flowCalls.some(c => c.includes("cabbage:risk:high"))).toBe(false)
+    })
+  })
+
+  it("stage-start tasks with declared risk=high and confirmation passes and persists the RISK_LABEL", async () => {
+    await withProjectDir(async dir => {
+      const body = "## Stages\n\n- [x] requirements\n- [x] design\n- [ ] tasks"
+      setRecordsGhExecutor(async args => {
+        if (args.includes("--jq .body")) return { stdout: body, stderr: "" }
+        if (args.includes('join(" ")')) return { stdout: "", stderr: "" }
+        if (args.includes("issue edit")) return { stdout: "", stderr: "" }
+        throw new Error(`unexpected gh: ${args}`)
+      })
+      const flowCalls: string[] = []
+      setFlowGhExecutor(async args => {
+        flowCalls.push(args)
+        if (args.includes("issue view")) return { stdout: '["cabbage:flow", "cabbage:stage:requirements", "cabbage:stage:design"]', stderr: "" }
+        if (args.includes("issue edit")) return { stdout: "", stderr: "" }
+        throw new Error(`unexpected gh: ${args}`)
+      })
+
+      const resp = await executeOp(dir, makeSessionClient(), "stage-start", {
+        parent_issue_number: 12,
+        stage: "tasks",
+        risk: "high",
+        user_confirmed: true,
+      })
+      expect(resp.ok).toBe(true)
+      expect(resp.highRisk).toBe(true)
+      expect(flowCalls.some(c => c.includes("--add-label 'cabbage:risk:high'"))).toBe(true)
+    })
+  })
+
+  it("stage-start tasks with declared risk=low passes without confirmation (no label)", async () => {
+    await withProjectDir(async dir => {
+      const body = "## Stages\n\n- [x] requirements\n- [x] design\n- [ ] tasks"
+      setRecordsGhExecutor(async args => {
+        if (args.includes("--jq .body")) return { stdout: body, stderr: "" }
+        if (args.includes('join(" ")')) return { stdout: "", stderr: "" }
+        if (args.includes("issue edit")) return { stdout: "", stderr: "" }
+        throw new Error(`unexpected gh: ${args}`)
+      })
+      const flowCalls: string[] = []
+      setFlowGhExecutor(async args => {
+        flowCalls.push(args)
+        if (args.includes("issue view")) return { stdout: '["cabbage:flow", "cabbage:stage:requirements", "cabbage:stage:design"]', stderr: "" }
+        if (args.includes("issue edit")) return { stdout: "", stderr: "" }
+        throw new Error(`unexpected gh: ${args}`)
+      })
+
+      const resp = await executeOp(dir, makeSessionClient(), "stage-start", {
+        parent_issue_number: 12,
+        stage: "tasks",
+        risk: "low",
+      })
+      expect(resp.ok).toBe(true)
+      expect(flowCalls.some(c => c.includes("cabbage:risk:high"))).toBe(false)
+    })
+  })
+
   it("complete-flow rejects callers other than goal-verify", async () => {
     await withProjectDir(async dir => {
       const resp = await executeOp(dir, makeSessionClient(), "complete-flow", { parent_issue_number: 12 }, "dev-lifecycle")

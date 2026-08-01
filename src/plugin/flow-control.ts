@@ -79,6 +79,10 @@ Caller: primary for all ops except complete-flow (goal-verify only).`,
         .enum(["requirements", "design", "tasks", "code", "review"])
         .optional()
         .describe("Stage name (for stage-start/stage-complete)"),
+      risk: tool.schema
+        .enum(["high", "low"])
+        .optional()
+        .describe("Risk declaration for stage-start/stage-complete tasks handoff: high triggers the R11 user-confirmation gate (user_confirmed) and persists the cabbage:risk:high label"),
       user_confirmed: tool.schema.boolean().optional().describe("User confirmation (required for cancel-flow/takeover and high-risk gates)"),
     },
     async execute(args, ctx) {
@@ -202,11 +206,20 @@ async function handleStage(
     return errorResponse("POLICY_INVALID", "stage is required for stage ops: requirements|design|tasks|code|review")
   }
 
-  const result = await applyStageOp(deps.projectDir, n, op as "stage-start" | "stage-complete", stage, args.user_confirmed === true)
+  const risk = args.risk as "high" | "low" | undefined
+  if (risk !== undefined && risk !== "high" && risk !== "low") {
+    return errorResponse("POLICY_INVALID", "risk must be \"high\" or \"low\"")
+  }
+
+  const result = await applyStageOp(deps.projectDir, n, op as "stage-start" | "stage-complete", stage, args.user_confirmed === true, risk)
   if (!result.ok) {
     return errorResponse(result.code, result.message)
   }
-  return okResponse({ stage: result.stage, completedStages: result.completedStages })
+  return okResponse({
+    stage: result.stage,
+    completedStages: result.completedStages,
+    ...(result.highRisk ? { highRisk: true } : {}),
+  })
 }
 
 async function handleCompleteFlow(

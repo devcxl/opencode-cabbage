@@ -5,18 +5,27 @@ import type { Session } from "@opencode-ai/sdk/v2"
 
 export type GoalStatus = "active" | "paused" | "complete"
 
+/** 用户最后使用的会话配置快照：续接注入时显式传回，防止 idle 后回落/切换默认 agent 与模型 */
+export interface GoalSessionProfile {
+  agent: string
+  model?: { providerID: string; modelID: string }
+}
+
 /** 最小化 goal（§10.2）：目标与验收条件从 Flow Record（Parent Issue body）读取 */
 export interface GoalData {
   parentIssueNumber: number
   status: GoalStatus
   continuationCount: number
+  /** 用户最后使用的 agent/模型（create 或用户消息时快照） */
+  sessionProfile?: GoalSessionProfile
 }
 
-export function createGoal(parentIssueNumber: number): GoalData {
+export function createGoal(parentIssueNumber: number, sessionProfile?: GoalSessionProfile): GoalData {
   return {
     parentIssueNumber,
     status: "active",
     continuationCount: 0,
+    ...(sessionProfile ? { sessionProfile } : {}),
   }
 }
 
@@ -34,8 +43,9 @@ export function formatGoal(goal: GoalData): string {
     `Flow: #${goal.parentIssueNumber}`,
     `Status: ${goal.status}`,
     `Continuations: ${goal.continuationCount}`,
+    goal.sessionProfile ? `Agent: ${goal.sessionProfile.agent}` : "",
     `Objective/acceptance: read from Flow Record (Parent Issue #${goal.parentIssueNumber})`,
-  ].join("\n")
+  ].filter(Boolean).join("\n")
 }
 
 export const MAX_CONTINUATIONS = 50
@@ -178,7 +188,8 @@ Use a single op field:
           if (existing?.status === "active") {
             return `Error: an active goal already exists for Flow #${existing.parentIssueNumber}`
           }
-          const goal = createGoal(Number(args.parent_issue_number))
+          // 快照创建时的 agent（模型由 message.updated 用户消息事件补充）
+          const goal = createGoal(Number(args.parent_issue_number), { agent: ctx.agent })
           await writeGoal(client, sessionID, goal)
           return `Goal created: Flow #${goal.parentIssueNumber}\nStatus: active`
         }

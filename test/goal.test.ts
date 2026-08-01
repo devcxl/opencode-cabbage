@@ -13,6 +13,16 @@ describe("GoalData 最小化", () => {
     expect(goal).toEqual({ parentIssueNumber: 42, status: "active", continuationCount: 0 })
   })
 
+  it("createGoal 支持 sessionProfile 快照（agent/模型续接防切换）", () => {
+    const goal = createGoal(42, { agent: "dev", model: { providerID: "openai", modelID: "gpt-5.6-sol" } })
+    expect(goal.sessionProfile).toEqual({ agent: "dev", model: { providerID: "openai", modelID: "gpt-5.6-sol" } })
+  })
+
+  it("formatGoal 展示快照 agent", () => {
+    const goal = createGoal(42, { agent: "dev" })
+    expect(formatGoal(goal)).toContain("Agent: dev")
+  })
+
   it("不再存储 objective/completionCriterion（从 Flow Record 读取）", () => {
     const goal = createGoal(42)
     expect("objective" in goal).toBe(false)

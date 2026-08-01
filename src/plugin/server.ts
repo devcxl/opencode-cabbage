@@ -151,9 +151,11 @@ async function queueContinuation(
     const contextBlock = projectDir ? await getContextBlock(projectDir) : null
     const contextText = contextBlock ? `${formatContextBlock(contextBlock)}\n\n` : ""
 
+    // 显式传回用户最后使用的 agent/模型，防止 idle 续接回落/切换默认 agent（如 build）
     await client.session.promptAsync({
       sessionID,
       parts: [{ type: "text" as const, text: contextText + continuationPrompt(goal.parentIssueNumber), synthetic: true }],
+      ...(goal.sessionProfile ? { agent: goal.sessionProfile.agent, model: goal.sessionProfile.model } : {}),
     })
   } catch (err) {
     console.error("[cabbage] continuation failed:", err)
@@ -180,6 +182,7 @@ async function autoResume(client: ReturnType<typeof import("@opencode-ai/sdk/v2"
           text: `[auto-resume] Plugin restarted. Resuming previous goal:\n\n${formatGoal(goal)}\n\nContinue working.`,
           synthetic: true,
         }],
+        ...(goal.sessionProfile ? { agent: goal.sessionProfile.agent, model: goal.sessionProfile.model } : {}),
       })
     } catch (err) {
       console.error("[cabbage] auto-resume failed:", err)
@@ -382,6 +385,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
                     text: `[auto-retry] Previous attempt failed. Try a different approach.\n\n${formatGoal(goal)}`,
                     synthetic: true,
                   }],
+                  ...(goal.sessionProfile ? { agent: goal.sessionProfile.agent, model: goal.sessionProfile.model } : {}),
                 })
               } catch (err) {
                 console.error("[cabbage] auto-retry prompt failed:", err)
@@ -395,6 +399,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
                     text: `[skip] Skipping failed step. Continue with remaining work.\n\n${formatGoal(goal)}`,
                     synthetic: true,
                   }],
+                  ...(goal.sessionProfile ? { agent: goal.sessionProfile.agent, model: goal.sessionProfile.model } : {}),
                 })
               } catch (err) {
                 console.error("[cabbage] auto-skip prompt failed:", err)
@@ -410,6 +415,14 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
             const { goal, session } = await readGoal(goalClient, sessionID)
             if (goal) {
               goal.continuationCount = 0
+              // 刷新用户最后使用的 agent/模型快照（用户在 TUI 切换 agent/模型后发消息）
+              const info = evt.properties.info as { agent?: string; model?: { providerID: string; modelID: string } }
+              if (info?.agent) {
+                goal.sessionProfile = {
+                  agent: info.agent,
+                  model: info.model?.providerID ? { providerID: info.model.providerID, modelID: info.model.modelID } : goal.sessionProfile?.model,
+                }
+              }
               await writeGoal(goalClient, sessionID, goal, session ?? undefined)
             }
           }

@@ -36,7 +36,7 @@ beforeEach(async () => {
   recordsState = makeRecordsState()
   setRecordsGhExecutor(recordsState.ghFn)
   setTddCheckpointGhExecutor(async (args: string) => {
-    if (args.startsWith("issue list --parent")) return { stdout: "77", stderr: "" }
+    if (args.startsWith("issue list --state all --limit 100 --search parent:")) return { stdout: "77", stderr: "" }
     if (args.startsWith("issue view 77")) return { stdout: makeTaskBody(), stderr: "" }
     throw new Error(`unexpected tdd gh: ${args}`)
   })

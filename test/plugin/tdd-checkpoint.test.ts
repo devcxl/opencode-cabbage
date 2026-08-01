@@ -168,7 +168,7 @@ beforeEach(async () => {
   recordsState = makeRecordsState()
   setRecordsGhExecutor(recordsState.ghFn)
   setTddCheckpointGhExecutor(async (args: string) => {
-    if (args.startsWith("issue list --parent")) {
+    if (args.startsWith("issue list --state all --limit 100 --search parent:")) {
       return { stdout: "77", stderr: "" }
     }
     if (args.startsWith("issue view 77")) {
@@ -494,7 +494,7 @@ describe("tdd_checkpoint — final-regression", () => {
 
   it("rejects when no runner is configured", async () => {
     setTddCheckpointGhExecutor(async (args: string) => {
-      if (args.startsWith("issue list --parent")) return { stdout: "77", stderr: "" }
+      if (args.startsWith("issue list --state all --limit 100 --search parent:")) return { stdout: "77", stderr: "" }
       if (args.startsWith("issue view 77")) {
         return { stdout: makeTaskBody({ policy: makePolicy({ runner: null }) }), stderr: "" }
       }

@@ -264,7 +264,7 @@ export async function readFlowStatus(parentIssueNumber: number): Promise<FlowSta
     }
 
     const { stdout: subtasksOut } = await flowGh(
-      `issue list --parent ${parentIssueNumber} --json number,title,state --jq '[.[] | {number, title, state}]'`,
+      `issue list --state all --limit 100 --search parent:${parentIssueNumber} --json number,title,state --jq '[.[] | {number, title, state}]'`,
     )
     const subtasks = JSON.parse(subtasksOut) as SubtaskSummary[]
 

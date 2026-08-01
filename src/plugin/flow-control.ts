@@ -61,7 +61,7 @@ export function createFlowControlTool(deps: FlowControlDeps) {
 
 Operations:
 - create-flow: Validate the functional title, derive the slug, create a Draft Parent Issue (body contains goal/acceptance/stage checklist, label cabbage:flow), bind the session, and write the minimal goal. When parent_issue_number is given, bind an existing issue instead (legacy FlowRun detection + double-session check).
-- status: Aggregate the Flow Record body, subtasks (issue list --parent), and related PR checks into one report.
+- status: Aggregate the Flow Record body, subtasks (issue list --search parent:N), and related PR checks into one report.
 - planning-start: Create the planning worktree .worktree/planning-<slug> for the architect.
 - planning-pr: Commit/push the planning worktree changes and open the Planning PR (Planning Baseline).
 - stage-start / stage-complete: Enforce stage gates (requirements baseline confirmed once; design must complete before tasks; high-risk flows pause between design and tasks) and update the Parent Issue checklist + cabbage:stage:* label.

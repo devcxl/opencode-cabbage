@@ -384,8 +384,9 @@ export async function readTaskState(projectDir: string, slug: string): Promise<T
 
 /** 按 title（task slug）解析 Parent 下的 Sub Issue 号 */
 async function resolveTaskIssue(parentIssueNumber: number, taskId: string): Promise<number | null> {
+  // gh issue list 无 --parent flag：用搜索 qualifier parent:N 过滤子任务
   const { stdout } = await taskGh(
-    `issue list --parent ${parentIssueNumber} --state all --json number,title --jq '[.[] | select(.title == ${JSON.stringify(taskId)}) | .number] | first'`,
+    `issue list --state all --limit 100 --search parent:${parentIssueNumber} --json number,title --jq '[.[] | select(.title == ${JSON.stringify(taskId)}) | .number] | first'`,
   )
   const trimmed = stdout.trim()
   if (trimmed === "" || trimmed === "null") return null
@@ -602,7 +603,7 @@ async function readIssueStateAndLabels(issueNumber: number): Promise<{ state: st
 /** 统计 flow 下 running/reviewing 的 Task 数（并行门禁）；已关闭 Issue 不计（防取消/归档任务占名额） */
 async function countRunningTasks(parentIssueNumber: number): Promise<number> {
   const { stdout } = await taskGh(
-    `issue list --parent ${parentIssueNumber} --state open --json number,labels --jq '[.[] | {number, labels: [.labels[].name]}]'`,
+    `issue list --state open --limit 100 --search parent:${parentIssueNumber} --json number,labels --jq '[.[] | {number, labels: [.labels[].name]}]'`,
   )
   const issues = JSON.parse(stdout) as Array<{ labels: string[] }>
   return issues.filter(i =>

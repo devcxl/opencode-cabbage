@@ -5,6 +5,7 @@ import { join } from "node:path"
 import {
   probe,
   generateWorkflows,
+  initRepo,
   buildCiWorkflow,
   buildReleaseWorkflow,
   buildProfileBlock,
@@ -597,6 +598,55 @@ describe("confirmProjectProfile", () => {
       const result = await confirmProjectProfile(dir, "not-json{")
       expect(result.ok).toBe(false)
       if (!result.ok) expect(result.code).toBe("POLICY_INVALID")
+    })
+  })
+})
+
+describe("initRepo", () => {
+  it("initializes an empty directory: git init + first commit", async () => {
+    await withProjectDir(async dir => {
+      const calls: string[] = []
+      setSetupGitExecutor(async (args) => {
+        calls.push(args)
+        if (args.includes("rev-parse --is-inside-work-tree")) throw new Error("not a repo")
+        if (args.includes("rev-parse HEAD")) throw new Error("no commits")
+        return { stdout: "", stderr: "" }
+      })
+      setSetupGhExecutor(async () => { throw new Error("no gh call expected") })
+
+      const result = await initRepo(dir, {})
+      expect(result.ok).toBe(true)
+      expect(result.initialized).toBe(true)
+      expect(result.committed).toBe(true)
+      expect(calls.some(c => c.includes("init -b main"))).toBe(true)
+      expect(calls.some(c => c.includes("commit -m 'chore: initial commit'"))).toBe(true)
+    })
+  })
+
+  it("creates the remote when create_remote is set (gh repo create --source . --push)", async () => {
+    await withProjectDir(async dir => {
+      setSetupGitExecutor(async (args) => {
+        if (args.includes("rev-parse --is-inside-work-tree")) throw new Error("not a repo")
+        if (args.includes("rev-parse HEAD")) throw new Error("no commits")
+        if (args.includes("remote get-url origin")) throw new Error("no remote")
+        return { stdout: "", stderr: "" }
+      })
+      const ghCalls: string[] = []
+      setSetupGhExecutor(async (args) => {
+        ghCalls.push(args)
+        return { stdout: "", stderr: "" }
+      })
+
+      const result = await initRepo(dir, { createRemote: true, private: true })
+      expect(result.ok).toBe(true)
+      expect(result.remoteCreated).toBe(true)
+      const createCall = ghCalls.find(c => c.includes("repo create"))
+      expect(createCall).toBeDefined()
+      if (createCall) {
+        expect(createCall).toContain("--private")
+        expect(createCall).toContain("--source .")
+        expect(createCall).toContain("--push")
+      }
     })
   })
 })

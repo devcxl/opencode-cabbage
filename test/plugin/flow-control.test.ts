@@ -75,6 +75,14 @@ describe("flow kernel pure functions", () => {
         expect(body).toContain(`- [ ] ${stage}`)
       }
     })
+
+    it("fills goal and acceptance criteria when provided (create-flow 初始填充)", () => {
+      const body = buildFlowBody("user-auth", "实现用户认证", ["支持邮箱登录", "支持 OAuth"])
+      expect(body).toContain("实现用户认证")
+      expect(body).toContain("- [ ] 支持邮箱登录")
+      expect(body).toContain("- [ ] 支持 OAuth")
+      expect(body).not.toContain("- [ ] TBD")
+    })
   })
 
   describe("getCompletedStages / markStageComplete", () => {
@@ -311,7 +319,8 @@ describe("planning worktree (spec §2.3 planning-start / planning-pr)", () => {
       setFlowGhExecutor(async args => {
         if (args.includes("issue view")) return { stdout: "planning-baseline", stderr: "" }
         if (args.includes("repo view")) return { stdout: "main", stderr: "" }
-        if (args.includes("pr create")) return { stdout: "42", stderr: "" }
+        if (args.startsWith("pr list")) return { stdout: "", stderr: "" }
+        if (args.includes("pr create")) return { stdout: "https://github.com/devcxl/opencode-cabbage/pull/42", stderr: "" }
         throw new Error(`unexpected gh: ${args}`)
       })
       setFlowGitExecutor(async args => {
@@ -345,21 +354,49 @@ describe("planning worktree (spec §2.3 planning-start / planning-pr)", () => {
     }
   })
 
-  it("planning-pr refuses when there is nothing to commit", async () => {
+  it("planning-pr skips commit when the worktree is already committed (手动提交后不再报错)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cabbage-flow-plan-"))
+    try {
+      await mkdir(join(dir, ".worktree", "planning-planning-baseline"), { recursive: true })
+      const gitCalls: string[] = []
+      setFlowGhExecutor(async args => {
+        if (args.includes("issue view")) return { stdout: "planning-baseline", stderr: "" }
+        if (args.includes("repo view")) return { stdout: "main", stderr: "" }
+        if (args.startsWith("pr list")) return { stdout: "", stderr: "" }
+        if (args.includes("pr create")) return { stdout: "https://github.com/devcxl/opencode-cabbage/pull/43", stderr: "" }
+        throw new Error(`unexpected gh: ${args}`)
+      })
+      setFlowGitExecutor(async args => {
+        gitCalls.push(args)
+        if (args.includes("status --porcelain")) return { stdout: "", stderr: "" }
+        if (args.includes("push")) return { stdout: "", stderr: "" }
+        throw new Error(`unexpected git: ${args}`)
+      })
+
+      const result = await planningPr(dir, 12)
+      expect(result.ok).toBe(true)
+      expect(result.prNumber).toBe(43)
+      // 无变更：不执行 add/commit，直接 push + 建 PR
+      expect(gitCalls.some(c => c.includes("commit"))).toBe(false)
+      expect(gitCalls.some(c => c.includes("push"))).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("planning-pr reuses an existing open PR (幂等)", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cabbage-flow-plan-"))
     try {
       await mkdir(join(dir, ".worktree", "planning-planning-baseline"), { recursive: true })
       setFlowGhExecutor(async args => {
         if (args.includes("issue view")) return { stdout: "planning-baseline", stderr: "" }
+        if (args.startsWith("pr list")) return { stdout: "77", stderr: "" }
         throw new Error(`unexpected gh: ${args}`)
       })
-      setFlowGitExecutor(async args => {
-        if (args.includes("status --porcelain")) return { stdout: "", stderr: "" }
-        throw new Error(`unexpected git: ${args}`)
-      })
+
       const result = await planningPr(dir, 12)
-      expect(result.ok).toBe(false)
-      expect(result.code).toBe("NOTHING_TO_COMMIT")
+      expect(result.ok).toBe(true)
+      expect(result.prNumber).toBe(77)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

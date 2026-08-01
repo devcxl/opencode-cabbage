@@ -79,6 +79,11 @@ Caller: primary for all ops except complete-flow (goal-verify only).`,
         .boolean()
         .optional()
         .describe("Full-auto mode: label the flow cabbage:auto so stage confirmation gates (requirements/high-risk) pass without user_confirmed"),
+      goal: tool.schema.string().optional().describe("Initial objective to fill the Flow Record Goal block (create-flow)"),
+      acceptance_criteria: tool.schema
+        .array(tool.schema.string())
+        .optional()
+        .describe("Initial acceptance criteria list to fill the Flow Record Acceptance Criteria block (create-flow)"),
       parent_issue_number: tool.schema.number().optional().describe("Parent GitHub Issue number of the Flow Record"),
       stage: tool.schema
         .enum(["requirements", "design", "tasks", "code", "review"])
@@ -152,6 +157,8 @@ async function handleCreateFlow(
     title,
     sessionID,
     autoMode: args.auto_mode === true,
+    goal: args.goal as string | undefined,
+    acceptanceCriteria: args.acceptance_criteria as string[] | undefined,
     parentIssueNumber: parent,
   })
   if (!result.ok) {
@@ -224,10 +231,14 @@ async function handleStage(
   if (!result.ok) {
     return errorResponse(result.code, result.message)
   }
+  const note = op === "stage-complete" && stage === "requirements"
+    ? "requirements 产物（PRD/CONTEXT/decision-map）请 commit+push 到 main：planning worktree 基于 main HEAD 创建，未提交的文件在其中不可见"
+    : undefined
   return okResponse({
     stage: result.stage,
     completedStages: result.completedStages,
     ...(result.highRisk ? { highRisk: true } : {}),
+    ...(note ? { note } : {}),
   })
 }
 

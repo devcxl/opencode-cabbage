@@ -131,6 +131,64 @@ export function parseGithubRemote(url: string): { owner: string; repo: string } 
   return null
 }
 
+// ─── init-repo：空目录初始化（#11） ───
+
+export interface InitRepoInput {
+  /** 创建 GitHub 远端（gh repo create --source . --push） */
+  createRemote?: boolean
+  /** 远端仓库名（缺省用目录名） */
+  remoteName?: string
+  /** 远端仓库私有 */
+  private?: boolean
+}
+
+export interface InitRepoResult {
+  ok: boolean
+  initialized: boolean
+  committed: boolean
+  remoteCreated: boolean
+  error?: string
+}
+
+/**
+ * 初始化 git 仓库（空目录场景）：git init → 首次提交 → 可选 gh repo create + push。
+ * 已初始化的仓库跳过对应步骤（幂等）。
+ */
+export async function initRepo(projectDir: string, input: InitRepoInput): Promise<InitRepoResult> {
+  const result: InitRepoResult = { ok: false, initialized: false, committed: false, remoteCreated: false }
+  try {
+    const isRepo = await tryRun(() => runGit("rev-parse --is-inside-work-tree", projectDir))
+    if (!isRepo) {
+      await runGit("init -b main", projectDir)
+      result.initialized = true
+    }
+
+    const hasCommits = await tryRun(() => runGit("rev-parse HEAD", projectDir))
+    if (!hasCommits) {
+      await runGit("add -A", projectDir)
+      await runGit("commit -m 'chore: initial commit'", projectDir)
+      result.committed = true
+    }
+
+    if (input.createRemote) {
+      const hasRemote = await tryRun(() => runGit("remote get-url origin", projectDir))
+      if (!hasRemote) {
+        const repoName = input.remoteName ?? basename(projectDir)
+        await runGh(`repo create '${repoName}' ${input.private ? "--private" : "--public"} --source . --remote origin --push`)
+        result.remoteCreated = true
+      } else {
+        await runGit("push -u origin HEAD", projectDir)
+      }
+    }
+
+    result.ok = true
+    return result
+  } catch (err) {
+    result.error = String(err)
+    return result
+  }
+}
+
 /** 扫描 .github/workflows/：文件名含 ci → CI workflow；含 release 或 Profile 指定路径 → release workflow */
 async function scanWorkflows(
   projectDir: string,

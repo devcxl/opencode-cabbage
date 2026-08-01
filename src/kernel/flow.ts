@@ -73,18 +73,22 @@ function isFlowStage(value: string): value is FlowStage {
 // ─── Flow Record body 模板与 stage checklist ───
 
 /** 新建 Flow Record 的 body：目标/验收/阶段 checklist（spec §2.3 create-flow） */
-export function buildFlowBody(slug: string): string {
+export function buildFlowBody(slug: string, goal?: string, criteria?: string[]): string {
   const stages = FLOW_STAGES.map(stage => `- [ ] ${stage}`).join("\n")
+  const goalLines = goal && goal.trim() !== "" ? goal : "<!-- 目标：由模型在 requirements 阶段填充 -->"
+  const criteriaLines = criteria && criteria.length > 0
+    ? criteria.map(c => `- [ ] ${c}`).join("\n")
+    : "- [ ] TBD"
   return [
     `# Flow: ${slug}`,
     "",
     "## Goal",
     "",
-    "<!-- 目标：由模型在 requirements 阶段填充 -->",
+    goalLines,
     "",
     "## Acceptance Criteria",
     "",
-    "- [ ] TBD",
+    criteriaLines,
     "",
     "## Stages",
     "",
@@ -182,7 +186,7 @@ function requirementConfirmationError(): StageGateResult {
   return {
     ok: false,
     code: "REQUIREMENTS_CONFIRMATION_REQUIRED",
-    message: "The requirements baseline must be confirmed once by the user (user_confirmed: true)",
+    message: 'The requirements baseline must be confirmed once by the user. 解法：重试并传 user_confirmed: true（或给 Flow 打 cabbage:auto 标签全自动放行）',
   }
 }
 
@@ -390,13 +394,21 @@ export async function planningPr(projectDir: string, parentIssueNumber: number):
       }
     }
 
-    const { stdout: statusOut } = await flowGit(`-C '${escapeShellArg(worktreeDir)}' status --porcelain`)
-    if (statusOut.trim() === "") {
-      return { ok: false, code: "NOTHING_TO_COMMIT", message: "Planning worktree has no changes to commit" }
+    // 幂等：分支已有 open PR → 复用编号（不重复创建）
+    const { stdout: existingPr } = await flowGh(
+      `pr list --head '${escapeShellArg(branch)}' --state open --json number --jq '.[0].number'`,
+    )
+    const existingPrNumber = Number(existingPr.trim())
+    if (Number.isInteger(existingPrNumber) && existingPrNumber > 0) {
+      return { ok: true, worktreePath: worktreeDir, branch, prNumber: existingPrNumber }
     }
 
-    await flowGit(`-C '${escapeShellArg(worktreeDir)}' add -A`)
-    await flowGit(`-C '${escapeShellArg(worktreeDir)}' commit -m 'docs: planning baseline for ${slug}'`)
+    // 有未提交变更 → 提交并推送；无变更（用户已手动 commit+push）→ 跳过提交，直接建 PR
+    const { stdout: statusOut } = await flowGit(`-C '${escapeShellArg(worktreeDir)}' status --porcelain`)
+    if (statusOut.trim() !== "") {
+      await flowGit(`-C '${escapeShellArg(worktreeDir)}' add -A`)
+      await flowGit(`-C '${escapeShellArg(worktreeDir)}' commit -m 'docs: planning baseline for ${slug}'`)
+    }
     await flowGit(`-C '${escapeShellArg(worktreeDir)}' push -u origin '${escapeShellArg(branch)}'`)
 
     const base = await readDefaultBranch()
@@ -427,6 +439,10 @@ export interface CreateFlowInput {
   sessionID: string
   /** 全自动模式：创建时打 cabbage:auto 标签，阶段确认门禁自动放行 */
   autoMode?: boolean
+  /** 初始目标（填充 Flow Record body Goal 区块；可选） */
+  goal?: string
+  /** 初始验收标准列表（填充 Acceptance Criteria 区块；可选） */
+  acceptanceCriteria?: string[]
   /** 提供时对已有 Issue 建立 Flow 绑定（不新建）——legacy 检测 + 双 session 检查 */
   parentIssueNumber?: number
 }
@@ -455,7 +471,11 @@ export async function createFlow(input: CreateFlowInput): Promise<CreateFlowResu
       }
     }
 
-    const created = await createFlowRecord({ slug: validated.slug, body: buildFlowBody(validated.slug), autoMode: input.autoMode })
+    const created = await createFlowRecord({
+      slug: validated.slug,
+      body: buildFlowBody(validated.slug, input.goal, input.acceptanceCriteria),
+      autoMode: input.autoMode,
+    })
     if (!created.ok) {
       return { ok: false, code: "ISSUE_CREATE_FAILED", message: created.error }
     }

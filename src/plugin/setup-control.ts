@@ -5,6 +5,7 @@ import {
   probe,
   generateWorkflows,
   confirmProjectProfile,
+  initRepo,
   type SetupProbeReport,
 } from "../kernel/setup.js"
 
@@ -22,6 +23,9 @@ export type SetupControlResponse = {
   updated?: string[]
   existing?: string[]
   prNumber?: number | null
+  initialized?: boolean
+  committed?: boolean
+  remoteCreated?: boolean
   error?: { code: string; message: string }
 }
 
@@ -43,13 +47,16 @@ Operations:
 
 Caller: primary.`,
     args: {
-      op: tool.schema.enum(["probe", "generate-workflows", "confirm-profile"]).describe("Setup operation"),
+      op: tool.schema.enum(["probe", "generate-workflows", "confirm-profile", "init-repo"]).describe("Setup operation"),
       pr_title: tool.schema.string().optional().describe("PR title for generate-workflows"),
       test_command: tool.schema
         .string()
         .optional()
         .describe("Test command to inject into the generated ci.yml (falls back to the confirmed Profile testCommand; keeps <test-command> placeholder when both are absent)"),
       profile_overrides: tool.schema.string().optional().describe("JSON of user-confirmed profile fields for confirm-profile"),
+      create_remote: tool.schema.boolean().optional().describe("Create a GitHub remote (gh repo create --source . --push) for init-repo"),
+      remote_name: tool.schema.string().optional().describe("Remote repository name for init-repo (defaults to the directory name)"),
+      private: tool.schema.boolean().optional().describe("Create the remote repository as private for init-repo"),
     },
     async execute(args, ctx) {
       const op = args.op as string
@@ -90,6 +97,21 @@ Caller: primary.`,
               return errorResponse(result.code ?? "POLICY_INVALID", result.message ?? "failed to confirm profile")
             }
             return okResponse({ profileConfirmed: true })
+          }
+          case "init-repo": {
+            const result = await initRepo(projectDir, {
+              createRemote: args.create_remote === true,
+              remoteName: args.remote_name as string | undefined,
+              private: args.private === true,
+            })
+            if (!result.ok) {
+              return errorResponse("SETUP_FAILED", result.error ?? "failed to initialize repository")
+            }
+            return okResponse({
+              initialized: result.initialized,
+              committed: result.committed,
+              remoteCreated: result.remoteCreated,
+            })
           }
           default:
             return errorResponse("UNKNOWN_OP", `Unknown op: "${op}"`)

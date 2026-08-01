@@ -1,6 +1,7 @@
 import { exec } from "node:child_process"
 import { promisify } from "node:util"
 import path from "node:path"
+import { symlink } from "node:fs/promises"
 import { branchFor, worktreeFor } from "./slug.js"
 import type { BranchType } from "./slug.js"
 import { pathExists } from "../util/fs.js"
@@ -67,9 +68,27 @@ export async function worktreeStart(input: WorktreeStartInput): Promise<Worktree
 
   try {
     await git(`worktree add -b '${escapeShellArg(branch)}' '${escapeShellArg(worktreeDir)}' '${escapeShellArg(input.base)}'`)
+    await linkSharedNodeModules(input.projectDir, worktreeDir)
     return { ok: true, branch, path: worktreeDir, reused: false }
   } catch (err) {
     return { ok: false, code: "GIT_FAILED", message: String(err) }
+  }
+}
+
+/**
+ * worktree 依赖复用：主工作区已有 node_modules 且 worktree 无 → 符号链接
+ * （避免每个 worktree 重新 npm install 约 1-2 分钟；非 Node 项目自然跳过）。
+ * 失败不阻塞（模型可自行安装）。
+ */
+async function linkSharedNodeModules(projectDir: string, worktreeDir: string): Promise<void> {
+  try {
+    const src = path.join(projectDir, "node_modules")
+    const dst = path.join(worktreeDir, "node_modules")
+    if ((await pathExists(src)) && !(await pathExists(dst))) {
+      await symlink(src, dst, "dir")
+    }
+  } catch {
+    // 链接失败（如跨文件系统/权限）：忽略，worktree 可自行安装
   }
 }
 

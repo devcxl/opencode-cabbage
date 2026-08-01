@@ -591,8 +591,9 @@ async function handleWaiver(
   const task = await resolveTaskContext(refs.parentIssueNumber, refs.taskId, deps.projectDir)
 
   if (kind === "not-applicable") {
-    // 内核校验：worktree 相对 HEAD 的变更必须全部命中文档 pattern（纯文档豁免，防代码变更绕过 TDD 门禁）
-    const changed = listWorktreeChanges(task.worktreeDir)
+    // 内核校验：worktree 相对 HEAD 的变更（剔除构建产物后）必须全部命中文档 pattern
+    // （纯文档豁免，防代码变更绕过 TDD 门禁）
+    const changed = filterGeneratedChanges(listWorktreeChanges(task.worktreeDir))
     if (!isDocumentationOnly(changed, DOCUMENTATION_PATTERNS)) {
       return {
         ok: false,
@@ -631,10 +632,28 @@ async function handleWaiver(
 /** 文档类文件 pattern：markdown 系 + 通用文本 + docs 目录 */
 const DOCUMENTATION_PATTERNS = ["**/*.md", "**/*.markdown", "**/*.rst", "**/*.adoc", "**/*.txt", "docs/**", "README*"]
 
+/** 构建产物/依赖目录：not-applicable 判定变更时必须排除（git status 会列出未被 .gitignore 的产物） */
+const GENERATED_PATH_PATTERNS = [
+  "node_modules/**",
+  "dist/**",
+  "coverage/**",
+  ".next/**",
+  "build/**",
+  "target/**",
+  "out/**",
+  "**/*.tsbuildinfo",
+  "**/*.log",
+]
+
 /** 变更文件是否全部命中文档 pattern；空变更集也视为不通过（无变更不应豁免） */
 export function isDocumentationOnly(changedFiles: string[], patterns: string[]): boolean {
   if (changedFiles.length === 0) return false
   return changedFiles.every(f => matchesAnyPattern(f, patterns))
+}
+
+/** 剔除构建产物类变更（git status 列出但不应参与豁免判定的文件） */
+export function filterGeneratedChanges(changedFiles: string[]): string[] {
+  return changedFiles.filter(f => !matchesAnyPattern(f, GENERATED_PATH_PATTERNS))
 }
 
 /** 解析 git status --porcelain 输出为变更文件路径（重命名取新路径，跳过冲突条目） */

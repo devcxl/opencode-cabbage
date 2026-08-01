@@ -64,6 +64,12 @@ describe("parseProjectProfile", () => {
     ])
   })
 
+  it("keeps glob brace groups intact (逗号在花括号内不分割)", () => {
+    const markdown = "## Project Profile\n\n- test file patterns: `**/*.test.{ts,tsx}, **/*.spec.{ts,tsx}`\n"
+    const { profile } = parseProjectProfile(markdown)
+    expect(profile.testFilePatterns).toEqual(["**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}"])
+  })
+
   it("reports unknown keys as warnings without blocking known keys", () => {
     const markdown = "## Project Profile\n\n- mystery key: `value`\n- test command: `npm test`\n"
     const { profile, warnings } = parseProjectProfile(markdown)

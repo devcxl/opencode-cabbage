@@ -17,6 +17,8 @@ export interface FlowSessionEntry {
   sessionID: string
   status: FlowSessionStatus
   continuationCount: number
+  /** goal-verify 已完成验证（goal complete）——flow 级持久化，不依赖会话一致性 */
+  goalComplete?: boolean
   updatedAt: number
 }
 
@@ -143,11 +145,11 @@ export async function takeoverSession(
   })
 }
 
-/** 更新已绑定 flow 的状态/计数；flow 未绑定时返回 null 且不创建 entry。 */
+/** 更新已绑定 flow 的状态/计数/goal 完成标记；flow 未绑定时返回 null 且不创建 entry。 */
 export async function updateFlowSession(
   projectDir: string,
   parentIssueNumber: number,
-  patch: Partial<Pick<FlowSessionEntry, "status" | "continuationCount">>,
+  patch: Partial<Pick<FlowSessionEntry, "status" | "continuationCount" | "goalComplete">>,
 ): Promise<FlowSessionEntry | null> {
   if (patch.status !== undefined && !VALID_STATUSES.includes(patch.status)) {
     return null

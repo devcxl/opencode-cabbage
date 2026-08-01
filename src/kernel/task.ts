@@ -91,12 +91,15 @@ async function gitIn(dir: string, args: string): Promise<CmdResult> {
  * 新建 Task Record 的 body：acceptance criteria + 依赖 + 状态 checklist + Closes 约定。
  * criteria 渲染为 `- [ ] <id>: <description> [<verification>]`，可被 parseCriteriaFromBody 还原。
  */
-export function buildTaskBody(slug: string, criteria: AcceptanceCriterion[], dependencies: number[]): string {
+export function buildTaskBody(slug: string, criteria: AcceptanceCriterion[], dependencies: Array<number | string>): string {
   const criteriaLines =
     criteria.length > 0
       ? criteria.map(c => `- [ ] ${c.id}: ${c.description} [${c.verification}]`).join("\n")
       : "- [ ] TBD"
-  const depLines = dependencies.length > 0 ? dependencies.map(n => `- #${n}`).join("\n") : "- none"
+  // 依赖：编号渲染 `- #12`；task_id（slug）渲染 `- @slug`（门禁时解析成编号）
+  const depLines = dependencies.length > 0
+    ? dependencies.map(d => (typeof d === "number" ? `- #${d}` : `- @${d}`)).join("\n")
+    : "- none"
   return [
     `# Task: ${slug}`,
     "",
@@ -174,23 +177,37 @@ export function parseCriteriaFromBody(body: string): AcceptanceCriterion[] {
   return criteria
 }
 
-/** 从 Task Record body 的 Dependencies 区块解析依赖 Issue 号 */
-export function parseDependenciesFromBody(body: string): number[] {
-  const deps: number[] = []
+/** 从 Task Record body 的 Dependencies 区块解析依赖：`- #12` → 编号；`- @slug` → slug（门禁时解析） */
+export function parseDependenciesFromBody(body: string): Array<number | string> {
+  const deps: Array<number | string> = []
   for (const line of body.split("\n")) {
-    const match = /^-\s+#(\d+)$/.exec(line.trim())
-    if (match) deps.push(Number(match[1]))
+    const numMatch = /^-\s+#(\d+)$/.exec(line.trim())
+    if (numMatch) {
+      deps.push(Number(numMatch[1]))
+      continue
+    }
+    const slugMatch = /^-\s+@([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(line.trim())
+    if (slugMatch) deps.push(slugMatch[1])
   }
   return deps
 }
 
-/** 解析 create-task 的 depends_on 参数："12, 13" 或 "#12,#13" → [12, 13]；空/非法输入返回 [] */
-export function parseDependenciesArg(raw: string | undefined): number[] {
+/**
+ * 解析 create-task 的 depends_on 参数：支持 Issue 编号（"12" / "#12"）与
+ * task_id（slug，如 "user-auth"）混合，以逗号分隔。非法项忽略。
+ * 返回 string 表示 slug（需在门禁时解析成编号）。
+ */
+export function parseDependenciesArg(raw: string | undefined): Array<number | string> {
   if (!raw || raw.trim() === "") return []
-  const deps: number[] = []
+  const deps: Array<number | string> = []
   for (const part of raw.split(",")) {
-    const n = Number(part.trim().replace(/^#/, ""))
-    if (Number.isInteger(n) && n > 0) deps.push(n)
+    const trimmed = part.trim().replace(/^#/, "")
+    const n = Number(trimmed)
+    if (Number.isInteger(n) && n > 0) {
+      deps.push(n)
+    } else if (trimmed !== "") {
+      deps.push(trimmed)
+    }
   }
   return deps
 }
@@ -461,7 +478,8 @@ export interface CreateTaskInput {
   parentIssueNumber: number
   title: string
   acceptanceCriteriaJson?: string
-  dependencies?: number[]
+  /** 依赖：Issue 编号或 task_id（slug），create-task 的 depends_on 原样传递 */
+  dependencies?: Array<number | string>
 }
 
 export type CreateTaskResult =
@@ -561,12 +579,21 @@ export async function startTask(
   // 门禁 2：依赖 Task 已 merged（依赖 Issue 须已关闭且带 merged 标签——被取消的任务同样 CLOSED，不得放行）
   const deps = parseDependenciesFromBody(taskBody)
   for (const dep of deps) {
-    const depStatus = await readIssueStateAndLabels(dep)
+    // task_id（slug）依赖：解析成实际 Issue 号；解析不到（未创建）→ 拒绝
+    const depNumber = typeof dep === "number" ? dep : await resolveTaskIssue(parentIssueNumber, dep)
+    if (depNumber === null) {
+      return {
+        ok: false,
+        code: "DEPENDENCY_NOT_FOUND",
+        message: `dependency task "${dep}" is not created under parent #${parentIssueNumber}`,
+      }
+    }
+    const depStatus = await readIssueStateAndLabels(depNumber)
     if (depStatus.state !== "CLOSED" || !depStatus.labels.includes(`${TASK_STATUS_LABEL_PREFIX}merged`)) {
       return {
         ok: false,
         code: "DEPENDENCY_NOT_MERGED",
-        message: `dependency task #${dep} is not merged (state: ${depStatus.state}, merged label: ${depStatus.labels.includes(`${TASK_STATUS_LABEL_PREFIX}merged`)})`,
+        message: `dependency task #${depNumber} is not merged (state: ${depStatus.state}, merged label: ${depStatus.labels.includes(`${TASK_STATUS_LABEL_PREFIX}merged`)})`,
       }
     }
   }

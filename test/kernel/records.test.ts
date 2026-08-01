@@ -356,6 +356,21 @@ describe("appendTddEvidence", () => {
     }
   })
 
+  it("readTddEvidenceComment 兼容旧格式注释（仅 start marker，无 end marker）", async () => {
+    const { ghFn, comments } = makeState()
+    // 模拟旧版本插件写入的注释：只有 start marker + revision 行，无 end marker
+    comments.push({ id: 9, body: `${EVIDENCE_MARKER_START} revision:3\n## red\n- result: FAIL` })
+    setRecordsGhExecutor(ghFn)
+
+    const result = await readTddEvidenceComment(42)
+    expect(result).not.toBeNull()
+    if (result) {
+      expect(result.id).toBe(9)
+      expect(result.revision).toBe(3)
+      expect(result.body).toContain("## red")
+    }
+  })
+
   it("returns error when gh fails", async () => {
     setRecordsGhExecutor(async () => {
       throw new Error("boom")

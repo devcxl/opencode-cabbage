@@ -118,10 +118,13 @@ function cleanValue(raw: string): string {
   return raw.replaceAll("`", "").trim()
 }
 
-/** 逗号分隔的模式列表：trim 并过滤空项 */
+/**
+ * 逗号分隔的模式列表：trim 并过滤空项。
+ * 忽略 glob 花括号组内的逗号（如 test 文件的 ts/tsx 花括号写法不得被拆开）。
+ */
 function splitPatterns(value: string): string[] {
   return value
-    .split(",")
+    .split(/,(?![^{}]*})/)
     .map(part => part.trim())
     .filter(part => part !== "")
 }

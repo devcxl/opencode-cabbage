@@ -905,6 +905,30 @@ describe("createFlowControlTool (spec §2.3 flow_control)", () => {
     })
   })
 
+  it("complete-flow passes via the flow-level goalComplete flag even when the bound session goal differs (死锁回归)", async () => {
+    await withProjectDir(async dir => {
+      // cancel+recreate 后 index 绑定新 session，而 goal-verify complete 写在旧 session：
+      // flow 级 goalComplete 标记应使 complete-flow 放行
+      await writeIndex(dir, {
+        flows: { "12": { sessionID: "sess-new", status: "active", continuationCount: 0, goalComplete: true, updatedAt: 0 } },
+      })
+      const goalVerifyClient = makeSessionClient({
+        session: {
+          get: async () => ({
+            data: { parentID: "old-parent", metadata: { goal: { parentIssueNumber: 12, status: "complete", continuationCount: 0 } } },
+          }),
+        },
+      })
+      setFlowGhExecutor(async args => {
+        if (args.includes("issue close")) return { stdout: "", stderr: "" }
+        throw new Error(`unexpected gh: ${args}`)
+      })
+
+      const resp = await executeOp(dir, goalVerifyClient, "complete-flow", { parent_issue_number: 12 }, "goal-verify", "sess-gv")
+      expect(resp.ok).toBe(true)
+    })
+  })
+
   it("cancel-flow requires user confirmation", async () => {
     await withProjectDir(async dir => {
       const resp = await executeOp(dir, makeSessionClient(), "cancel-flow", { parent_issue_number: 12 })

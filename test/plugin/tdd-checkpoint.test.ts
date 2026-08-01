@@ -10,6 +10,7 @@ import {
   checkTddSubmitGate,
   isDocumentationOnly,
   parsePorcelainChanges,
+  filterGeneratedChanges,
   TASK_TDD_TAG,
   TDD_STATE_TAG,
   parseStateFromContent,
@@ -652,6 +653,17 @@ describe("tdd_checkpoint — isDocumentationOnly / parsePorcelainChanges", () =>
     ])
     expect(parsePorcelainChanges("R  old.md -> docs/new.md")).toEqual(["docs/new.md"])
     expect(parsePorcelainChanges("UU conflict.ts")).toEqual([])
+  })
+
+  it("filterGeneratedChanges 剔除构建产物（node_modules/dist/tsbuildinfo）", () => {
+    expect(filterGeneratedChanges(["node_modules/lodash/index.js", "dist/bundle.js", "tsconfig.tsbuildinfo"])).toEqual([])
+    expect(filterGeneratedChanges(["docs/README.md", "dist/bundle.js", "tsconfig.tsbuildinfo"])).toEqual(["docs/README.md"])
+  })
+
+  it("not-applicable 忽略构建产物变更（不再误判为非文档）", async () => {
+    setTddCheckpointGitExecutor(() => "?? docs/README.md\n?? dist/bundle.js\n?? tsconfig.tsbuildinfo\n?? node_modules/x/y.js")
+    const resp = await runTool({ op: "not-applicable", parent_issue_number: 12, task_id: "tdd-checkpoint-tool", reason: "docs only" }, { role: "primary" })
+    expect(resp.ok).toBe(true)
   })
 })
 

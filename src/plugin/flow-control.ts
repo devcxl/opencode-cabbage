@@ -239,12 +239,14 @@ async function handleCompleteFlow(
   const n = requireParentIssueNumber(args)
   if (typeof n === "string") return n
 
-  // 独立 goal-verify 验证通过：绑定 session（或本会话）的 goal 必须已是 complete
+  // 独立 goal-verify 验证通过：flow 级 goalComplete 标记（跨会话持久，最可靠）
+  // 或绑定 session 的 goal 已 complete（向后兼容）
   const index = await readIndex(deps.projectDir)
   const entry = getFlowSession(index, n)
+  const goalCompleteAtFlowLevel = entry?.goalComplete === true
   const targetSessionID = entry?.sessionID ?? ctx.sessionID
   const goalStatus = await readGoalStatus(deps.sessionClient, targetSessionID)
-  if (goalStatus !== "complete") {
+  if (!goalCompleteAtFlowLevel && goalStatus !== "complete") {
     return errorResponse(
       "GOAL_NOT_COMPLETE",
       "complete-flow requires the goal to be verified complete first (goal({op:'complete'}) by goal-verify)",

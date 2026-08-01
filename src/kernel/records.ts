@@ -191,7 +191,11 @@ export interface TddEvidenceComment {
   revision: number
 }
 
-/** 读取 Task Record 的受控 evidence comment（取最新的，兼容历史多 comment）；不存在返回 null */
+/**
+ * 读取 Task Record 的受控 evidence comment（取最新的，兼容历史多 comment）；不存在返回 null。
+ * 兼容旧格式注释：只有 start marker、无 end marker 的注释（旧版本插件写入）也视为受控，
+ * revision 从 `revision:N` 行提取；完全无法解析时返回 null。
+ */
 export async function readTddEvidenceComment(issueNumber: number): Promise<TddEvidenceComment | null> {
   try {
     const { stdout } = await gh(
@@ -203,10 +207,15 @@ export async function readTddEvidenceComment(issueNumber: number): Promise<TddEv
     }
     const parsed = JSON.parse(trimmed) as { id: number; body: string }
     const extracted = extractEvidenceBlock(parsed.body)
-    if (!extracted) {
+    if (extracted) {
+      return { id: parsed.id, body: parsed.body, revision: extracted.revision }
+    }
+    // 旧格式兼容：只有 start marker（无 end marker）→ 从 body 提取 revision
+    const legacyRevision = parsed.body.match(/revision:(\d+)/)?.[1]
+    if (legacyRevision === undefined) {
       return null
     }
-    return { id: parsed.id, body: parsed.body, revision: extracted.revision }
+    return { id: parsed.id, body: parsed.body, revision: Number(legacyRevision) }
   } catch {
     return null
   }

@@ -2,6 +2,7 @@ import type { ToolContext, ToolResult } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin/tool"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import type { Session } from "@opencode-ai/sdk/v2"
+import { updateFlowSession } from "../kernel/session-index.js"
 
 export type GoalStatus = "active" | "paused" | "complete"
 
@@ -178,6 +179,12 @@ Use a single op field:
 
         parent.goal.status = "complete"
         await writeGoal(client, targetSessionID, parent.goal, parent.session)
+        // flow 级持久化：complete-flow 可跨会话识别验证完成（不依赖 index 会话一致性）
+        try {
+          await updateFlowSession(ctx.directory, parent.goal.parentIssueNumber, { goalComplete: true })
+        } catch {
+          // 索引写入失败不阻塞 goal 完成（goal 本身已持久化）
+        }
         return `Goal completed and verified: Flow #${parent.goal.parentIssueNumber}`
       }
 

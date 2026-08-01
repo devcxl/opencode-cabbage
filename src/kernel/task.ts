@@ -401,6 +401,15 @@ async function readTaskBody(issueNumber: number): Promise<string> {
 }
 
 /** 设置 Task Record 状态标签（移除其它 cabbage:task:*，添加当前） */
+/** 确保 label 存在（gh label create --force 幂等）；失败不阻塞（add-label 会显式报错） */
+async function ensureLabel(name: string): Promise<void> {
+  try {
+    await taskGh(`label create '${escapeShellArg(name)}' --force`)
+  } catch {
+    // 已存在或权限不足：忽略
+  }
+}
+
 export async function setTaskStatusLabel(
   issueNumber: number,
   status: TaskStatus,
@@ -413,6 +422,8 @@ export async function setTaskStatusLabel(
     const args: string[] = []
     for (const label of stale) args.push(`--remove-label '${escapeShellArg(label)}'`)
     args.push(`--add-label '${escapeShellArg(target)}'`)
+    // 目标标签不存在时自动创建（gh add-label 不自动建 label）
+    await ensureLabel(target)
     await taskGh(`issue edit ${issueNumber} ${args.join(" ")}`)
     return { ok: true }
   } catch (err) {
@@ -420,10 +431,28 @@ export async function setTaskStatusLabel(
   }
 }
 
-/** 读仓库默认分支 */
+/**
+ * 读仓库默认分支。
+ * 优先 GitHub API（defaultBranchRef）；API 未返回（defaultBranchRef 为 null）时
+ * 回退远端 HEAD 指针（refs/remotes/origin/HEAD）；仍不可得 → 抛错拒绝（fail-closed，
+ * 不猜测分支名，防 PR base 误用临时分支）。
+ */
 async function readDefaultBranch(): Promise<string> {
-  const { stdout } = await taskGh(`repo view --json defaultBranchRef --jq .defaultBranchRef.name`)
-  return stdout.trim()
+  try {
+    const { stdout } = await taskGh(`repo view --json defaultBranchRef --jq .defaultBranchRef.name`)
+    const branch = stdout.trim()
+    if (branch !== "") return branch
+  } catch {
+    // 查询失败 → 走回退
+  }
+  try {
+    const { stdout } = await taskGit(`symbolic-ref --short refs/remotes/origin/HEAD`)
+    const head = stdout.trim()
+    if (head !== "") return head
+  } catch {
+    // 无远端 HEAD 指针 → 走失败
+  }
+  throw new Error("cannot determine default branch (repo view defaultBranchRef empty and no origin/HEAD)")
 }
 
 // ─── create-task ───

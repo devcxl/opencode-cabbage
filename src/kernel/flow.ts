@@ -320,10 +320,28 @@ async function readFlowSlug(parentIssueNumber: number): Promise<string> {
   return slug
 }
 
-/** 读仓库默认分支 */
+/**
+ * 读仓库默认分支。
+ * 优先 GitHub API（defaultBranchRef）；API 未返回（defaultBranchRef 为 null）时
+ * 回退远端 HEAD 指针（refs/remotes/origin/HEAD）；仍不可得 → 抛错拒绝（fail-closed，
+ * 不猜测分支名，防 PR base 误用临时分支）。
+ */
 async function readDefaultBranch(): Promise<string> {
-  const { stdout } = await flowGh(`repo view --json defaultBranchRef --jq .defaultBranchRef.name`)
-  return stdout.trim()
+  try {
+    const { stdout } = await flowGh(`repo view --json defaultBranchRef --jq .defaultBranchRef.name`)
+    const branch = stdout.trim()
+    if (branch !== "") return branch
+  } catch {
+    // 查询失败 → 走回退
+  }
+  try {
+    const { stdout } = await flowGit(`symbolic-ref --short refs/remotes/origin/HEAD`)
+    const head = stdout.trim()
+    if (head !== "") return head
+  } catch {
+    // 无远端 HEAD 指针 → 走失败
+  }
+  throw new Error("cannot determine default branch (repo view defaultBranchRef empty and no origin/HEAD)")
 }
 
 function planningBranch(slug: string): string {

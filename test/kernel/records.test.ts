@@ -35,11 +35,12 @@ afterEach(() => {
 })
 
 describe("createFlowRecord", () => {
-  it("creates a draft parent issue with flow label and returns the ref", async () => {
+  it("creates the parent issue with flow label and returns the ref (gh 2.96: no --draft/--json)", async () => {
     const calls: string[] = []
     setRecordsGhExecutor(async (args) => {
       calls.push(args)
-      return { stdout: "42", stderr: "" }
+      if (args.startsWith("label create")) return { stdout: "", stderr: "" }
+      return { stdout: "https://github.com/devcxl/opencode-cabbage/issues/42", stderr: "" }
     })
 
     const result = await createFlowRecord({ slug: "validate-execution-binding", body: "## Goal\n..." })
@@ -47,11 +48,14 @@ describe("createFlowRecord", () => {
     if (result.ok) {
       expect(result.ref).toEqual({ parentIssueNumber: 42, slug: "validate-execution-binding" })
     }
-    expect(calls).toHaveLength(1)
-    expect(calls[0]).toContain("issue create")
-    expect(calls[0]).toContain("--draft")
-    expect(calls[0]).toContain("--label 'cabbage:flow'")
-    expect(calls[0]).toContain("--json number --jq .number")
+    expect(calls.some(c => c.includes("label create 'cabbage:flow' --force"))).toBe(true)
+    const createCall = calls.find(c => c.includes("issue create"))
+    expect(createCall).toBeDefined()
+    if (createCall) {
+      expect(createCall).toContain("--label 'cabbage:flow'")
+      expect(createCall).not.toContain("--draft")
+      expect(createCall).not.toContain("--json")
+    }
   })
 
   it("returns error when gh fails", async () => {
@@ -139,11 +143,11 @@ describe("updateFlowRecord", () => {
 })
 
 describe("createTaskRecord", () => {
-  it("creates a sub issue linked to the parent and returns the ref", async () => {
+  it("creates a sub issue linked to the parent and returns the ref (gh 2.96: no --json)", async () => {
     const calls: string[] = []
     setRecordsGhExecutor(async (args) => {
       calls.push(args)
-      return { stdout: "77", stderr: "" }
+      return { stdout: "https://github.com/devcxl/opencode-cabbage/issues/77", stderr: "" }
     })
 
     const result = await createTaskRecord({
@@ -162,7 +166,7 @@ describe("createTaskRecord", () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]).toContain("issue create")
     expect(calls[0]).toContain("--parent 42")
-    expect(calls[0]).toContain("--json number --jq .number")
+    expect(calls[0]).not.toContain("--json")
   })
 
   it("returns error when gh fails", async () => {
@@ -366,6 +370,19 @@ describe("setStageLabel", () => {
       // flow 标签不被移除
       expect(editCall).not.toContain("cabbage:flow")
     }
+  })
+
+  it("auto-creates the target label before adding it (label 不预建时不再失败)", async () => {
+    const calls: string[] = []
+    setRecordsGhExecutor(async (args) => {
+      calls.push(args)
+      if (args.startsWith("issue view")) return { stdout: "", stderr: "" }
+      return { stdout: "", stderr: "" }
+    })
+
+    const result = await setStageLabel(42, "requirements")
+    expect(result).toEqual({ ok: true })
+    expect(calls.some(c => c.includes("label create 'cabbage:stage:requirements' --force"))).toBe(true)
   })
 
   it("keeps the current stage label unchanged", async () => {

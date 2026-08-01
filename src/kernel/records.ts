@@ -1,4 +1,4 @@
-import { gh as ghCli } from "../util/gh.js"
+import { gh as ghCli, parsePrUrlNumber } from "../util/gh.js"
 import { escapeShellArg } from "../util/shell.js"
 import { KeyedMutex } from "./mutex.js"
 import type { FlowRecordRef, TaskRecordRef } from "./types.js"
@@ -84,18 +84,20 @@ export interface CreateFlowRecordInput {
   body: string
 }
 
-/** 创建 Draft Parent Issue（Flow Record），打 cabbage:flow 标签 */
+/** 创建 Parent Issue（Flow Record），打 cabbage:flow 标签（gh 2.96：issue create 无 --draft/--json） */
 export async function createFlowRecord(
   input: CreateFlowRecordInput,
 ): Promise<{ ok: true; ref: FlowRecordRef } | { ok: false; error: string }> {
   try {
+    await ensureLabel(FLOW_LABEL)
     const escapedBody = escapeShellArg(input.body)
     const { stdout } = await gh(
-      `issue create --title '${escapeShellArg(input.slug)}' --body '${escapedBody}' --label '${FLOW_LABEL}' --draft --json number --jq .number`,
+      `issue create --title '${escapeShellArg(input.slug)}' --body '${escapedBody}' --label '${FLOW_LABEL}'`,
     )
-    const number = Number(stdout.trim())
-    if (!Number.isInteger(number)) {
-      throw new Error(`invalid issue number: ${stdout}`)
+    // issue create 不支持 --json：解析 stdout 中的 issue URL
+    const number = parsePrUrlNumber(stdout)
+    if (number === null) {
+      throw new Error(`invalid issue create output: ${stdout}`)
     }
     return { ok: true, ref: { parentIssueNumber: number, slug: input.slug } }
   } catch (err) {
@@ -156,11 +158,12 @@ export async function createTaskRecord(
   try {
     const escapedBody = escapeShellArg(input.body)
     const { stdout } = await gh(
-      `issue create --title '${escapeShellArg(input.title)}' --body '${escapedBody}' --parent ${input.parentIssueNumber} --json number --jq .number`,
+      `issue create --title '${escapeShellArg(input.title)}' --body '${escapedBody}' --parent ${input.parentIssueNumber}`,
     )
-    const number = Number(stdout.trim())
-    if (!Number.isInteger(number)) {
-      throw new Error(`invalid issue number: ${stdout}`)
+    // issue create 不支持 --json：解析 stdout 中的 issue URL
+    const number = parsePrUrlNumber(stdout)
+    if (number === null) {
+      throw new Error(`invalid issue create output: ${stdout}`)
     }
     return {
       ok: true,
@@ -259,7 +262,16 @@ function appendBlockToEvidenceBody(body: string, block: string, revision: number
 
 // ─── labels ───
 
-/** 设置 Flow Record 的阶段标签：移除其它 cabbage:stage:*，添加当前阶段 */
+/** 确保 label 存在（gh label create --force：存在则更新，幂等）；创建失败不阻塞（后续 add-label 会显式报错） */
+export async function ensureLabel(name: string): Promise<void> {
+  try {
+    await gh(`label create '${escapeShellArg(name)}' --force`)
+  } catch {
+    // 已存在或权限不足：忽略，add-label 阶段仍会暴露真实错误
+  }
+}
+
+/** 设置 Flow Record 的阶段标签：移除其它 cabbage:stage:*，添加当前阶段（自动创建目标标签） */
 export async function setStageLabel(
   parentIssueNumber: number,
   stage: string,
@@ -274,6 +286,7 @@ export async function setStageLabel(
       args.push(`--remove-label '${escapeShellArg(label)}'`)
     }
     args.push(`--add-label '${escapeShellArg(target)}'`)
+    await ensureLabel(target)
     await gh(`issue edit ${parentIssueNumber} ${args.join(" ")}`)
     return { ok: true }
   } catch (err) {

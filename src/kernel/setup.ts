@@ -214,15 +214,23 @@ export interface GenerateWorkflowsInput {
 export interface GenerateWorkflowsResult {
   ok: boolean
   created: string[]
+  updated: string[]
   existing: string[]
   branch: string | null
   prNumber: number | null
   error?: string
 }
 
+/** ci.yml 中的测试命令占位符（Profile 未确认时生成） */
+const TEST_COMMAND_PLACEHOLDER = "<test-command>"
+
 /**
  * 缺失时生成 CI/release workflow 草案（技术栈无关，不硬编码包管理器），
  * 创建 chore/setup-workflows 分支 + commit + push + Setup PR（人工合入）。
+ * 幂等增强：
+ * - 已存在的 workflow 含占位符（Profile 未确认时生成）→ 更新注入 test command（updated）
+ * - 分支已存在（上次 PR 创建失败残留的 orphan 分支）→ 复用分支，不重复 checkout -b
+ * - 分支已有 open PR → 复用 PR 编号，不重复创建（补建场景）
  */
 export async function generateWorkflows(
   projectDir: string,
@@ -248,13 +256,22 @@ export async function generateWorkflows(
 
   const { ci, release } = await scanWorkflows(projectDir, releaseWorkflowPath)
   const created: string[] = []
+  const updated: string[] = []
   const existing: string[] = []
 
+  // ci.yml：缺失 → 创建；存在但含占位符（Profile 未确认时生成）→ 更新注入 test command
   if (ci === null) {
     await writeFile(join(workflowsDir, "ci.yml"), buildCiWorkflow(testCommand, defaultBranch))
     created.push(".github/workflows/ci.yml")
   } else {
-    existing.push(ci)
+    const ciPath = join(projectDir, ci)
+    const ciContent = await readFile(ciPath, "utf8").catch(() => "")
+    if (ciContent.includes(TEST_COMMAND_PLACEHOLDER)) {
+      await writeFile(ciPath, buildCiWorkflow(testCommand, defaultBranch))
+      updated.push(ci)
+    } else {
+      existing.push(ci)
+    }
   }
 
   if (release === null) {
@@ -265,18 +282,38 @@ export async function generateWorkflows(
     existing.push(release)
   }
 
-  if (created.length === 0) {
-    return { ok: true, created, existing, branch: null, prNumber: null }
+  if (created.length === 0 && updated.length === 0) {
+    return { ok: true, created, updated, existing, branch: null, prNumber: null }
   }
 
   try {
     const prTitle = input.prTitle || "chore: add CI/release workflow drafts"
-    const prBody = `Setup generated workflow drafts for manual review:\n\n${created.map(f => `- ${f}`).join("\n")}`
+    const prBody = `Setup generated workflow drafts for manual review:\n\n${[
+      ...created.map(f => `- ${f}`),
+      ...updated.map(f => `- ${f} (updated: test command injected)`),
+    ].join("\n")}`
 
-    await runGit(`checkout -b ${SETUP_WORKFLOWS_BRANCH}`, projectDir)
+    // 幂等：分支已存在（上次失败残留的 orphan 分支）→ 复用；否则新建
+    const branchExists = await tryRun(() => runGit(`rev-parse --verify refs/heads/${SETUP_WORKFLOWS_BRANCH}`, projectDir))
+    if (branchExists) {
+      await runGit(`checkout ${SETUP_WORKFLOWS_BRANCH}`, projectDir)
+    } else {
+      await runGit(`checkout -b ${SETUP_WORKFLOWS_BRANCH}`, projectDir)
+    }
     await runGit("add .github/workflows", projectDir)
-    await runGit(`commit -m ${shellQuote(prTitle)}`, projectDir)
+    await runGit(`commit -m ${shellQuote(prTitle)}`, projectDir).catch(() => {
+      // 无新变更（内容一致）时 commit 失败可忽略
+    })
     await runGit(`push -u origin ${SETUP_WORKFLOWS_BRANCH}`, projectDir)
+
+    // 幂等：分支已有 open PR → 复用，不重复创建
+    const { stdout: prList } = await runGh(
+      `pr list --head ${SETUP_WORKFLOWS_BRANCH} --state open --json number --jq '.[0].number'`,
+    )
+    const existingPr = Number(prList.trim())
+    if (Number.isInteger(existingPr) && existingPr > 0) {
+      return { ok: true, created, updated, existing, branch: SETUP_WORKFLOWS_BRANCH, prNumber: existingPr }
+    }
 
     const { stdout } = await runGh(
       `pr create --title ${shellQuote(prTitle)} --body ${shellQuote(prBody)} --base ${defaultBranch ?? "main"} --head ${SETUP_WORKFLOWS_BRANCH}`,
@@ -284,17 +321,18 @@ export async function generateWorkflows(
     return {
       ok: true,
       created,
+      updated,
       existing,
       branch: SETUP_WORKFLOWS_BRANCH,
       // gh pr create 不支持 --json：解析 stdout 中的 PR URL
       prNumber: parsePrUrlNumber(stdout),
     }
   } catch (err) {
-    return { ok: false, created, existing, branch: null, prNumber: null, error: String(err) }
+    return { ok: false, created, updated, existing, branch: null, prNumber: null, error: String(err) }
   }
 }
 
-/** CI workflow 草案：PR check 触发，运行 Profile 的测试命令（无则占位） */
+/** CI workflow 草案：PR check 触发，运行 Profile 的测试命令（无则占位）；纯文档 PR 不触发（paths-ignore，技术栈无关） */
 export function buildCiWorkflow(testCommand: string | null, defaultBranch: string | null): string {
   const command = testCommand ?? "<test-command>"
   const branch = defaultBranch ?? "**"
@@ -305,6 +343,9 @@ export function buildCiWorkflow(testCommand: string | null, defaultBranch: strin
     "  pull_request:",
     "    branches:",
     `      - '${branch}'`,
+    "    paths-ignore:",
+    "      - 'docs/**'",
+    "      - '**/*.md'",
     "",
     "jobs:",
     "  check:",

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
-import { mkdtemp, writeFile, rm } from "node:fs/promises"
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createSetupControlTool, registerSetupControl } from "../../src/plugin/setup-control.js"
@@ -117,6 +117,26 @@ describe("createSetupControlTool", () => {
       expect(resp.ok).toBe(true)
       expect(resp.created).toContain(".github/workflows/ci.yml")
       expect(resp.prNumber).toBe(5)
+    })
+  })
+
+  it("injects test_command into the generated ci.yml", async () => {
+    await withProjectDir(async dir => {
+      await writeFile(join(dir, "AGENTS.md"), "# Rules\n")
+      setSetupGitExecutor(async (args) => {
+        if (args.includes("symbolic-ref")) return { stdout: "main", stderr: "" }
+        return { stdout: "", stderr: "" }
+      })
+      setSetupGhExecutor(async () => ({ stdout: "6", stderr: "" }))
+
+      const resp = await executeOp(dir, "generate-workflows", {
+        pr_title: "chore: add workflows",
+        test_command: "npm test --run",
+      })
+      expect(resp.ok).toBe(true)
+      const ci = await readFile(join(dir, ".github/workflows/ci.yml"), "utf8")
+      expect(ci).toContain("- run: npm test --run")
+      expect(ci).not.toContain("<test-command>")
     })
   })
 

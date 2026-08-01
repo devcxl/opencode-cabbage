@@ -19,6 +19,8 @@ export type SetupControlResponse = {
   readiness?: SetupProbeReport
   profileConfirmed?: boolean
   created?: string[]
+  updated?: string[]
+  existing?: string[]
   prNumber?: number | null
   error?: { code: string; message: string }
 }
@@ -43,6 +45,10 @@ Caller: primary.`,
     args: {
       op: tool.schema.enum(["probe", "generate-workflows", "confirm-profile"]).describe("Setup operation"),
       pr_title: tool.schema.string().optional().describe("PR title for generate-workflows"),
+      test_command: tool.schema
+        .string()
+        .optional()
+        .describe("Test command to inject into the generated ci.yml (falls back to the confirmed Profile testCommand; keeps <test-command> placeholder when both are absent)"),
       profile_overrides: tool.schema.string().optional().describe("JSON of user-confirmed profile fields for confirm-profile"),
     },
     async execute(args, ctx) {
@@ -62,11 +68,17 @@ Caller: primary.`,
           }
           case "generate-workflows": {
             const prTitle = (args.pr_title as string | undefined) ?? DEFAULT_PR_TITLE
-            const result = await generateWorkflows(projectDir, { prTitle })
+            const testCommand = args.test_command as string | undefined
+            const result = await generateWorkflows(projectDir, { prTitle, testCommand })
             if (!result.ok) {
               return errorResponse("SETUP_FAILED", result.error ?? "failed to generate workflows")
             }
-            return okResponse({ created: result.created, prNumber: result.prNumber })
+            return okResponse({
+              created: result.created,
+              updated: result.updated,
+              existing: result.existing,
+              prNumber: result.prNumber,
+            })
           }
           case "confirm-profile": {
             const overrides = args.profile_overrides as string | undefined

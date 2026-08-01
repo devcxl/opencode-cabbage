@@ -136,6 +136,10 @@ Ops:
       op: tool.schema.enum(["propose-version", "open-release-pr", "merge-release-pr", "monitor"])
         .describe("Release control operation"),
       proposed_version: tool.schema.string().describe("Proposed semantic version (x.y.z), required for open-release-pr / merge-release-pr"),
+      merge_sha: tool.schema
+        .string()
+        .optional()
+        .describe("Full 40-character merge commit SHA (--match-head-commit 要求完整 SHA，7 位短 SHA 会报 flag needs an argument)"),
       release_notes: tool.schema.string().describe("Optional override for the Release Notes body"),
       user_confirmed: tool.schema.boolean().describe("Human approval — required for merge-release-pr (release is a manual flow)"),
     },

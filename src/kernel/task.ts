@@ -492,7 +492,11 @@ export async function createTask(input: CreateTaskInput): Promise<CreateTaskResu
   if (input.acceptanceCriteriaJson !== undefined) {
     const parsed = parseAcceptanceCriteria(input.acceptanceCriteriaJson)
     if (parsed === null) {
-      return { ok: false, code: "POLICY_INVALID", message: "acceptance_criteria must be a JSON array of {id, description, verification}" }
+      return {
+        ok: false,
+        code: "POLICY_INVALID",
+        message: 'acceptance_criteria must be a JSON array of {id, description, verification}, where verification is one of: "tdd" | "regression" | "manual"',
+      }
     }
     criteria = parsed
   }

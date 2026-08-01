@@ -330,11 +330,14 @@ describe("generateWorkflows", () => {
       setSetupGitExecutor(async (args) => {
         gitCalls.push(args)
         if (args.includes("symbolic-ref")) return { stdout: "main", stderr: "" }
+        // 分支不存在（rev-parse 失败）→ 走 checkout -b
+        if (args.startsWith("rev-parse")) throw new Error("unknown revision")
         return { stdout: "", stderr: "" }
       })
       setSetupGhExecutor(async (args) => {
         ghCalls.push(args)
-        return { stdout: "99", stderr: "" }
+        if (args.startsWith("pr list")) return { stdout: "", stderr: "" }
+        return { stdout: "https://github.com/devcxl/opencode-cabbage/pull/99", stderr: "" }
       })
 
       const result = await generateWorkflows(dir, { prTitle: "chore: add workflow drafts", defaultBranch: "main" })
@@ -347,10 +350,14 @@ describe("generateWorkflows", () => {
 
       const ci = await readFile(join(dir, ".github/workflows/ci.yml"), "utf8")
       expect(ci).toContain("- run: cabbage-test-tool run")
+      // 纯文档 PR 不触发 CI（docs/** 与 **/*.md）
+      expect(ci).toContain("paths-ignore:")
+      expect(ci).toContain("- 'docs/**'")
       const release = await readFile(join(dir, ".github/workflows/release.yml"), "utf8")
       expect(release).toContain("'v{version}'")
 
       expect(gitCalls).toEqual([
+        "rev-parse --verify refs/heads/chore/setup-workflows",
         "checkout -b chore/setup-workflows",
         "add .github/workflows",
         "commit -m 'chore: add workflow drafts'",
@@ -405,15 +412,20 @@ describe("generateWorkflows", () => {
       setSetupGitExecutor(async (args) => {
         gitCalls.push(args)
         if (args.includes("symbolic-ref")) return { stdout: "main", stderr: "" }
+        if (args.startsWith("rev-parse")) throw new Error("unknown revision")
         return { stdout: "", stderr: "" }
       })
-      setSetupGhExecutor(async () => ({ stdout: "7", stderr: "" }))
+      setSetupGhExecutor(async (args) => {
+        if (args.startsWith("pr list")) return { stdout: "", stderr: "" }
+        return { stdout: "https://github.com/devcxl/opencode-cabbage/pull/7", stderr: "" }
+      })
 
       const result = await generateWorkflows(dir, { prTitle: "chore: add release workflow", defaultBranch: "main" })
 
       expect(result.created).toEqual([".github/workflows/release.yml"])
       expect(result.existing).toEqual([".github/workflows/ci.yml"])
-      expect(gitCalls[0]).toBe("checkout -b chore/setup-workflows")
+      expect(gitCalls[0]).toBe("rev-parse --verify refs/heads/chore/setup-workflows")
+      expect(gitCalls).toContain("checkout -b chore/setup-workflows")
     })
   })
 
@@ -431,6 +443,80 @@ describe("generateWorkflows", () => {
 
       const ci = await readFile(join(dir, ".github/workflows/ci.yml"), "utf8")
       expect(ci).toContain("<test-command>")
+    })
+  })
+
+  it("reuses the orphan setup-workflows branch left by a failed PR create (no checkout -b)", async () => {
+    await withProjectDir(async dir => {
+      await writeFixture(dir, { "AGENTS.md": FULL_PROFILE })
+      const gitCalls: string[] = []
+      setSetupGitExecutor(async (args) => {
+        gitCalls.push(args)
+        if (args.includes("symbolic-ref")) return { stdout: "main", stderr: "" }
+        if (args.startsWith("rev-parse")) return { stdout: "abc123", stderr: "" } // 分支已存在
+        return { stdout: "", stderr: "" }
+      })
+      setSetupGhExecutor(async (args) => {
+        if (args.startsWith("pr list")) return { stdout: "", stderr: "" } // 无 open PR → 补建
+        return { stdout: "https://github.com/devcxl/opencode-cabbage/pull/5", stderr: "" }
+      })
+
+      const result = await generateWorkflows(dir, { prTitle: "chore: add workflow drafts", defaultBranch: "main" })
+
+      expect(result.ok).toBe(true)
+      expect(result.prNumber).toBe(5)
+      expect(gitCalls).toContain("checkout chore/setup-workflows")
+      expect(gitCalls).not.toContain("checkout -b chore/setup-workflows")
+      expect(gitCalls).toContain("push -u origin chore/setup-workflows")
+    })
+  })
+
+  it("reuses the existing open PR instead of creating a duplicate", async () => {
+    await withProjectDir(async dir => {
+      await writeFixture(dir, { "AGENTS.md": FULL_PROFILE })
+      const ghCalls: string[] = []
+      setSetupGitExecutor(async (args) => {
+        if (args.includes("symbolic-ref")) return { stdout: "main", stderr: "" }
+        if (args.startsWith("rev-parse")) throw new Error("unknown revision")
+        return { stdout: "", stderr: "" }
+      })
+      setSetupGhExecutor(async (args) => {
+        ghCalls.push(args)
+        if (args.startsWith("pr list")) return { stdout: "88", stderr: "" }
+        return { stdout: "", stderr: "" }
+      })
+
+      const result = await generateWorkflows(dir, { prTitle: "chore: add workflow drafts", defaultBranch: "main" })
+
+      expect(result.ok).toBe(true)
+      expect(result.prNumber).toBe(88)
+      expect(ghCalls.some(c => c.startsWith("pr create"))).toBe(false)
+    })
+  })
+
+  it("updates an existing ci.yml containing the placeholder with the profile test command", async () => {
+    await withProjectDir(async dir => {
+      await writeFixture(dir, {
+        "AGENTS.md": FULL_PROFILE,
+        ".github/workflows/ci.yml": "name: CI\non: {}\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: <test-command>\n",
+      })
+      setSetupGitExecutor(async (args) => {
+        if (args.includes("symbolic-ref")) return { stdout: "main", stderr: "" }
+        if (args.startsWith("rev-parse")) throw new Error("unknown revision")
+        return { stdout: "", stderr: "" }
+      })
+      setSetupGhExecutor(async (args) => {
+        if (args.startsWith("pr list")) return { stdout: "", stderr: "" }
+        return { stdout: "https://github.com/devcxl/opencode-cabbage/pull/9", stderr: "" }
+      })
+
+      const result = await generateWorkflows(dir, { prTitle: "chore: inject test command", defaultBranch: "main" })
+
+      expect(result.ok).toBe(true)
+      expect(result.updated).toEqual([".github/workflows/ci.yml"])
+      const ci = await readFile(join(dir, ".github/workflows/ci.yml"), "utf8")
+      expect(ci).toContain("- run: cabbage-test-tool run")
+      expect(ci).not.toContain("<test-command>")
     })
   })
 })

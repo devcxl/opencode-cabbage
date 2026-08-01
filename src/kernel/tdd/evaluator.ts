@@ -123,7 +123,7 @@ function evaluateBypass(
 }
 
 function evaluateStrict(
-  policy: TddPolicy,
+  _policy: TddPolicy,
   evidence: TddEvidence,
   criteria: AcceptanceCriterion[],
   isAdvisory: boolean,

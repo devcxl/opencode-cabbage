@@ -19,6 +19,20 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org/
       - run: npm ci
+      - name: Verify version matches tag
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="${REF_NAME#v}"
+          if [ "$VERSION" != "$TAG" ]; then
+            echo "FAIL: package.json version ($VERSION) does not match release tag ($REF_NAME)"
+            exit 1
+          fi
+          echo "OK: package.json version ($VERSION) matches tag ($REF_NAME)"
+        env:
+          # 经 env 传递，避免 tag 名注入 shell（CWE-78）
+          REF_NAME: ${{ github.ref_name }}
+      - run: npm test
+      - run: npm run typecheck
       - run: npm run build
       - run: npm publish
         env:

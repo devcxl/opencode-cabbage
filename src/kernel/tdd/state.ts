@@ -121,7 +121,7 @@ export function startCycle(
   cycleId: string,
   criterionId: string,
   testPaths: string[],
-  testSelector: string,
+  _testSelector: string,
   workspaceDigest: VersionedDigest,
   acceptanceCriteria: AcceptanceCriterion[],
   testFilePatterns: string[],

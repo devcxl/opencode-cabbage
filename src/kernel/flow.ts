@@ -545,7 +545,7 @@ async function readIssueLabels(parentIssueNumber: number): Promise<string[]> {
  * 门禁（checkStageGate）→ stage-complete 更新 body checklist（乐观锁）→ setStageLabel。
  */
 export async function applyStageOp(
-  projectDir: string,
+  _projectDir: string,
   parentIssueNumber: number,
   op: StageOp,
   stage: FlowStage,

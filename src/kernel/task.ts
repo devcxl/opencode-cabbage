@@ -525,12 +525,16 @@ export async function startTask(
     }
   }
 
-  // 门禁 2：依赖 Task 已 merged（依赖 Issue state 必须为 CLOSED）
+  // 门禁 2：依赖 Task 已 merged（依赖 Issue 须已关闭且带 merged 标签——被取消的任务同样 CLOSED，不得放行）
   const deps = parseDependenciesFromBody(taskBody)
   for (const dep of deps) {
-    const state = await readIssueState(dep)
-    if (state !== "CLOSED") {
-      return { ok: false, code: "DEPENDENCY_NOT_MERGED", message: `dependency task #${dep} is not merged (state: ${state})` }
+    const depStatus = await readIssueStateAndLabels(dep)
+    if (depStatus.state !== "CLOSED" || !depStatus.labels.includes(`${TASK_STATUS_LABEL_PREFIX}merged`)) {
+      return {
+        ok: false,
+        code: "DEPENDENCY_NOT_MERGED",
+        message: `dependency task #${dep} is not merged (state: ${depStatus.state}, merged label: ${depStatus.labels.includes(`${TASK_STATUS_LABEL_PREFIX}merged`)})`,
+      }
     }
   }
 
@@ -565,6 +569,8 @@ export async function startTask(
     : `${taskBody}\n${tddBlock}\n`
   const bodyUpdate = await updateTaskBody(issueNumber, updatedBody)
   if (!bodyUpdate.ok) {
+    // TDD 块写入失败：清理刚创建的 worktree（best effort），避免失败残留
+    await gitIn(projectDir, `worktree remove '${escapeShellArg(wt.path)}'`).catch(() => null)
     return { ok: false, code: "TASK_TDD_BLOCK_WRITE_FAILED", message: bodyUpdate.error ?? "failed to write TDD block" }
   }
 
@@ -587,16 +593,16 @@ export async function startTask(
   return { ok: true, issueNumber, branch: wt.branch, worktreePath: wt.path, policy, baseline }
 }
 
-/** 读 Issue 状态（CLOSED/OPEN） */
-async function readIssueState(issueNumber: number): Promise<string> {
-  const { stdout } = await taskGh(`issue view ${issueNumber} --json state --jq .state`)
-  return stdout.trim()
+/** 读 Issue 状态与标签（依赖门禁用：CLOSED 且 merged 标签才算已合并） */
+async function readIssueStateAndLabels(issueNumber: number): Promise<{ state: string; labels: string[] }> {
+  const { stdout } = await taskGh(`issue view ${issueNumber} --json state,labels --jq '{state, labels: [.labels[].name]}'`)
+  return JSON.parse(stdout) as { state: string; labels: string[] }
 }
 
-/** 统计 flow 下 running/reviewing 的 Task 数（并行门禁） */
+/** 统计 flow 下 running/reviewing 的 Task 数（并行门禁）；已关闭 Issue 不计（防取消/归档任务占名额） */
 async function countRunningTasks(parentIssueNumber: number): Promise<number> {
   const { stdout } = await taskGh(
-    `issue list --parent ${parentIssueNumber} --json number,labels --jq '[.[] | {number, labels: [.labels[].name]}]'`,
+    `issue list --parent ${parentIssueNumber} --state open --json number,labels --jq '[.[] | {number, labels: [.labels[].name]}]'`,
   )
   const issues = JSON.parse(stdout) as Array<{ labels: string[] }>
   return issues.filter(i =>
@@ -607,7 +613,7 @@ async function countRunningTasks(parentIssueNumber: number): Promise<number> {
 // ─── submit-task ───
 
 export type SubmitTaskResult =
-  | { ok: true; prNumber: number; evidenceRevision: number }
+  | { ok: true; prNumber: number; evidenceRevision: number; warning?: string }
   | { ok: false; code: string; message: string; missing?: string[] }
 
 /**
@@ -660,7 +666,7 @@ export async function submitTask(
 
   // 豁免语义：not-applicable / exempt-request → waived → 放行
   if (evidence.status === "waived") {
-    return submitPr(projectDir, state, issueNumber, comment, evidence.revision, evidence, taskId)
+    return submitPr(state, issueNumber, comment, evidence.revision, evidence, taskId)
   }
 
   const compliance = evaluateTddCompliance(state.policy, evidence, criteria)
@@ -673,7 +679,7 @@ export async function submitTask(
     }
   }
 
-  return submitPr(projectDir, state, issueNumber, comment, evidence.revision, evidence, taskId)
+  return submitPr(state, issueNumber, comment, evidence.revision, evidence, taskId)
 }
 
 /** 解析 evidence comment 内 JSON 状态块（TDD_STATE_TAG，取最后一个），失败返回 null；schema 必须为 1 */
@@ -692,7 +698,6 @@ function parseJsonStateEvidence(body: string): TddEvidence | null {
 
 /** 创建 PR 的公共流程（evidence 通过后） */
 async function submitPr(
-  projectDir: string,
   state: TaskRuntimeState,
   issueNumber: number,
   comment: { id: number },
@@ -722,9 +727,15 @@ async function submitPr(
     return { ok: false, code: "PR_CREATE_FAILED", message: `invalid PR number: ${prOut}` }
   }
 
+  // PR 已创建成功；状态标签失败仅降级 warning（不把已建 PR 报为整体失败）
   const label = await setTaskStatusLabel(issueNumber, "reviewing")
   if (!label.ok) {
-    return { ok: false, code: "LABEL_UPDATE_FAILED", message: label.error ?? "label update failed" }
+    return {
+      ok: true,
+      prNumber,
+      evidenceRevision: revision,
+      warning: `reviewing label update failed: ${label.error ?? "unknown"}`,
+    }
   }
 
   return { ok: true, prNumber, evidenceRevision: revision }
@@ -816,7 +827,7 @@ export async function mergeTask(
 
   // 5. 高风险需非作者人类 approval
   if (risk === "high") {
-    const approved = await hasNonAuthorHumanApproval(pr.number, pr.author.login)
+    const approved = await hasNonAuthorHumanApproval(pr.number)
     if (!approved) {
       return {
         ok: false,
@@ -832,17 +843,25 @@ export async function mergeTask(
     return { ok: false, code: "MERGE_FAILED", message: merged.error ?? "merge failed" }
   }
 
-  // 7. 关闭 Sub Issue + 状态 merged
-  await taskGh(`issue close ${issueNumber}`)
-  await setTaskStatusLabel(issueNumber, "merged")
+  // 7. 关闭 Sub Issue + 状态 merged（PR 已合并，后续步骤独立容错，失败仅降级 warning）
+  const warnings: string[] = []
+  try {
+    await taskGh(`issue close ${issueNumber}`)
+  } catch (err) {
+    warnings.push(`issue close failed: ${String(err)}`)
+  }
+  const mergedLabel = await setTaskStatusLabel(issueNumber, "merged")
+  if (!mergedLabel.ok) {
+    warnings.push(`merged label update failed: ${mergedLabel.error ?? "unknown"}`)
+  }
 
   // 8. worktree 干净销毁（PR 已合并且干净 → 自动）；失败仅警告，不阻塞合并结果
   const cleanup = await destroyWorktree({ worktreeDir: state.worktreePath, branch: state.branch, prMerged: true, userConfirmed: false })
   if (!cleanup.ok && cleanup.reason === "DIRTY_WORKTREE") {
-    return { ok: true, prNumber: pr.number, risk, warning: "PR merged but worktree has uncommitted changes; clean it manually" }
+    warnings.push("PR merged but worktree has uncommitted changes; clean it manually")
   }
 
-  return { ok: true, prNumber: pr.number, risk }
+  return { ok: true, prNumber: pr.number, risk, ...(warnings.length > 0 ? { warning: warnings.join("; ") } : {}) }
 }
 
 /** 读 PR 的 statusCheckRollup 精简列表（CheckRun 用 conclusion、StatusContext 用 state） */
@@ -871,7 +890,7 @@ async function readPrChangedFiles(prNumber: number): Promise<string[]> {
 }
 
 /** 是否存在非作者的人类 APPROVED review（高风险门禁） */
-async function hasNonAuthorHumanApproval(prNumber: number, authorLogin: string): Promise<boolean> {
+async function hasNonAuthorHumanApproval(prNumber: number): Promise<boolean> {
   const { stdout } = await taskGh(
     `pr view ${prNumber} --json author,reviews --jq '{author: .author.login, reviews: [.reviews[] | {state: .state, login: .author.login, type: .author.type}]}'`,
   )
@@ -903,7 +922,7 @@ export type TaskStatusResult =
 
 /** cancel-task：受控取消（user_confirmed）→ 关闭 Sub Issue + 状态标签 cancelled */
 export async function cancelTask(
-  projectDir: string,
+  _projectDir: string,
   parentIssueNumber: number,
   taskId: string,
   userConfirmed: boolean,
@@ -965,7 +984,7 @@ async function isPrMerged(branch: string): Promise<boolean> {
 
 /** status-task：读 Task Record + PR + checks 汇总 */
 export async function readTaskStatus(
-  projectDir: string,
+  _projectDir: string,
   parentIssueNumber: number,
   taskId: string,
 ): Promise<TaskStatusResult> {

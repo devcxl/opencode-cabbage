@@ -153,7 +153,7 @@ async function handleCreateFlow(
   return okResponse({ flow: result.ref })
 }
 
-async function handleStatus(deps: FlowControlDeps, args: Record<string, unknown>): Promise<string> {
+async function handleStatus(_deps: FlowControlDeps, args: Record<string, unknown>): Promise<string> {
   const n = requireParentIssueNumber(args)
   if (typeof n === "string") return n
 

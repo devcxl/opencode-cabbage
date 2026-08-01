@@ -336,7 +336,7 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
             patchCalls.push(args)
             return { stdout: "", stderr: "" }
           }
-          if (args.includes("issue view 14")) return { stdout: "CLOSED", stderr: "" }
+          if (args.includes("issue view 14")) return { stdout: '{"state":"CLOSED","labels":["cabbage:task:merged"]}', stderr: "" }
           if (args.includes("repo view")) return { stdout: "main", stderr: "" }
           throw new Error(`unexpected task gh: ${args}`)
         })
@@ -394,7 +394,28 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
         setTaskGhExecutor(async args => {
           if (args.includes("issue list")) return { stdout: "13", stderr: "" }
           if (args.includes("issue view 13")) return { stdout: taskBody, stderr: "" }
-          if (args.includes("issue view 14")) return { stdout: '"OPEN"', stderr: "" }
+          if (args.includes("issue view 14")) return { stdout: '{"state":"OPEN","labels":[]}', stderr: "" }
+          throw new Error(`unexpected task gh: ${args}`)
+        })
+        setRecordsGhExecutor(async args => {
+          if (args.includes("issue view 12")) return { stdout: "## Stages\n\n- [x] requirements\n- [x] design", stderr: "" }
+          throw new Error(`unexpected records gh: ${args}`)
+        })
+
+        const result = await startTask(dir, 12, "user-auth-login")
+        expect(result.ok).toBe(false)
+        if (!result.ok) expect(result.code).toBe("DEPENDENCY_NOT_MERGED")
+      })
+    })
+
+    it("rejects a CLOSED dependency without the merged label (cancelled task must not pass)", async () => {
+      await withProjectDir(async dir => {
+        await writeProfile(dir)
+        const taskBody = buildTaskBody("user-auth-login", [], [14])
+        setTaskGhExecutor(async args => {
+          if (args.includes("issue list")) return { stdout: "13", stderr: "" }
+          if (args.includes("issue view 13")) return { stdout: taskBody, stderr: "" }
+          if (args.includes("issue view 14")) return { stdout: '{"state":"CLOSED","labels":["cabbage:task:cancelled"]}', stderr: "" }
           throw new Error(`unexpected task gh: ${args}`)
         })
         setRecordsGhExecutor(async args => {

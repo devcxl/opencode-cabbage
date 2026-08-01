@@ -383,7 +383,6 @@ export function lintAll(projectRoot: string): { findings: LintFinding[]; passed:
   }
 
   const errors = allFindings.filter(f => f.severity === "error")
-  const warnings = allFindings.filter(f => f.severity === "warn")
 
   return {
     findings: allFindings,

@@ -165,7 +165,11 @@ async function handleSubmitTask(deps: TaskControlDeps, args: Record<string, unkn
   if (!result.ok) {
     return errorResponse(result.code, result.message, result.missing)
   }
-  return okResponse({ prNumber: result.prNumber, evidenceRevision: result.evidenceRevision })
+  return okResponse({
+    prNumber: result.prNumber,
+    evidenceRevision: result.evidenceRevision,
+    ...(result.warning ? { warning: result.warning } : {}),
+  })
 }
 
 async function handleSubmitReview(args: Record<string, unknown>): Promise<string> {

@@ -66,7 +66,7 @@ function releaseBranch(version: string): string {
 }
 
 /** 聚合上一 tag 后 main 的变更并分类；无 tag 时返回空变更集 */
-async function collectChanges(profile: ProjectProfile): Promise<{ tag: string | null; changes: ReleaseChange[] }> {
+async function collectChanges(): Promise<{ tag: string | null; changes: ReleaseChange[] }> {
   const tag = await latestTag(runGh)
   if (!tag) return { tag: null, changes: [] }
   const commits = await listCommitsSinceTag(tag, "main", runGh)
@@ -182,7 +182,7 @@ async function proposeVersionOp(profile: ProjectProfile, projectDir: string): Pr
     return `Error: 无法从版本文件（${profile.versionFile}）读取当前版本`
   }
 
-  const { tag, changes } = await collectChanges(profile)
+  const { tag, changes } = await collectChanges()
   if (!tag) {
     return "Error: 仓库尚无 tag，无法聚合上一 tag 后的变更；请先人工创建基线 tag"
   }
@@ -261,7 +261,7 @@ async function openReleasePrOp(profile: ProjectProfile, args: Record<string, any
 
   let notes = String(args.release_notes ?? "")
   if (notes === "") {
-    const { changes } = await collectChanges(profile)
+    const { changes } = await collectChanges()
     notes = buildReleaseNotes(version, changes)
   }
 

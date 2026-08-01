@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { readFile, lstat, readdir, realpath } from "node:fs/promises"
-import { join, relative, resolve, sep, isAbsolute } from "node:path"
+import { join, resolve, sep, isAbsolute } from "node:path"
 import { execFileSync } from "node:child_process"
 import type { VersionedDigest } from "../types.js"
 

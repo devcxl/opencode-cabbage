@@ -131,37 +131,28 @@ function parseVitestJson(stdout: string): { testsCollected: number; testsFailed:
 
 /**
  * 从 stderr 解析 vitest 错误，提取测试计数（兜底解析）。
+ * vitest 3.x 输出格式：
+ * - 全部通过：`Tests  2 passed (2)`
+ * - 全部失败：`Tests  1 failed (1)`（无 passed 行，collected == failed）
+ * - 部分失败：`Tests  2 passed (2) | 1 failed (1)`
  */
 function parseVitestSummary(stderr: string): { testsCollected: number | null; testsFailed: number | null } {
-  // vitest verbose 输出: "Tests  2 passed (2) | 1 failed (1)"
-  // 或 "Tests  2 passed (2)"
-  const summaryMatch = stderr.match(/Tests\s+\d+\s+failed\s*\((\d+)\)/)
-  const totalMatch = stderr.match(/Tests\s+\d+\s+failed[\s\S]*?\|\s*(\d+)\s+passed/)
+  const failedMatch = stderr.match(/Tests\s+\d+\s+failed\s*\((\d+)\)/)
   const passedMatch = stderr.match(/(\d+)\s+passed/)
+  const allPassedMatch = stderr.match(/Tests\s+(\d+)\s+passed/)
 
   let testsCollected: number | null = null
   let testsFailed: number | null = null
 
-  if (summaryMatch) {
-    testsFailed = parseInt(summaryMatch[1], 10)
-  } else {
-    // 检查是否有 "No test files found" 或 "0 tests"
-    if (stderr.includes("No test files found") || stderr.includes("no tests found")) {
-      return { testsCollected: 0, testsFailed: 0 }
-    }
-  }
-
-  // 尝试计算 collected = passed + failed
-  const totalPassedMatch = stderr.match(/(\d+)\s+passed/)
-  if (totalPassedMatch && testsFailed !== null) {
-    testsCollected = parseInt(totalPassedMatch[1], 10) + testsFailed
-  } else if (testsFailed === null) {
-    // 可能全部通过
-    const allPassedMatch = stderr.match(/Tests\s+(\d+)\s+passed/)
-    if (allPassedMatch) {
-      testsCollected = parseInt(allPassedMatch[1], 10)
-      testsFailed = 0
-    }
+  if (failedMatch) {
+    testsFailed = parseInt(failedMatch[1], 10)
+    // 有 passed 行 → collected = passed + failed；无（全失败）→ collected = failed
+    testsCollected = passedMatch ? parseInt(passedMatch[1], 10) + testsFailed : testsFailed
+  } else if (stderr.includes("No test files found") || stderr.includes("no tests found")) {
+    return { testsCollected: 0, testsFailed: 0 }
+  } else if (allPassedMatch) {
+    testsCollected = parseInt(allPassedMatch[1], 10)
+    testsFailed = 0
   }
 
   return { testsCollected, testsFailed }
@@ -259,6 +250,13 @@ function sha256Hex(content: string): string {
   return createHash("sha256").update(content, "utf-8").digest("hex")
 }
 
+/** vitest 输出内嵌 ANSI 色码（\x1b[...m），剥离后才能被正则/JSON 解析 */
+const ANSI_ESCAPE = /\x1b\[[0-9;]*m/g
+
+function stripAnsi(text: string): string {
+  return text.replace(ANSI_ESCAPE, "")
+}
+
 // ─── 主函数 ───
 
 /**
@@ -288,8 +286,12 @@ export async function executeRedCheck(
   const finishedAt = new Date().toISOString()
 
   // 4. 解析 vitest 输出获取测试统计数据
-  const jsonStats = parseVitestJson(output.stdout)
-  const summaryStats = parseVitestSummary(output.stderr)
+  // vitest 3.x：统计摘要输出到 stdout，stderr 仅含错误详情 → 双通道拼接解析
+  // 输出含 ANSI 色码，先剥离再解析
+  const cleanStdout = stripAnsi(output.stdout)
+  const cleanStderr = stripAnsi(output.stderr)
+  const jsonStats = parseVitestJson(cleanStdout)
+  const summaryStats = parseVitestSummary(cleanStderr + "\n" + cleanStdout)
 
   const testsCollected = jsonStats?.testsCollected ?? summaryStats.testsCollected ?? null
   const testsFailed = jsonStats?.testsFailed ?? summaryStats.testsFailed ?? null
@@ -299,7 +301,7 @@ export async function executeRedCheck(
     exitCode: output.exitCode,
     testsCollected,
     testsFailed,
-    stderr: output.stderr,
+    stderr: cleanStderr,
     timedOut: output.timedOut,
   })
 

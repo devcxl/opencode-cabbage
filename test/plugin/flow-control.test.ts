@@ -165,6 +165,15 @@ describe("flow kernel pure functions", () => {
       })
       expect(checkStageGate("stage-complete", "design", ["requirements"], false, true).ok).toBe(true)
     })
+
+    it("stage-complete tasks requires high-risk confirmation（不可绕过 stage-start）", () => {
+      expect(checkStageGate("stage-complete", "tasks", ["requirements", "design"], true, false)).toMatchObject({
+        ok: false,
+        code: "RISK_CONFIRMATION_REQUIRED",
+      })
+      expect(checkStageGate("stage-complete", "tasks", ["requirements", "design"], true, true).ok).toBe(true)
+      expect(checkStageGate("stage-complete", "tasks", ["requirements", "design"], false, false).ok).toBe(true)
+    })
   })
 })
 

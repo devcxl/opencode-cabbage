@@ -130,7 +130,8 @@ export type StageOp = "stage-start" | "stage-complete"
  * 前置门禁判定：
  * - stage-start X：前驱阶段须已 completed（requirements 无前置）
  * - stage-complete X：X 未完成时前驱须已 completed；requirements 完成需 user_confirmed 一次
- * - stage-start tasks：高风险 Flow（cabbage:risk:high）需 user_confirmed 确认
+ * - stage-start tasks 与 stage-complete tasks：高风险 Flow（cabbage:risk:high）
+ *   均需 user_confirmed 确认（R11：design→tasks 交接，不可跳过 start 直接 complete 绕过）
  * - 已完成阶段重复 start/complete → 幂等通过
  */
 export function checkStageGate(
@@ -149,6 +150,14 @@ export function checkStageGate(
     }
     if (!completed.includes(FLOW_STAGES[STAGE_ORDER[stage] - 1])) {
       return previousStageError(stage)
+    }
+    if (stage === "tasks" && highRisk && !userConfirmed) {
+      return {
+        ok: false,
+        code: "RISK_CONFIRMATION_REQUIRED",
+        message:
+          "This flow is marked as high-risk; the design-to-tasks handoff requires user confirmation (user_confirmed: true)",
+      }
     }
     return { ok: true }
   }
@@ -300,10 +309,15 @@ export type PlanningResult =
   | { ok: true; worktreePath: string; branch: string; prNumber?: number; reused?: boolean }
   | { ok: false; code: string; message: string }
 
-/** 读 Flow Record 标题（即 flow slug） */
+/** 读 Flow Record 标题（即 flow slug），并强制校验为合法 kebab-case slug（防注入） */
 async function readFlowSlug(parentIssueNumber: number): Promise<string> {
   const { stdout } = await flowGh(`issue view ${parentIssueNumber} --json title --jq .title`)
-  return stdout.trim()
+  const slug = stdout.trim()
+  const validated = validateTitle(slug)
+  if (!validated.ok) {
+    throw new Error(`INVALID_FLOW_SLUG: ${validated.message}`)
+  }
+  return slug
 }
 
 /** 读仓库默认分支 */
@@ -365,13 +379,13 @@ export async function planningPr(projectDir: string, parentIssueNumber: number):
 
     await flowGit(`-C '${escapeShellArg(worktreeDir)}' add -A`)
     await flowGit(`-C '${escapeShellArg(worktreeDir)}' commit -m 'docs: planning baseline for ${slug}'`)
-    await flowGit(`-C '${escapeShellArg(worktreeDir)}' push -u origin ${branch}`)
+    await flowGit(`-C '${escapeShellArg(worktreeDir)}' push -u origin '${escapeShellArg(branch)}'`)
 
     const base = await readDefaultBranch()
     const prTitle = `docs: planning baseline for ${slug}`
     const prBody = `Planning Baseline for Flow #${parentIssueNumber}: CONTEXT.md + PRD + Design + ADR (spec PRD R11).`
     const { stdout } = await flowGh(
-      `pr create --title '${escapeShellArg(prTitle)}' --body '${escapeShellArg(prBody)}' --base ${base} --head ${branch} --json number --jq .number`,
+      `pr create --title '${escapeShellArg(prTitle)}' --body '${escapeShellArg(prBody)}' --base '${escapeShellArg(base)}' --head '${escapeShellArg(branch)}' --json number --jq .number`,
     )
     const prNumber = Number(stdout.trim())
     return { ok: true, worktreePath: worktreeDir, branch, prNumber }
@@ -443,11 +457,16 @@ export async function createFlow(input: CreateFlowInput): Promise<CreateFlowResu
   if (!bound.ok) {
     return { ok: false, code: bound.code, message: bound.message }
   }
-  let slug = input.title
+  let slug: string
   try {
     slug = await readFlowSlug(n)
   } catch {
-    // 读不到标题时退化为传入 title
+    // 读不到标题或标题不是合法 slug：绑定必须可校验 slug，否则后续 shell 拼接有注入风险
+    const fallback = validateTitle(input.title)
+    if (!fallback.ok) {
+      return { ok: false, code: "INVALID_FLOW_SLUG", message: "Issue title is not a valid kebab-case slug" }
+    }
+    slug = fallback.slug
   }
   return { ok: true, ref: { parentIssueNumber: n, slug } }
 }

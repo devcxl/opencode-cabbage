@@ -1,7 +1,7 @@
 import { exec } from "node:child_process"
 import { promisify } from "node:util"
 import { readFile, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { join, resolve, sep } from "node:path"
 import { tool } from "@opencode-ai/plugin/tool"
 import { gh as ghCli } from "../util/gh.js"
 import { escapeShellArg } from "../util/shell.js"
@@ -21,6 +21,7 @@ import {
   latestTag,
   listCommitsSinceTag,
   validateTagImmutability,
+  validateTagName,
 } from "../kernel/release.js"
 import type { GhFn, ReleaseChange } from "../kernel/release.js"
 
@@ -72,6 +73,18 @@ async function collectChanges(profile: ProjectProfile): Promise<{ tag: string | 
   return { tag, changes: classifyChanges(commits) }
 }
 
+/** version file path 是否落在 projectDir 内（防 Profile 配置路径穿越） */
+function versionFilePath(profile: ProjectProfile, projectDir: string): string | null {
+  const spec = parseVersionFileSpec(profile.versionFile ?? "")
+  if (!spec) return null
+  const abs = resolve(projectDir, spec.path)
+  const root = resolve(projectDir)
+  if (!abs.startsWith(root + sep) && abs !== root) {
+    return null
+  }
+  return abs
+}
+
 async function readCurrentVersion(profile: ProjectProfile, projectDir: string): Promise<string | null> {
   const spec = parseVersionFileSpec(profile.versionFile ?? "")
   if (!spec) return null
@@ -87,7 +100,8 @@ async function writeVersionFile(profile: ProjectProfile, projectDir: string, ver
   const spec = parseVersionFileSpec(profile.versionFile ?? "")
   if (!spec) return "Error: Profile version file 配置无效（期望 `path[ $.key]`，如 `package.json $.version`）"
   try {
-    const path = join(projectDir, spec.path)
+    const path = versionFilePath(profile, projectDir)
+    if (path === null) return "Error: version file 路径越界（必须位于项目目录内）"
     const raw = await readFile(path, "utf8")
     await writeFile(path, updateVersionInJson(raw, spec.key, version))
     return null
@@ -213,6 +227,9 @@ async function openReleasePrOp(profile: ProjectProfile, args: Record<string, any
 
   const tagFormat = profile.tagFormat ?? "v{version}"
   const tag = buildTag(version, tagFormat)
+  if (!validateTagName(tag)) {
+    return `Error: tag 名含非法字符（${tag}），拒绝继续（可能由 Profile tag format 引起）`
+  }
   const branch = releaseBranch(version)
 
   const mainSha = (await runGh(`api repos/{owner}/{repo}/commits/main --jq .sha`)).stdout.trim()
@@ -223,7 +240,7 @@ async function openReleasePrOp(profile: ProjectProfile, args: Record<string, any
 
   try {
     await runGit(projectDir, "fetch origin")
-    await runGit(projectDir, `checkout -b ${branch} origin/main`)
+    await runGit(projectDir, `checkout -b '${escapeShellArg(branch)}' origin/main`)
   } catch (err) {
     return `Error: 创建 release branch 失败：${String(err)}`
   }
@@ -232,8 +249,12 @@ async function openReleasePrOp(profile: ProjectProfile, args: Record<string, any
   if (writeError) return writeError
 
   try {
-    await runGit(projectDir, `add ${parseVersionFileSpec(profile.versionFile)?.path}`)
-    await runGit(projectDir, `commit -m "release: ${tag}"`)
+    const spec = parseVersionFileSpec(profile.versionFile ?? "")
+    if (spec === null || versionFilePath(profile, projectDir) === null) {
+      return "Error: version file 配置无效"
+    }
+    await runGit(projectDir, `add '${escapeShellArg(spec.path)}'`)
+    await runGit(projectDir, `commit -m 'release: ${escapeShellArg(tag)}'`)
   } catch (err) {
     return `Error: 提交版本更新失败：${String(err)}`
   }
@@ -245,14 +266,14 @@ async function openReleasePrOp(profile: ProjectProfile, args: Record<string, any
   }
 
   try {
-    await runGit(projectDir, `push -u origin ${branch}`)
+    await runGit(projectDir, `push -u origin '${escapeShellArg(branch)}'`)
   } catch (err) {
     return `Error: push release branch 失败：${String(err)}`
   }
 
   try {
     const { stdout } = await runGh(
-      `pr create --base main --head ${branch} --title 'release: ${tag}' --body '${escapeShellArg(notes)}' --json number --jq .number`,
+      `pr create --base main --head '${escapeShellArg(branch)}' --title 'release: ${escapeShellArg(tag)}' --body '${escapeShellArg(notes)}' --json number --jq .number`,
     )
     return `Release PR created: #${stdout.trim()} (branch ${branch}, tag ${tag})`
   } catch (err) {
@@ -272,7 +293,7 @@ async function mergeReleasePrOp(profile: ProjectProfile, args: Record<string, an
   }
 
   const branch = releaseBranch(version)
-  const prNumber = (await runGh(`pr list --head ${branch} --json number --jq '.[0].number'`)).stdout.trim()
+  const prNumber = (await runGh(`pr list --head '${escapeShellArg(branch)}' --json number --jq '.[0].number'`)).stdout.trim()
   if (!prNumber || prNumber === "null") {
     return "Error: 未找到对应 Release PR（branch: " + branch + "）"
   }
@@ -313,13 +334,19 @@ async function mergeReleasePrOp(profile: ProjectProfile, args: Record<string, an
 
   const tagFormat = profile.tagFormat ?? "v{version}"
   const tag = buildTag(version, tagFormat)
+  if (!validateTagName(tag)) {
+    return `Error: tag 名含非法字符（${tag}），拒绝打 tag`
+  }
+  if (!/^[0-9a-f]{40}$/i.test(mergeSha)) {
+    return "Error: merge commit SHA 非法（应为 40 位 hex）"
+  }
   const immutability = await validateTagImmutability(tag, mergeSha, runGh)
   if (!immutability.ok) {
     return `Error: ${immutability.message}`
   }
 
   try {
-    await runGh(`api repos/{owner}/{repo}/git/refs -f ref=refs/tags/${tag} -f sha=${mergeSha}`)
+    await runGh(`api repos/{owner}/{repo}/git/refs -f ref=refs/tags/'${escapeShellArg(tag)}' -f sha='${escapeShellArg(mergeSha)}'`)
   } catch (err) {
     return `Error: 打 tag 失败（可能已存在）：${String(err)}`
   }
@@ -334,7 +361,7 @@ async function monitorOp(profile: ProjectProfile): Promise<string> {
   }
 
   const { stdout } = await runGh(
-    `run list --workflow ${workflow} --limit 1 --json databaseId,status,conclusion,headBranch --jq '.[0]'`,
+    `run list --workflow '${escapeShellArg(workflow)}' --limit 1 --json databaseId,status,conclusion,headBranch --jq '.[0]'`,
   )
   const runJson = stdout.trim()
   if (!runJson || runJson === "null") {

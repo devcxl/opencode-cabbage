@@ -129,7 +129,7 @@ function matchPattern(filePath: string, pattern: string): boolean {
   return regex.test(normalized)
 }
 
-function matchesAnyPattern(filePath: string, patterns: string[]): boolean {
+export function matchesAnyPattern(filePath: string, patterns: string[]): boolean {
   return patterns.some(p => matchPattern(filePath, p))
 }
 
@@ -306,9 +306,11 @@ export async function computeWorkspaceDigest(
   const tracked = getTrackedFiles(rootNorm)
   const deleted = getDeletedFiles(rootNorm)
 
-  // 2. 扫描文件系统获取 policy 范围内的 untracked 文件
+  // 2. 扫描文件系统；tracked 与 untracked 均只纳入匹配 pattern 的文件，
+  //    保证实现 digest 与测试输入 digest 互不污染（GREEN 门禁依赖此隔离）
   const allFiles = await scanDir(rootNorm)
   const includedPatterns = [...options.testFilePatterns, ...options.implementationFilePatterns]
+  const includedTracked = new Set([...tracked].filter(f => matchesAnyPattern(f, includedPatterns)))
   const untrackedPaths = new Set(
     allFiles.filter(f => !tracked.has(f) && matchesAnyPattern(f, includedPatterns))
   )
@@ -316,7 +318,7 @@ export async function computeWorkspaceDigest(
   // 3. 收集文件条目
   const entries = await collectFileEntries(
     rootNorm,
-    tracked,
+    includedTracked,
     deleted,
     untrackedPaths,
     options.generatedArtifactPatterns,

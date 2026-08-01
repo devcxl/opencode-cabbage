@@ -13,12 +13,13 @@
  */
 import { tool } from "@opencode-ai/plugin/tool"
 import { createHash } from "node:crypto"
+import { execFileSync } from "node:child_process"
 import { resolve, sep as pathSep } from "node:path"
 import { requireToolCaller, CALLER_NOT_AUTHORIZED } from "../kernel/caller.js"
 import type { CallerSessionClient } from "../kernel/caller.js"
 import { executeRedCheck, executeVitest } from "../kernel/tdd/adapter.js"
 import type { VitestOutput } from "../kernel/tdd/adapter.js"
-import { computeWorkspaceDigest } from "../kernel/tdd/digest.js"
+import { computeWorkspaceDigest, matchesAnyPattern } from "../kernel/tdd/digest.js"
 import {
   startCycle,
   recordRed,
@@ -588,6 +589,20 @@ async function handleWaiver(
   if (!refs) return { ok: false, error: { code: "POLICY_INVALID", message: "parent_issue_number and task_id are required" } }
   const task = await resolveTaskContext(refs.parentIssueNumber, refs.taskId, deps.projectDir)
 
+  if (kind === "not-applicable") {
+    // 内核校验：worktree 相对 HEAD 的变更必须全部命中文档 pattern（纯文档豁免，防代码变更绕过 TDD 门禁）
+    const changed = listWorktreeChanges(task.worktreeDir)
+    if (!isDocumentationOnly(changed, DOCUMENTATION_PATTERNS)) {
+      return {
+        ok: false,
+        error: {
+          code: "WAIVER_DOCS_ONLY",
+          message: `not-applicable requires a pure documentation change; non-doc files changed: ${changed.filter(f => !isDocumentationOnly([f], DOCUMENTATION_PATTERNS)).join(", ")}`,
+        },
+      }
+    }
+  }
+
   const evidence0 = await restoreEvidence(task.issueNumber)
   const reason = (args.reason as string | undefined) ?? (kind === "not-applicable" ? "pure documentation change" : "exempt request")
   const evidence = bumpEvidence(evidence0, {
@@ -608,6 +623,60 @@ async function handleWaiver(
   if (!persisted.ok) return { ok: false, error: { code: "EVIDENCE_WRITE_FAILED", message: persisted.error ?? "failed to write evidence" } }
 
   return { ok: true, evidence: evidenceSummary(evidence) }
+}
+
+// ─── 纯文档豁免判定（not-applicable 内核门禁） ───
+
+/** 文档类文件 pattern：markdown 系 + 通用文本 + docs 目录 */
+const DOCUMENTATION_PATTERNS = ["**/*.md", "**/*.markdown", "**/*.rst", "**/*.adoc", "**/*.txt", "docs/**", "README*"]
+
+/** 变更文件是否全部命中文档 pattern；空变更集也视为不通过（无变更不应豁免） */
+export function isDocumentationOnly(changedFiles: string[], patterns: string[]): boolean {
+  if (changedFiles.length === 0) return false
+  return changedFiles.every(f => matchesAnyPattern(f, patterns))
+}
+
+/** 解析 git status --porcelain 输出为变更文件路径（重命名取新路径，跳过冲突条目） */
+export function parsePorcelainChanges(raw: string): string[] {
+  const files: string[] = []
+  for (const line of raw.split("\n")) {
+    if (line.length < 4) continue
+    const code = line.slice(0, 2)
+    // 冲突条目（UU/AU/UD/AA/DD/UA/DU/!!）无确定性变更语义，跳过
+    if (code[0] === "U" || code[1] === "U" || code.includes("!")) continue
+    let path = line.slice(3)
+    const arrow = path.indexOf(" -> ")
+    if (arrow !== -1) path = path.slice(arrow + 4)
+    if (path !== "") files.push(path)
+  }
+  return files
+}
+
+// ─── 可替换的 git executor（测试用） ───
+
+type GitFn = (args: string[], cwd: string) => string
+
+let tddGitExecutor: GitFn | null = null
+
+export function setTddCheckpointGitExecutor(fn: GitFn | null): void {
+  tddGitExecutor = fn
+}
+
+/** 列出 worktree 相对 HEAD 的变更文件（已跟踪修改/删除 + 未跟踪新增）；git 失败返回空 */
+export function listWorktreeChanges(worktreeDir: string): string[] {
+  const run = tddGitExecutor ?? ((args, cwd) => {
+    try {
+      return execFileSync("git", ["-C", cwd, ...args], {
+        encoding: "utf-8",
+        env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" },
+        maxBuffer: 10 * 1024 * 1024,
+      })
+    } catch {
+      return ""
+    }
+  })
+  const raw = run(["status", "--porcelain"], worktreeDir)
+  return parsePorcelainChanges(raw)
 }
 
 // ─── 工具工厂 ───

@@ -185,7 +185,7 @@ describe("release_control tool", () => {
         mockGh({
           "api repos/{owner}/{repo}/commits/main --jq .sha": mainHeadSha,
           "api repos/{owner}/{repo}/tags --jq '.[] | select(.name == \"v1.5.0\") | .commit.sha'": "",
-          "pr create --base main --head release/v1.5.0 --title 'release: v1.5.0' --body '*": "42",
+          "pr create --base main --head 'release/v1.5.0' --title 'release: v1.5.0' --body '*": "42",
         })
         setupGitMock()
         gitCalls.length = 0
@@ -199,8 +199,8 @@ describe("release_control tool", () => {
         expect(updated.version).toBe("1.5.0")
 
         expect(gitCalls.some(c => c.endsWith("|fetch origin"))).toBe(true)
-        expect(gitCalls.some(c => c.includes("checkout -b release/v1.5.0"))).toBe(true)
-        expect(gitCalls.some(c => c.includes("push -u origin release/v1.5.0"))).toBe(true)
+        expect(gitCalls.some(c => c.includes("checkout -b 'release/v1.5.0'"))).toBe(true)
+        expect(gitCalls.some(c => c.includes("push -u origin 'release/v1.5.0'"))).toBe(true)
       })
     })
 
@@ -229,19 +229,19 @@ describe("release_control tool", () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
         const ghCalls: string[] = []
         mockGh({
-          "pr list --head release/v1.5.0 --json number --jq '.[0].number'": "12",
+          "pr list --head 'release/v1.5.0' --json number --jq '.[0].number'": "12",
           "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
             '["SUCCESS"]',
           "pr merge 12 --squash --delete-branch": "",
-          "pr view 12 --json mergeCommit --jq '.mergeCommit.oid'": "deadbeef",
+          "pr view 12 --json mergeCommit --jq '.mergeCommit.oid'": "d3adb3e7deadbeefdeadbeefdeadbeefdeadbeef",
           "api repos/{owner}/{repo}/tags --jq '.[] | select(.name == \"v1.5.0\") | .commit.sha'": "",
-          "api repos/{owner}/{repo}/git/refs -f ref=refs/tags/v1.5.0 -f sha=deadbeef": "",
+          "api repos/{owner}/{repo}/git/refs -f ref=refs/tags/'v1.5.0' -f sha='deadbeef'": "",
         }, ghCalls)
 
         const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0", user_confirmed: true }))
         expect(out).toContain("Merged #12")
         expect(out).toContain("tagged v1.5.0")
-        expect(out).toContain("deadbee")
+        expect(out).toContain("d3adb3e")
         expect(ghCalls.some(c => c.includes("statusCheckRollup"))).toBe(true)
         expect(ghCalls.some(c => c.includes("git/refs"))).toBe(true)
       })
@@ -257,7 +257,7 @@ describe("release_control tool", () => {
 
     it("refuses when the release PR does not exist", async () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
-        mockGh({ "pr list --head release/v1.5.0 --json number --jq '.[0].number'": "" })
+        mockGh({ "pr list --head 'release/v1.5.0' --json number --jq '.[0].number'": "" })
         const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0", user_confirmed: true }))
         expect(out).toContain("Error")
       })
@@ -266,7 +266,7 @@ describe("release_control tool", () => {
     it("refuses when CI checks have failed", async () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
         mockGh({
-          "pr list --head release/v1.5.0 --json number --jq '.[0].number'": "12",
+          "pr list --head 'release/v1.5.0' --json number --jq '.[0].number'": "12",
           "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
             '["FAILURE"]',
         })
@@ -279,7 +279,7 @@ describe("release_control tool", () => {
     it("refuses when CI checks are still in progress", async () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
         mockGh({
-          "pr list --head release/v1.5.0 --json number --jq '.[0].number'": "12",
+          "pr list --head 'release/v1.5.0' --json number --jq '.[0].number'": "12",
           "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
             '["IN_PROGRESS", "SUCCESS"]',
         })
@@ -292,7 +292,7 @@ describe("release_control tool", () => {
     it("refuses when no CI checks are reported", async () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
         mockGh({
-          "pr list --head release/v1.5.0 --json number --jq '.[0].number'": "12",
+          "pr list --head 'release/v1.5.0' --json number --jq '.[0].number'": "12",
           "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
             "[]",
         })
@@ -315,7 +315,7 @@ describe("release_control tool", () => {
     it("reports success when the latest workflow run succeeded", async () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
         mockGh({
-          "run list --workflow .github/workflows/release.yml --limit 1 --json databaseId,status,conclusion,headBranch --jq '.[0]'":
+          "run list --workflow '.github/workflows/release.yml' --limit 1 --json databaseId,status,conclusion,headBranch --jq '.[0]'":
             `{"databaseId": 77, "status": "completed", "conclusion": "success", "headBranch": "main"}`,
         })
         const out = String(await call(dir, "monitor"))
@@ -326,7 +326,7 @@ describe("release_control tool", () => {
     it("reports pending while the run is not completed", async () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
         mockGh({
-          "run list --workflow .github/workflows/release.yml --limit 1 --json databaseId,status,conclusion,headBranch --jq '.[0]'":
+          "run list --workflow '.github/workflows/release.yml' --limit 1 --json databaseId,status,conclusion,headBranch --jq '.[0]'":
             `{"databaseId": 77, "status": "in_progress", "conclusion": null, "headBranch": "release/v1.5.0"}`,
         })
         const out = String(await call(dir, "monitor"))
@@ -338,7 +338,7 @@ describe("release_control tool", () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
         const ghCalls: string[] = []
         mockGh({
-          "run list --workflow .github/workflows/release.yml --limit 1 --json databaseId,status,conclusion,headBranch --jq '.[0]'":
+          "run list --workflow '.github/workflows/release.yml' --limit 1 --json databaseId,status,conclusion,headBranch --jq '.[0]'":
             `{"databaseId": 77, "status": "completed", "conclusion": "failure", "headBranch": "release/v1.5.0"}`,
           "run rerun 77": "",
         }, ghCalls)

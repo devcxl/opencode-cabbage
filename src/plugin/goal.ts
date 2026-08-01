@@ -90,6 +90,9 @@ export function createGoalClient(serverUrl: URL, v1Client: any) {
     baseUrl: serverUrl.origin,
     headers: v1Config.headers,
     fetch: v1Config.fetch,
+    // SDK v2 默认 ThrowOnError=false（4xx/5xx 静默 resolve 为 {error}），
+    // 必须显式开启，否则 readGoal/writeGoal 的 try/catch 与错误传播全部失效
+    throwOnError: true,
   })
 }
 

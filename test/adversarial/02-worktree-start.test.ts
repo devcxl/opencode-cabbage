@@ -37,7 +37,7 @@ describe("adversarial #2 — 非法 branch/worktree 路径必须被拒绝", () =
     const calls: string[] = []
     setGit(async (args) => {
       calls.push(args)
-      if (args.includes("rev-parse --verify refs/heads/")) return { stdout: "abc123", stderr: "" }
+      if (args.includes("refs/heads/")) return { stdout: "abc123", stderr: "" }
       if (args.includes("merge-base --is-ancestor")) throw new Error("not an ancestor")
       throw new Error(`unexpected git call: ${args}`)
     })
@@ -53,7 +53,7 @@ describe("adversarial #2 — 非法 branch/worktree 路径必须被拒绝", () =
     const calls: string[] = []
     setGit(async (args) => {
       calls.push(args)
-      if (args.includes("rev-parse --verify refs/heads/")) return { stdout: "abc123", stderr: "" }
+      if (args.includes("refs/heads/")) return { stdout: "abc123", stderr: "" }
       if (args.includes("merge-base --is-ancestor")) return { stdout: "", stderr: "" }
       throw new Error(`unexpected git call: ${args}`)
     })

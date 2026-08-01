@@ -44,11 +44,11 @@ describe("worktreeStart", () => {
       reused: false,
     })
     // 先查分支是否已存在，再 add
-    expect(calls.some(c => c.includes("rev-parse --verify refs/heads/feat/user-auth-login"))).toBe(true)
+    expect(calls.some(c => c.includes("refs/heads/feat/user-auth-login"))).toBe(true)
     const addCall = calls.find(c => c.startsWith("worktree add"))
     expect(addCall).toBeDefined()
     if (addCall) {
-      expect(addCall).toContain("worktree add -b feat/user-auth-login")
+      expect(addCall).toContain("worktree add -b 'feat/user-auth-login'")
       expect(addCall).toContain(".worktree/user-auth-login")
       expect(addCall).toContain("main")
       expect(addCall).not.toContain("--force")
@@ -72,7 +72,7 @@ describe("worktreeStart", () => {
     const calls: string[] = []
     setGit(async (args) => {
       calls.push(args)
-      if (args.includes("rev-parse --verify refs/heads/")) return { stdout: "abc123", stderr: "" }
+      if (args.includes("refs/heads/")) return { stdout: "abc123", stderr: "" }
       if (args.includes("merge-base --is-ancestor")) throw new Error("not an ancestor")
       throw new Error(`unexpected git call: ${args}`)
     })
@@ -89,7 +89,7 @@ describe("worktreeStart", () => {
     const calls: string[] = []
     setGit(async (args) => {
       calls.push(args)
-      if (args.includes("rev-parse --verify refs/heads/")) return { stdout: "abc123", stderr: "" }
+      if (args.includes("refs/heads/")) return { stdout: "abc123", stderr: "" }
       if (args.includes("merge-base --is-ancestor")) return { stdout: "", stderr: "" }
       throw new Error(`unexpected git call: ${args}`)
     })
@@ -152,6 +152,36 @@ describe("worktreeStart", () => {
       expect(result.code).toBe("GIT_FAILED")
     }
   })
+
+  it("拒绝 shell 注入 slug（fail-closed，不做任何 git 调用）", async () => {
+    const calls: string[] = []
+    setGit(async (args) => {
+      calls.push(args)
+      return { stdout: "", stderr: "" }
+    })
+
+    const result = await worktreeStart({ projectDir, slug: "x'; touch /tmp/pwned; '", base: "main" })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.code).toBe("INVALID_SLUG")
+    }
+    expect(calls).toHaveLength(0)
+  })
+
+  it("拒绝 shell 注入 base 分支名（fail-closed，不做任何 git 调用）", async () => {
+    const calls: string[] = []
+    setGit(async (args) => {
+      calls.push(args)
+      return { stdout: "", stderr: "" }
+    })
+
+    const result = await worktreeStart({ projectDir, slug: "user-auth-login", base: "main'; rm -rf ~; '" })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.code).toBe("INVALID_SLUG")
+    }
+    expect(calls).toHaveLength(0)
+  })
 })
 
 describe("destroyWorktree", () => {
@@ -165,7 +195,7 @@ describe("destroyWorktree", () => {
       calls.push(args)
       if (args.includes("status --porcelain")) return { stdout: "", stderr: "" }
       if (args.startsWith("worktree remove")) return { stdout: "", stderr: "" }
-      if (args.includes("rev-parse --verify refs/heads/")) return { stdout: "abc123", stderr: "" }
+      if (args.includes("refs/heads/")) return { stdout: "abc123", stderr: "" }
       if (args.startsWith("branch -D")) return { stdout: "", stderr: "" }
       throw new Error(`unexpected git call: ${args}`)
     })
@@ -240,7 +270,7 @@ describe("destroyWorktree", () => {
       if (args.includes("status --porcelain")) return { stdout: "", stderr: "" }
       if (args.includes("ls-remote")) return { stdout: `abc123\trefs/heads/${branch}`, stderr: "" }
       if (args.startsWith("worktree remove")) return { stdout: "", stderr: "" }
-      if (args.includes("rev-parse --verify refs/heads/")) return { stdout: "abc123", stderr: "" }
+      if (args.includes("refs/heads/")) return { stdout: "abc123", stderr: "" }
       if (args.startsWith("branch -D")) return { stdout: "", stderr: "" }
       throw new Error(`unexpected git call: ${args}`)
     })
@@ -272,7 +302,7 @@ describe("destroyWorktree", () => {
       calls.push(args)
       if (args.includes("status --porcelain")) return { stdout: "", stderr: "" }
       if (args.startsWith("worktree remove")) return { stdout: "", stderr: "" }
-      if (args.includes("rev-parse --verify refs/heads/")) throw new Error("branch not found")
+      if (args.includes("refs/heads/")) throw new Error("branch not found")
       throw new Error(`unexpected git call: ${args}`)
     })
 

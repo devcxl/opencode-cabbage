@@ -91,7 +91,7 @@ export async function createFlowRecord(
   try {
     const escapedBody = escapeShellArg(input.body)
     const { stdout } = await gh(
-      `issue create --title '${input.slug}' --body '${escapedBody}' --label '${FLOW_LABEL}' --draft --json number --jq .number`,
+      `issue create --title '${escapeShellArg(input.slug)}' --body '${escapedBody}' --label '${FLOW_LABEL}' --draft --json number --jq .number`,
     )
     const number = Number(stdout.trim())
     if (!Number.isInteger(number)) {
@@ -116,7 +116,8 @@ export async function readFlowRecord(
 
 /**
  * 乐观锁更新 Flow Record body：mutex 串行 + previousBody 比对。
- * 比对不一致（外部并发修改）→ 重读最新 body 重试 1 次（retried: true）。
+ * 比对不一致（外部并发修改）→ 重读最新 body，基于最新内容合并写入（retried: true）。
+ * 合并语义保留外部修改；跨进程完全串行化需 ETag/If-Match（GitHub REST 限制，超出范围）。
  */
 export async function updateFlowRecord(
   parentIssueNumber: number,
@@ -130,7 +131,7 @@ export async function updateFlowRecord(
         await writeBody(parentIssueNumber, buildNewBody(current))
         return { ok: true as const, retried: false }
       }
-      // 冲突：重读最新 body 重试 1 次
+      // 冲突：重读最新 body，基于最新内容合并（保留外部修改）
       const latest = await readBody(parentIssueNumber)
       await writeBody(parentIssueNumber, buildNewBody(latest))
       return { ok: true as const, retried: true }
@@ -155,7 +156,7 @@ export async function createTaskRecord(
   try {
     const escapedBody = escapeShellArg(input.body)
     const { stdout } = await gh(
-      `issue create --title '${input.title}' --body '${escapedBody}' --parent ${input.parentIssueNumber} --json number --jq .number`,
+      `issue create --title '${escapeShellArg(input.title)}' --body '${escapedBody}' --parent ${input.parentIssueNumber} --json number --jq .number`,
     )
     const number = Number(stdout.trim())
     if (!Number.isInteger(number)) {
@@ -178,11 +179,11 @@ export interface TddEvidenceComment {
   revision: number
 }
 
-/** 读取 Task Record 的单个受控 evidence comment；不存在返回 null */
+/** 读取 Task Record 的受控 evidence comment（取最新的，兼容历史多 comment）；不存在返回 null */
 export async function readTddEvidenceComment(issueNumber: number): Promise<TddEvidenceComment | null> {
   try {
     const { stdout } = await gh(
-      `issue view ${issueNumber} --json comments --jq '[.comments[] | select(.body | contains("${EVIDENCE_MARKER_START}")) | {id: (.id|tonumber), body}] | first'`,
+      `issue view ${issueNumber} --json comments --jq '[.comments[] | select(.body | contains("${EVIDENCE_MARKER_START}")) | {id: (.id|tonumber), body}] | last'`,
     )
     const trimmed = stdout.trim()
     if (trimmed === "" || trimmed === "null") {
@@ -199,10 +200,16 @@ export async function readTddEvidenceComment(issueNumber: number): Promise<TddEv
   }
 }
 
+/** 单条 evidence comment 超过该字节数后滚动到新 comment（GitHub comment body 上限 65536 字节） */
+export const MAX_EVIDENCE_COMMENT_BYTES = 55_000
+
 /**
- * 追加 TDD evidence 到 Task Record 的单个受控 comment：
- * 无受控 comment → 新建（revision 1）；有 → marker 区间内 append，revision+1（PATCH 更新）。
+ * 追加 TDD evidence 到 Task Record 的受控 comment：
+ * 无受控 comment → 新建（revision 1）；有 → marker 区间内 append，revision+1（PATCH 更新）；
+ * 单 comment 超限 → 滚动到新 comment（revision 从当前继续）。
  * mutex 按 issueNumber 串行；block 已存在则幂等跳过（追加不重复）。
+ * 跨进程并发为最佳努力（PATCH 前基于最新重读的 body 构造，丢失概率显著降低）；
+ * 完全串行化需 ETag/If-Match（GitHub REST 限制，超出当前范围）。
  */
 export async function appendTddEvidence(
   issueNumber: number,
@@ -210,23 +217,32 @@ export async function appendTddEvidence(
 ): Promise<{ ok: boolean; revision: number; error?: string }> {
   return recordMutex.runExclusive(issueNumber, async () => {
     try {
+      // 幂等：block 已在最新 comment 的 marker 区间内，不重复追加
       const existing = await readTddEvidenceComment(issueNumber)
+      if (existing && extractEvidenceBlock(existing.body)?.content.includes(block)) {
+        return { ok: true as const, revision: existing.revision }
+      }
+
       if (!existing) {
         const body = buildEvidenceCommentBody(block, 1)
         await gh(`issue comment ${issueNumber} --body '${escapeShellArg(body)}'`)
         return { ok: true as const, revision: 1 }
       }
 
-      // 幂等：block 已在 marker 区间内，不重复追加
-      const extracted = extractEvidenceBlock(existing.body)
-      if (extracted && extracted.content.includes(block)) {
-        return { ok: true as const, revision: existing.revision }
+      // 滚动：最新 comment 超限 → 新建 comment 承载新证据
+      if (existing.body.length > MAX_EVIDENCE_COMMENT_BYTES) {
+        const body = buildEvidenceCommentBody(block, existing.revision + 1)
+        await gh(`issue comment ${issueNumber} --body '${escapeShellArg(body)}'`)
+        return { ok: true as const, revision: existing.revision + 1 }
       }
 
-      const newBody = appendBlockToEvidenceBody(existing.body, block, existing.revision)
+      // 追加前基于最新重读的 body 构造（跨进程冲突时尽量以最新为准，防覆盖丢失）
+      const current = await readTddEvidenceComment(issueNumber)
+      const base = current && current.id === existing.id ? current : existing
+      const newBody = appendBlockToEvidenceBody(base.body, block, base.revision)
       const repo = await gh("repo view --json nameWithOwner --jq .nameWithOwner")
-      await gh(`api repos/${repo.stdout.trim()}/issues/comments/${existing.id} -X PATCH -f body='${escapeShellArg(newBody)}'`)
-      return { ok: true as const, revision: existing.revision + 1 }
+      await gh(`api repos/${repo.stdout.trim()}/issues/comments/${base.id} -X PATCH -f body='${escapeShellArg(newBody)}'`)
+      return { ok: true as const, revision: base.revision + 1 }
     } catch (err) {
       return { ok: false as const, revision: 0, error: String(err) }
     }
@@ -255,9 +271,9 @@ export async function setStageLabel(
     const stale = currentLabels.filter(l => l.startsWith(STAGE_LABEL_PREFIX) && l !== target)
     const args: string[] = []
     for (const label of stale) {
-      args.push(`--remove-label '${label}'`)
+      args.push(`--remove-label '${escapeShellArg(label)}'`)
     }
-    args.push(`--add-label '${target}'`)
+    args.push(`--add-label '${escapeShellArg(target)}'`)
     await gh(`issue edit ${parentIssueNumber} ${args.join(" ")}`)
     return { ok: true }
   } catch (err) {

@@ -193,6 +193,14 @@ export function buildTag(version: string, tagFormat: string): string {
   return `v${version}`
 }
 
+/** git tag 名安全白名单（git ref 合法字符子集，杜绝 shell 元字符/引号/分号） */
+const TAG_SAFE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+
+/** tag 名是否可安全进入 shell 命令；非法（含 tagFormat 注入）→ false */
+export function validateTagName(tag: string): boolean {
+  return TAG_SAFE.test(tag)
+}
+
 /** tag 是否匹配格式（替换 {version} 为语义版本正则后整体匹配） */
 export function validateTagFormat(tag: string, tagFormat: string): boolean {
   const escaped = tagFormat.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("\\{version\\}", "(\\d+\\.\\d+\\.\\d+)")
@@ -254,6 +262,9 @@ export async function listCommitsSinceTag(
   baseBranch: string,
   executor?: GhFn,
 ): Promise<{ sha: string; title: string }[]> {
+  if (!validateTagName(tag)) {
+    throw new Error(`Invalid tag name: ${tag}`)
+  }
   const { stdout } = await ghFn(executor)(
     `api repos/{owner}/{repo}/compare/${tag}...${baseBranch} --jq '.commits[] | {sha: .sha, title: (.commit.message | split("\\n")[0])}'`,
   )
@@ -266,7 +277,10 @@ export async function listCommitsSinceTag(
 
 /** 远程已存在 tag 指向的 commit SHA；不存在返回 null */
 export async function existingTagSha(tag: string, executor?: GhFn): Promise<string | null> {
-  const { stdout } = await ghFn(executor)(`api repos/{owner}/{repo}/tags --jq '.[] | select(.name == "${tag}") | .commit.sha'`)
+  if (!validateTagName(tag)) {
+    throw new Error(`Invalid tag name: ${tag}`)
+  }
+  const { stdout } = await ghFn(executor)(`api repos/{owner}/{repo}/tags --jq '.[] | select(.name == ${JSON.stringify(tag)}) | .commit.sha'`)
   const trimmed = stdout.trim()
   if (trimmed === "" || trimmed === "null") return null
   return trimmed

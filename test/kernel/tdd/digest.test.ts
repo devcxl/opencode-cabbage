@@ -99,15 +99,16 @@ describe("computeWorkspaceDigest", () => {
 
   it("includes executable bit in digest", async () => {
     const dir = setupGitRepo()
-    writeFile(join(dir, "script.sh"), "#!/bin/sh\necho hi")
-    chmodSync(join(dir, "script.sh"), 0o755)
-    execSync("git add script.sh", { cwd: dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", HOME: dir } })
+    writeFile(join(dir, "src", "tool.sh"), "#!/bin/sh\necho hi")
+    chmodSync(join(dir, "src", "tool.sh"), 0o755)
+    execSync("git add src/tool.sh", { cwd: dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", HOME: dir } })
     execSync('git commit -m "init"', { cwd: dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", HOME: dir } })
 
-    const d1 = await computeWorkspaceDigest(dir, defaultOptions())
+    const opts = defaultOptions({ implementationFilePatterns: ["src/**/*"] })
+    const d1 = await computeWorkspaceDigest(dir, opts)
 
-    chmodSync(join(dir, "script.sh"), 0o644)
-    const d2 = await computeWorkspaceDigest(dir, defaultOptions())
+    chmodSync(join(dir, "src", "tool.sh"), 0o644)
+    const d2 = await computeWorkspaceDigest(dir, opts)
 
     expect(d1.value).not.toBe(d2.value)
 
@@ -234,8 +235,9 @@ describe("computeWorkspaceDigest", () => {
     execSync('git commit -m "init"', { cwd: dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", HOME: dir } })
 
     // 即使文件系统返回不同顺序，digest 应一致
-    const d1 = await computeWorkspaceDigest(dir, defaultOptions())
-    const d2 = await computeWorkspaceDigest(dir, defaultOptions())
+    const opts = defaultOptions({ testFilePatterns: [], implementationFilePatterns: ["*.ts"] })
+    const d1 = await computeWorkspaceDigest(dir, opts)
+    const d2 = await computeWorkspaceDigest(dir, opts)
 
     expect(d1.value).toBe(d2.value)
 
@@ -277,6 +279,60 @@ describe("computeWorkspaceDigest", () => {
     const d2 = await computeWorkspaceDigest(dir, opts)
 
     expect(d1.value).not.toBe(d2.value)
+
+    try { rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
+  })
+
+  it("ignores tracked files not matching any pattern", async () => {
+    const dir = setupGitRepo()
+    writeFile(join(dir, "src", "index.ts"), "export const x = 1")
+    writeFile(join(dir, "README.md"), "docs")
+    execSync("git add src/index.ts README.md", { cwd: dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", HOME: dir } })
+    execSync('git commit -m "init"', { cwd: dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", HOME: dir } })
+
+    const opts = defaultOptions()
+    const d1 = await computeWorkspaceDigest(dir, opts)
+
+    // 修改未匹配任何 pattern 的 tracked 文件（README）不应影响 digest
+    writeFile(join(dir, "README.md"), "changed docs")
+    const d2 = await computeWorkspaceDigest(dir, opts)
+
+    expect(d1.value).toBe(d2.value)
+
+    try { rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
+  })
+
+  it("isolates implementation digest from test input digest (GREEN 门禁回归)", async () => {
+    const dir = setupGitRepo()
+    writeFile(join(dir, "src", "index.ts"), "export const x = 1")
+    writeFile(join(dir, "test", "index.test.ts"), "import { x } from '../src/index.js'")
+    writeFile(join(dir, "vitest.config.ts"), "export default {}")
+    writeFile(join(dir, "package.json"), '{"scripts": {"test": "vitest run"}}')
+    execSync("git add -A", { cwd: dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", HOME: dir } })
+    execSync('git commit -m "init"', { cwd: dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", HOME: dir } })
+
+    // impl digest：只含 src/**；input digest：只含测试配置文件
+    const implOpts: DigestOptions = { testFilePatterns: [], implementationFilePatterns: ["src/**/*"], generatedArtifactPatterns: [] }
+    const inputOpts: DigestOptions = { testFilePatterns: ["vitest.config.*", "package.json"], implementationFilePatterns: [], generatedArtifactPatterns: [] }
+
+    const implBefore = await computeWorkspaceDigest(dir, implOpts)
+    const inputBefore = await computeWorkspaceDigest(dir, inputOpts)
+
+    // 修改已跟踪实现文件：impl digest 变化、input digest 不变
+    writeFile(join(dir, "src", "index.ts"), "export const x = 2")
+    const implAfter = await computeWorkspaceDigest(dir, implOpts)
+    const inputAfter = await computeWorkspaceDigest(dir, inputOpts)
+
+    expect(implAfter.value).not.toBe(implBefore.value)
+    expect(inputAfter.value).toBe(inputBefore.value)
+
+    // 修改测试配置：input digest 变化、impl digest 不变
+    writeFile(join(dir, "vitest.config.ts"), "export default { testTimeout: 9999 }")
+    const implFinal = await computeWorkspaceDigest(dir, implOpts)
+    const inputFinal = await computeWorkspaceDigest(dir, inputOpts)
+
+    expect(implFinal.value).toBe(implAfter.value)
+    expect(inputFinal.value).not.toBe(inputAfter.value)
 
     try { rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
   })

@@ -41,12 +41,12 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "rm -rf dist && tsc -p tsconfig.json",
     "prepublishOnly": "npm test && npm run typecheck && npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "prompt-lint": "vitest run test/plugin/prompt-lint.test.ts",
-    "test:pack": "npm pack --dry-run 2>&1 | tee /dev/stderr | grep -q 'assets/skills/flow-tdd/SKILL.md' && echo 'PASS: flow-tdd/SKILL.md found in tarball' || (echo 'FAIL: flow-tdd/SKILL.md not found in tarball' && exit 1)",
+    "test:pack": "npm run build && pack_out=$(npm pack --dry-run 2>&1); echo \"$pack_out\" | grep -q 'dist/kernel/' || { echo 'FAIL: tarball 缺少 dist/kernel/'; exit 1; }; echo \"$pack_out\" | grep -q 'dist/flowrun/' && { echo 'FAIL: tarball 含过期 flowrun/ 残留'; exit 1; }; echo 'PASS: tarball 含 dist/kernel/，无 flowrun/ 残留'",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"

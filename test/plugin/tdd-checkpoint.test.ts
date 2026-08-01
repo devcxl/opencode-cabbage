@@ -6,7 +6,10 @@ import {
   createTddCheckpointTool,
   registerTddCheckpoint,
   setTddCheckpointGhExecutor,
+  setTddCheckpointGitExecutor,
   checkTddSubmitGate,
+  isDocumentationOnly,
+  parsePorcelainChanges,
   TASK_TDD_TAG,
   TDD_STATE_TAG,
   parseStateFromContent,
@@ -28,9 +31,13 @@ vi.mock("../../src/kernel/tdd/adapter.js", () => ({
   executeRedCheck: vi.fn(),
   executeVitest: vi.fn(),
 }))
-vi.mock("../../src/kernel/tdd/digest.js", () => ({
-  computeWorkspaceDigest: vi.fn(),
-}))
+vi.mock("../../src/kernel/tdd/digest.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/kernel/tdd/digest.js")>()
+  return {
+    computeWorkspaceDigest: vi.fn(),
+    matchesAnyPattern: actual.matchesAnyPattern,
+  }
+})
 
 // ─── 常量 ───
 
@@ -274,6 +281,7 @@ describe("tdd_checkpoint — caller gate", () => {
     expect(devResp.ok).toBe(false)
     expect(devResp.error.code).toBe("CALLER_NOT_AUTHORIZED")
 
+    setTddCheckpointGitExecutor(() => "?? docs/README.md")
     const priResp = await runTool({ op: "not-applicable", parent_issue_number: 12, task_id: "tdd-checkpoint-tool" }, { role: "primary" })
     expect(priResp.ok).toBe(true)
   })
@@ -562,11 +570,34 @@ describe("tdd_checkpoint — status", () => {
 
 describe("tdd_checkpoint — exemptions", () => {
   it("not-applicable marks evidence as waived (pure documentation change)", async () => {
+    setTddCheckpointGitExecutor(() => "?? docs/README.md")
     const resp = await runTool({ op: "not-applicable", parent_issue_number: 12, task_id: "tdd-checkpoint-tool", reason: "docs only" }, { role: "primary" })
     expect(resp.ok).toBe(true)
     const evidence = latestEvidence()
     expect(evidence!.status).toBe("waived")
     expect(evidence!.warnings.some(w => w.includes("not-applicable"))).toBe(true)
+  })
+
+  it("not-applicable rejects code changes (WAIVER_DOCS_ONLY)", async () => {
+    setTddCheckpointGitExecutor(() => " M src/index.ts")
+    const resp = await runTool({ op: "not-applicable", parent_issue_number: 12, task_id: "tdd-checkpoint-tool", reason: "docs only" }, { role: "primary" })
+    expect(resp.ok).toBe(false)
+    expect(resp.error.code).toBe("WAIVER_DOCS_ONLY")
+    expect(commentBody()).toBeNull()
+  })
+
+  it("not-applicable rejects mixed doc+code changes", async () => {
+    setTddCheckpointGitExecutor(() => "?? docs/README.md\n M src/index.ts")
+    const resp = await runTool({ op: "not-applicable", parent_issue_number: 12, task_id: "tdd-checkpoint-tool", reason: "docs only" }, { role: "primary" })
+    expect(resp.ok).toBe(false)
+    expect(resp.error.code).toBe("WAIVER_DOCS_ONLY")
+  })
+
+  it("not-applicable rejects an empty change set", async () => {
+    setTddCheckpointGitExecutor(() => "")
+    const resp = await runTool({ op: "not-applicable", parent_issue_number: 12, task_id: "tdd-checkpoint-tool", reason: "docs only" }, { role: "primary" })
+    expect(resp.ok).toBe(false)
+    expect(resp.error.code).toBe("WAIVER_DOCS_ONLY")
   })
 
   it("exempt-request requires user_confirmed", async () => {
@@ -581,6 +612,7 @@ describe("tdd_checkpoint — exemptions", () => {
   })
 
   it("submit gate passes for waived evidence (exemption closes the gate)", async () => {
+    setTddCheckpointGitExecutor(() => "?? docs/README.md")
     await runTool({ op: "not-applicable", parent_issue_number: 12, task_id: "tdd-checkpoint-tool", reason: "docs only" }, { role: "primary" })
     const policy = makePolicy()
     const criteria = makeCriteria()
@@ -593,6 +625,33 @@ describe("tdd_checkpoint — exemptions", () => {
     })
     expect(gate.ok).toBe(true)
     if (gate.ok) expect(gate.status).toBe("waived")
+  })
+})
+
+// ─── 纯文档豁免纯函数 ───
+
+describe("tdd_checkpoint — isDocumentationOnly / parsePorcelainChanges", () => {
+  const DOC_PATTERNS = ["**/*.md", "docs/**", "README*"]
+
+  it("isDocumentationOnly accepts pure docs", () => {
+    expect(isDocumentationOnly(["docs/README.md"], DOC_PATTERNS)).toBe(true)
+    expect(isDocumentationOnly(["README.md"], DOC_PATTERNS)).toBe(true)
+  })
+
+  it("isDocumentationOnly rejects code and empty sets", () => {
+    expect(isDocumentationOnly(["src/index.ts"], DOC_PATTERNS)).toBe(false)
+    expect(isDocumentationOnly(["docs/a.md", "src/index.ts"], DOC_PATTERNS)).toBe(false)
+    expect(isDocumentationOnly([], DOC_PATTERNS)).toBe(false)
+  })
+
+  it("parsePorcelainChanges extracts paths and resolves renames", () => {
+    expect(parsePorcelainChanges(" M src/index.ts\n?? docs/new.md\nA  README.md")).toEqual([
+      "src/index.ts",
+      "docs/new.md",
+      "README.md",
+    ])
+    expect(parsePorcelainChanges("R  old.md -> docs/new.md")).toEqual(["docs/new.md"])
+    expect(parsePorcelainChanges("UU conflict.ts")).toEqual([])
   })
 })
 

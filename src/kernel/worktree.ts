@@ -27,7 +27,7 @@ async function git(args: string): Promise<{ stdout: string; stderr: string }> {
 
 export type WorktreeStartResult =
   | { ok: true; branch: string; path: string; reused: boolean }
-  | { ok: false; code: "BRANCH_EXISTS" | "BRANCH_EXISTS_UNMERGED" | "BRANCH_MISMATCH" | "GIT_FAILED"; message: string }
+  | { ok: false; code: "BRANCH_EXISTS" | "BRANCH_EXISTS_UNMERGED" | "BRANCH_MISMATCH" | "INVALID_SLUG" | "GIT_FAILED"; message: string }
 
 export interface WorktreeStartInput {
   projectDir: string
@@ -36,8 +36,21 @@ export interface WorktreeStartInput {
   branchType?: BranchType
 }
 
+/** 合法 kebab-case slug（与 slug.ts 一致；防御：从远端标题派生的 slug 也必须过此关） */
+const SLUG_SAFE = /^[a-z0-9]+(-[a-z0-9]+)*$/
+
+/** git 分支名安全白名单：仅允许分支名合法字符，杜绝 shell 元字符 */
+const BRANCH_SAFE = /^[A-Za-z0-9._/-]+$/
+
 /** 分支已存在（本地 ref），未合并 → BRANCH_EXISTS_UNMERGED；已合并残留 → BRANCH_EXISTS */
 export async function worktreeStart(input: WorktreeStartInput): Promise<WorktreeStartResult> {
+  if (!SLUG_SAFE.test(input.slug)) {
+    return { ok: false, code: "INVALID_SLUG", message: `Invalid worktree slug format: ${input.slug}` }
+  }
+  if (!BRANCH_SAFE.test(input.base)) {
+    return { ok: false, code: "INVALID_SLUG", message: `Invalid base branch name: ${input.base}` }
+  }
+
   const branch = branchFor(input.slug, input.branchType ?? "feat")
   const worktreeDir = path.join(input.projectDir, worktreeFor(input.slug))
 
@@ -53,7 +66,7 @@ export async function worktreeStart(input: WorktreeStartInput): Promise<Worktree
   }
 
   try {
-    await git(`worktree add -b ${branch} '${escapeShellArg(worktreeDir)}' ${input.base}`)
+    await git(`worktree add -b '${escapeShellArg(branch)}' '${escapeShellArg(worktreeDir)}' '${escapeShellArg(input.base)}'`)
     return { ok: true, branch, path: worktreeDir, reused: false }
   } catch (err) {
     return { ok: false, code: "GIT_FAILED", message: String(err) }
@@ -80,7 +93,7 @@ async function reuseWorktree(worktreeDir: string, branch: string): Promise<Workt
 
 async function branchExists(branch: string): Promise<boolean> {
   try {
-    const { stdout } = await git(`rev-parse --verify refs/heads/${branch}`)
+    const { stdout } = await git(`rev-parse --verify 'refs/heads/${escapeShellArg(branch)}'`)
     return stdout.trim() !== ""
   } catch {
     return false
@@ -90,7 +103,7 @@ async function branchExists(branch: string): Promise<boolean> {
 /** branch 是否是 base 的祖先（已合并）；非祖先或 git 失败 → false */
 async function isMergedToBase(branch: string, base: string): Promise<boolean> {
   try {
-    await git(`merge-base --is-ancestor ${branch} ${base}`)
+    await git(`merge-base --is-ancestor '${escapeShellArg(branch)}' '${escapeShellArg(base)}'`)
     return true
   } catch {
     return false
@@ -151,7 +164,7 @@ async function isDirty(worktreeDir: string): Promise<boolean> {
 /** 分支是否已推送到 origin（ls-remote 命中 refs/heads/<branch>） */
 async function isBranchPushed(branch: string): Promise<boolean> {
   try {
-    const { stdout } = await git(`ls-remote --heads origin ${branch}`)
+    const { stdout } = await git(`ls-remote --heads origin '${escapeShellArg(branch)}'`)
     return stdout.includes(`refs/heads/${branch}`)
   } catch {
     return false
@@ -160,9 +173,9 @@ async function isBranchPushed(branch: string): Promise<boolean> {
 
 async function removeLocalBranch(branch: string): Promise<void> {
   try {
-    await git(`rev-parse --verify refs/heads/${branch}`)
+    await git(`rev-parse --verify 'refs/heads/${escapeShellArg(branch)}'`)
   } catch {
     return // 本地分支不存在，跳过
   }
-  await git(`branch -D ${branch}`)
+  await git(`branch -D '${escapeShellArg(branch)}'`)
 }

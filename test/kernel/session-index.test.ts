@@ -52,6 +52,45 @@ describe("sessionIndexPath", () => {
   })
 })
 
+describe("并发安全（KeyedMutex 串行化 read-modify-write）", () => {
+  it("并发绑定不同 flow：两条绑定都不丢失", async () => {
+    const dir = await makeProjectDir()
+    await Promise.all([
+      bindSession(dir, 1, "sess_a"),
+      bindSession(dir, 2, "sess_b"),
+      bindSession(dir, 3, "sess_c"),
+    ])
+    const index = await readIndex(dir)
+    expect(Object.keys(index.flows).sort()).toEqual(["1", "2", "3"])
+    expect(getFlowSession(index, 1)?.sessionID).toBe("sess_a")
+    expect(getFlowSession(index, 2)?.sessionID).toBe("sess_b")
+    expect(getFlowSession(index, 3)?.sessionID).toBe("sess_c")
+  })
+
+  it("并发绑定 + 更新同一 flow：最终状态一致且不丢失 entry", async () => {
+    const dir = await makeProjectDir()
+    await bindSession(dir, 7, "sess_x")
+    await Promise.all([
+      updateFlowSession(dir, 7, { continuationCount: 1 }),
+      updateFlowSession(dir, 7, { continuationCount: 2 }),
+      updateFlowSession(dir, 7, { continuationCount: 3 }),
+    ])
+    const index = await readIndex(dir)
+    const flow = getFlowSession(index, 7)
+    expect(flow).not.toBeNull()
+    expect(flow?.continuationCount).toBe(3)
+  })
+
+  it("updateFlowSession 拒绝非法 status", async () => {
+    const dir = await makeProjectDir()
+    await bindSession(dir, 7, "sess_x")
+    const result = await updateFlowSession(dir, 7, { status: "bogus" as never })
+    expect(result).toBeNull()
+    const index = await readIndex(dir)
+    expect(getFlowSession(index, 7)?.status).toBe("active")
+  })
+})
+
 describe("readIndex", () => {
   it("索引文件不存在时返回空索引", async () => {
     const dir = await makeProjectDir()

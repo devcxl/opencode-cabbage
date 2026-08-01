@@ -92,7 +92,7 @@ describe("adversarial #7 — 脏 worktree 销毁必须被拒", () => {
       if (args.includes("status --porcelain")) return { stdout: "", stderr: "" }
       if (args.includes("ls-remote")) return { stdout: `abc\trefs/heads/${branch}`, stderr: "" }
       if (args.startsWith("worktree remove")) return { stdout: "", stderr: "" }
-      if (args.includes("rev-parse --verify refs/heads/")) return { stdout: "abc", stderr: "" }
+      if (args.includes("refs/heads/")) return { stdout: "abc", stderr: "" }
       if (args.startsWith("branch -D")) return { stdout: "", stderr: "" }
       throw new Error(`unexpected git call: ${args}`)
     })

@@ -238,7 +238,9 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
     await initBootstrap()
     startPeriodicCleanup()
 
-    autoResume(goalClient, projectDir)
+    void autoResume(goalClient, projectDir).catch(err => {
+      console.error("[cabbage] auto-resume failed:", err)
+    })
 
     return {
       tool: {
@@ -351,9 +353,16 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
         if (evt.type === "session.status" && evt.properties?.status?.type === "idle") {
           const sessionID: string | undefined = evt.properties.sessionID
           if (sessionID) {
-            const result = await goalClient.session.get({ sessionID }) as unknown as SessionGetResponse
-            if (result?.data?.parentID) return
-            void queueContinuation(goalClient, sessionID, projectDir)
+            try {
+              const result = await goalClient.session.get({ sessionID }) as unknown as SessionGetResponse
+              if (result?.data?.parentID) return
+            } catch (err) {
+              console.error("[cabbage] session lookup failed:", err)
+              return
+            }
+            void queueContinuation(goalClient, sessionID, projectDir).catch(err => {
+              console.error("[cabbage] continuation failed:", err)
+            })
           }
         }
 
@@ -365,23 +374,31 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
             const { goal } = await readGoal(goalClient, sessionID)
 
             if (action === "retry" && goal) {
-              await goalClient.session.promptAsync({
-                sessionID,
-                parts: [{
-                  type: "text" as const,
-                  text: `[auto-retry] Previous attempt failed. Try a different approach.\n\n${formatGoal(goal)}`,
-                  synthetic: true,
-                }],
-              })
+              try {
+                await goalClient.session.promptAsync({
+                  sessionID,
+                  parts: [{
+                    type: "text" as const,
+                    text: `[auto-retry] Previous attempt failed. Try a different approach.\n\n${formatGoal(goal)}`,
+                    synthetic: true,
+                  }],
+                })
+              } catch (err) {
+                console.error("[cabbage] auto-retry prompt failed:", err)
+              }
             } else if (action === "skip" && goal) {
-              await goalClient.session.promptAsync({
-                sessionID,
-                parts: [{
-                  type: "text" as const,
-                  text: `[skip] Skipping failed step. Continue with remaining work.\n\n${formatGoal(goal)}`,
-                  synthetic: true,
-                }],
-              })
+              try {
+                await goalClient.session.promptAsync({
+                  sessionID,
+                  parts: [{
+                    type: "text" as const,
+                    text: `[skip] Skipping failed step. Continue with remaining work.\n\n${formatGoal(goal)}`,
+                    synthetic: true,
+                  }],
+                })
+              } catch (err) {
+                console.error("[cabbage] auto-skip prompt failed:", err)
+              }
             }
           }
         }

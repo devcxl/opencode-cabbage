@@ -2,12 +2,16 @@
  * Flow → session 轻量索引（替代 session-state.json）。
  * 路径：.opencode/opencode-cabbage/session-index.json
  * 作用：parentIssueNumber → sessionID 绑定；双 session 检测（R7）。
+ * 并发：全部 read-modify-write 按 projectDir 走 KeyedMutex 串行，防丢失更新。
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { PLUGIN_ID } from "../util/paths.js"
+import { KeyedMutex } from "./mutex.js"
 
 export type FlowSessionStatus = "active" | "paused" | "completed" | "cancelled"
+
+const VALID_STATUSES: FlowSessionStatus[] = ["active", "paused", "completed", "cancelled"]
 
 export interface FlowSessionEntry {
   sessionID: string
@@ -19,6 +23,9 @@ export interface FlowSessionEntry {
 export interface SessionIndex {
   flows: Record<string, FlowSessionEntry>
 }
+
+/** 按 projectDir 串行化索引读写（防并发 bind/update 互覆盖） */
+const indexMutex = new KeyedMutex()
 
 export function sessionIndexPath(projectDir: string): string {
   return path.join(projectDir, ".opencode", PLUGIN_ID, "session-index.json")
@@ -37,10 +44,10 @@ export async function readIndex(projectDir: string): Promise<SessionIndex> {
   }
 }
 
-/** 原子写：先写临时文件再 rename。 */
+/** 原子写：先写临时文件（PID 后缀防跨进程 tmp 冲突）再 rename。 */
 export async function writeIndex(projectDir: string, index: SessionIndex): Promise<void> {
   const target = sessionIndexPath(projectDir)
-  const tmp = `${target}.tmp`
+  const tmp = `${target}.${process.pid}.tmp`
   await mkdir(path.dirname(target), { recursive: true })
   await writeFile(tmp, JSON.stringify(index, null, 2), "utf8")
   await rename(tmp, target)
@@ -64,27 +71,29 @@ export async function bindSession(
   parentIssueNumber: number,
   sessionID: string,
 ): Promise<BindSessionResult> {
-  const index = await readIndex(projectDir)
-  const key = String(parentIssueNumber)
-  const existing = index.flows[key]
+  return indexMutex.runExclusive(projectDir, async () => {
+    const index = await readIndex(projectDir)
+    const key = String(parentIssueNumber)
+    const existing = index.flows[key]
 
-  if (existing && existing.sessionID !== sessionID && existing.status === "active") {
-    return {
-      ok: false,
-      code: "FLOW_SESSION_CONFLICT",
-      message: `Flow #${parentIssueNumber} is already bound to active session "${existing.sessionID}". Use flow_control takeover with user confirmation to take over.`,
+    if (existing && existing.sessionID !== sessionID && existing.status === "active") {
+      return {
+        ok: false,
+        code: "FLOW_SESSION_CONFLICT",
+        message: `Flow #${parentIssueNumber} is already bound to active session "${existing.sessionID}". Use flow_control takeover with user confirmation to take over.`,
+      }
     }
-  }
 
-  const entry: FlowSessionEntry = {
-    sessionID,
-    status: "active",
-    continuationCount: existing && existing.sessionID === sessionID ? existing.continuationCount : 0,
-    updatedAt: Date.now(),
-  }
-  index.flows[key] = entry
-  await writeIndex(projectDir, index)
-  return { ok: true, entry }
+    const entry: FlowSessionEntry = {
+      sessionID,
+      status: "active",
+      continuationCount: existing && existing.sessionID === sessionID ? existing.continuationCount : 0,
+      updatedAt: Date.now(),
+    }
+    index.flows[key] = entry
+    await writeIndex(projectDir, index)
+    return { ok: true, entry }
+  })
 }
 
 /**
@@ -98,38 +107,40 @@ export async function takeoverSession(
   newSessionID: string,
   userConfirmed: boolean,
 ): Promise<BindSessionResult> {
-  const index = await readIndex(projectDir)
-  const key = String(parentIssueNumber)
-  const existing = index.flows[key]
+  return indexMutex.runExclusive(projectDir, async () => {
+    const index = await readIndex(projectDir)
+    const key = String(parentIssueNumber)
+    const existing = index.flows[key]
 
-  if (existing && existing.sessionID !== newSessionID && existing.status === "active" && !userConfirmed) {
-    return {
-      ok: false,
-      code: "TAKEOVER_NOT_CONFIRMED",
-      message: `Flow #${parentIssueNumber} is bound to active session "${existing.sessionID}". Takeover requires user confirmation (user_confirmed: true).`,
+    if (existing && existing.sessionID !== newSessionID && existing.status === "active" && !userConfirmed) {
+      return {
+        ok: false,
+        code: "TAKEOVER_NOT_CONFIRMED",
+        message: `Flow #${parentIssueNumber} is bound to active session "${existing.sessionID}". Takeover requires user confirmation (user_confirmed: true).`,
+      }
     }
-  }
 
-  if (existing) {
-    if (existing.sessionID === newSessionID) {
-      const entry: FlowSessionEntry = { ...existing, status: "active", updatedAt: Date.now() }
-      index.flows[key] = entry
-      await writeIndex(projectDir, index)
-      return { ok: true, entry }
+    if (existing) {
+      if (existing.sessionID === newSessionID) {
+        const entry: FlowSessionEntry = { ...existing, status: "active", updatedAt: Date.now() }
+        index.flows[key] = entry
+        await writeIndex(projectDir, index)
+        return { ok: true, entry }
+      }
+      existing.status = "paused"
+      existing.updatedAt = Date.now()
     }
-    existing.status = "paused"
-    existing.updatedAt = Date.now()
-  }
 
-  const entry: FlowSessionEntry = {
-    sessionID: newSessionID,
-    status: "active",
-    continuationCount: 0,
-    updatedAt: Date.now(),
-  }
-  index.flows[key] = entry
-  await writeIndex(projectDir, index)
-  return { ok: true, entry }
+    const entry: FlowSessionEntry = {
+      sessionID: newSessionID,
+      status: "active",
+      continuationCount: 0,
+      updatedAt: Date.now(),
+    }
+    index.flows[key] = entry
+    await writeIndex(projectDir, index)
+    return { ok: true, entry }
+  })
 }
 
 /** 更新已绑定 flow 的状态/计数；flow 未绑定时返回 null 且不创建 entry。 */
@@ -138,14 +149,19 @@ export async function updateFlowSession(
   parentIssueNumber: number,
   patch: Partial<Pick<FlowSessionEntry, "status" | "continuationCount">>,
 ): Promise<FlowSessionEntry | null> {
-  const index = await readIndex(projectDir)
-  const key = String(parentIssueNumber)
-  const existing = index.flows[key]
-  if (!existing) return null
-  const entry: FlowSessionEntry = { ...existing, ...patch, updatedAt: Date.now() }
-  index.flows[key] = entry
-  await writeIndex(projectDir, index)
-  return entry
+  if (patch.status !== undefined && !VALID_STATUSES.includes(patch.status)) {
+    return null
+  }
+  return indexMutex.runExclusive(projectDir, async () => {
+    const index = await readIndex(projectDir)
+    const key = String(parentIssueNumber)
+    const existing = index.flows[key]
+    if (!existing) return null
+    const entry: FlowSessionEntry = { ...existing, ...patch, updatedAt: Date.now() }
+    index.flows[key] = entry
+    await writeIndex(projectDir, index)
+    return entry
+  })
 }
 
 /** 解绑：仅当 sessionID 与当前绑定匹配时删除 entry。 */
@@ -154,11 +170,13 @@ export async function unbindSession(
   parentIssueNumber: number,
   sessionID: string,
 ): Promise<boolean> {
-  const index = await readIndex(projectDir)
-  const key = String(parentIssueNumber)
-  const existing = index.flows[key]
-  if (!existing || existing.sessionID !== sessionID) return false
-  delete index.flows[key]
-  await writeIndex(projectDir, index)
-  return true
+  return indexMutex.runExclusive(projectDir, async () => {
+    const index = await readIndex(projectDir)
+    const key = String(parentIssueNumber)
+    const existing = index.flows[key]
+    if (!existing || existing.sessionID !== sessionID) return false
+    delete index.flows[key]
+    await writeIndex(projectDir, index)
+    return true
+  })
 }

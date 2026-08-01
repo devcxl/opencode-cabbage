@@ -11,6 +11,7 @@ import {
   readTddEvidenceComment,
   appendTddEvidence,
   setStageLabel,
+  MAX_EVIDENCE_COMMENT_BYTES,
 } from "../../src/kernel/records.js"
 import type { setRecordsGhExecutor as SetRecordsGhExecutorType } from "../../src/kernel/records.js"
 
@@ -214,8 +215,9 @@ describe("appendTddEvidence", () => {
     const ghFn = async (args: string): Promise<{ stdout: string; stderr: string }> => {
       calls.push(args)
       if (args.startsWith("issue view") && args.includes("--json comments")) {
-        const first = comments.find(c => c.body.includes(EVIDENCE_MARKER_START))
-        return { stdout: first ? JSON.stringify({ id: first.id, body: first.body }) : "null", stderr: "" }
+        // 与实现一致：取最新的受控 comment
+        const latest = [...comments].reverse().find(c => c.body.includes(EVIDENCE_MARKER_START))
+        return { stdout: latest ? JSON.stringify({ id: latest.id, body: latest.body }) : "null", stderr: "" }
       }
       if (args.startsWith("issue comment")) {
         comments.push({ id: comments.length + 1, body: parseBodyArg(args) })
@@ -290,6 +292,44 @@ describe("appendTddEvidence", () => {
     expect(comments[0].body).toContain("revision:8")
     for (const b of blocks) {
       expect(comments[0].body).toContain(b)
+    }
+  })
+
+  it("rolls over to a new controlled comment when the latest comment exceeds the size cap", async () => {
+    const { ghFn, comments } = makeState()
+    setRecordsGhExecutor(ghFn)
+    // 第一条 comment 超限（略大于 MAX_EVIDENCE_COMMENT_BYTES）
+    const big = "x".repeat(MAX_EVIDENCE_COMMENT_BYTES + 100)
+    const r1 = await appendTddEvidence(42, big)
+    expect(r1).toEqual({ ok: true, revision: 1 })
+    expect(comments).toHaveLength(1)
+
+    // 第二条走滚动：新建 comment，revision 继续
+    const r2 = await appendTddEvidence(42, "## green\n- result: PASS")
+    expect(r2).toEqual({ ok: true, revision: 2 })
+    expect(comments).toHaveLength(2)
+    expect(comments[1].body).toContain("revision:2")
+    expect(comments[1].body).toContain("## green")
+
+    // 后续追加到最新 comment（不回到旧 comment）
+    const r3 = await appendTddEvidence(42, "## final\n- result: PASS")
+    expect(r3).toEqual({ ok: true, revision: 3 })
+    expect(comments).toHaveLength(2)
+    expect(comments[1].body).toContain("## final")
+  })
+
+  it("readTddEvidenceComment returns the latest controlled comment across rollover", async () => {
+    const { ghFn, comments } = makeState()
+    setRecordsGhExecutor(ghFn)
+    await appendTddEvidence(42, "x".repeat(MAX_EVIDENCE_COMMENT_BYTES + 100))
+    await appendTddEvidence(42, "## green\n- result: PASS")
+
+    const latest = await readTddEvidenceComment(42)
+    expect(latest).not.toBeNull()
+    if (latest) {
+      expect(latest.id).toBe(2)
+      expect(latest.revision).toBe(2)
+      expect(latest.body).toContain("## green")
     }
   })
 

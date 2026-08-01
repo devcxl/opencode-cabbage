@@ -280,7 +280,7 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
           throw new Error(`unexpected records gh: ${args}`)
         })
         setTaskGitExecutor(async args => {
-          if (args.includes("rev-parse --verify refs/heads/")) return { stdout: "", stderr: "" }
+          if (args.includes("refs/heads/")) return { stdout: "", stderr: "" }
           throw new Error(`unexpected task git: ${args}`)
         })
 
@@ -306,7 +306,7 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
     it("rejects a slug conflict when the feat branch already exists", async () => {
       await withProjectDir(async dir => {
         setTaskGitExecutor(async args => {
-          if (args.includes("rev-parse --verify refs/heads/feat/")) return { stdout: "abc123", stderr: "" }
+          if (args.includes("refs/heads/feat/")) return { stdout: "abc123", stderr: "" }
           throw new Error(`unexpected task git: ${args}`)
         })
         const resp = await executeOp(dir, "create-task", { parent_issue_number: 12, title: "flow-control-tool" })
@@ -523,7 +523,7 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
         const createCall = calls.find(c => c.includes("pr create"))
         expect(createCall).toBeDefined()
         if (createCall) {
-          expect(createCall).toContain("--head feat/user-auth-login")
+          expect(createCall).toContain("--head 'feat/user-auth-login'")
           expect(createCall).toContain("Closes #13")
           expect(createCall).toContain("#13")
         }
@@ -817,7 +817,7 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
         setWorktreeGitExecutor(async args => {
           if (args.includes("status --porcelain")) return { stdout: "", stderr: "" }
           if (args.includes("worktree remove")) return { stdout: "", stderr: "" }
-          if (args.includes("rev-parse --verify refs/heads/")) return { stdout: "abc", stderr: "" }
+          if (args.includes("refs/heads/")) return { stdout: "abc", stderr: "" }
           if (args.includes("branch -D")) return { stdout: "", stderr: "" }
           throw new Error(`unexpected worktree git: ${args}`)
         })
@@ -915,7 +915,7 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
         setWorktreeGitExecutor(async args => {
           if (args.includes("status --porcelain")) return { stdout: "", stderr: "" }
           if (args.includes("worktree remove")) return { stdout: "", stderr: "" }
-          if (args.includes("rev-parse --verify refs/heads/")) return { stdout: "abc", stderr: "" }
+          if (args.includes("refs/heads/")) return { stdout: "abc", stderr: "" }
           if (args.includes("branch -D")) return { stdout: "", stderr: "" }
           throw new Error(`unexpected worktree git: ${args}`)
         })
@@ -1015,7 +1015,7 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
         setWorktreeGitExecutor(async args => {
           if (args.includes("status --porcelain")) return { stdout: "", stderr: "" }
           if (args.includes("worktree remove")) return { stdout: "", stderr: "" }
-          if (args.includes("rev-parse --verify refs/heads/")) return { stdout: "abc", stderr: "" }
+          if (args.includes("refs/heads/")) return { stdout: "abc", stderr: "" }
           if (args.includes("branch -D")) return { stdout: "", stderr: "" }
           throw new Error(`unexpected worktree git: ${args}`)
         })
@@ -1035,7 +1035,7 @@ describe("createTaskControlTool (spec §2.3 task_control)", () => {
               stderr: "",
             }
           }
-          if (args.includes("pr list --head feat/user-auth-login")) {
+          if (args.includes("pr list --head 'feat/user-auth-login'")) {
             return {
               stdout: JSON.stringify([{ number: 42, state: "OPEN", headRefName: "feat/user-auth-login" }]),
               stderr: "",

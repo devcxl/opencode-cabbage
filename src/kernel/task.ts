@@ -131,7 +131,7 @@ export function buildTaskTddBlock(policy: TddPolicy, criteria: AcceptanceCriteri
 async function updateTaskBody(issueNumber: number, newBody: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const bodyArg = escapeShellArg(newBody)
-    await taskGh(`api repos/{owner}/{repo}/issues/${issueNumber} -X PATCH -f body=${bodyArg} --silent`)
+    await taskGh(`api repos/{owner}/{repo}/issues/${issueNumber} -X PATCH -f body='${bodyArg}' --silent`)
     return { ok: true }
   } catch (err) {
     return { ok: false, error: String(err) }
@@ -204,7 +204,7 @@ export function freezeTddPolicy(profile: ProjectProfile): TddPolicy {
         adapter: "vitest" as const,
         baseCommand: profile.testCommand,
         timeoutMs: 120_000,
-        executionInputPatterns: [],
+        executionInputPatterns: ["vitest.config.*", "vitest.*.config.*", "jest.config.*", "package.json"],
       }
     : null
   return {
@@ -385,7 +385,7 @@ export async function readTaskState(projectDir: string, slug: string): Promise<T
 /** 按 title（task slug）解析 Parent 下的 Sub Issue 号 */
 async function resolveTaskIssue(parentIssueNumber: number, taskId: string): Promise<number | null> {
   const { stdout } = await taskGh(
-    `issue list --parent ${parentIssueNumber} --state all --json number,title --jq '[.[] | select(.title == "${taskId}") | .number] | first'`,
+    `issue list --parent ${parentIssueNumber} --state all --json number,title --jq '[.[] | select(.title == ${JSON.stringify(taskId)}) | .number] | first'`,
   )
   const trimmed = stdout.trim()
   if (trimmed === "" || trimmed === "null") return null
@@ -410,8 +410,8 @@ export async function setTaskStatusLabel(
     const target = `${TASK_STATUS_LABEL_PREFIX}${status}`
     const stale = current.filter(l => l.startsWith(TASK_STATUS_LABEL_PREFIX) && l !== target)
     const args: string[] = []
-    for (const label of stale) args.push(`--remove-label '${label}'`)
-    args.push(`--add-label '${target}'`)
+    for (const label of stale) args.push(`--remove-label '${escapeShellArg(label)}'`)
+    args.push(`--add-label '${escapeShellArg(target)}'`)
     await taskGh(`issue edit ${issueNumber} ${args.join(" ")}`)
     return { ok: true }
   } catch (err) {
@@ -478,7 +478,7 @@ export async function createTask(input: CreateTaskInput): Promise<CreateTaskResu
 /** 本地分支是否已存在（rev-parse 成功且有输出） */
 async function branchExists(branch: string): Promise<boolean> {
   try {
-    const { stdout } = await taskGit(`rev-parse --verify refs/heads/${branch}`)
+    const { stdout } = await taskGit(`rev-parse --verify 'refs/heads/${escapeShellArg(branch)}'`)
     return stdout.trim() !== ""
   } catch {
     return false
@@ -702,7 +702,7 @@ async function submitPr(
 ): Promise<SubmitTaskResult> {
   // push 分支（工具内以宿主凭据执行）
   try {
-    await gitIn(state.worktreePath, `push -u origin ${state.branch}`)
+    await gitIn(state.worktreePath, `push -u origin '${escapeShellArg(state.branch)}'`)
   } catch (err) {
     return { ok: false, code: "PUSH_FAILED", message: String(err) }
   }
@@ -715,7 +715,7 @@ async function submitPr(
   const prTitle = `feat: ${taskId}`
   const prBody = [`# ${taskId}`, "", `- Task Record: #${issueNumber}`, `- TDD evidence: ${evidenceLink}`, "", `Closes #${issueNumber}`, ""].join("\n")
   const { stdout: prOut } = await taskGh(
-    `pr create --title '${escapeShellArg(prTitle)}' --body '${escapeShellArg(prBody)}' --base ${base} --head ${state.branch} --json number --jq .number`,
+    `pr create --title '${escapeShellArg(prTitle)}' --body '${escapeShellArg(prBody)}' --base '${escapeShellArg(base)}' --head '${escapeShellArg(state.branch)}' --json number --jq .number`,
   )
   const prNumber = Number(prOut.trim())
   if (!Number.isInteger(prNumber)) {
@@ -783,7 +783,7 @@ export async function mergeTask(
 
   // 1. 定位 open PR（head 分支）
   const { stdout: prOut } = await taskGh(
-    `pr list --head ${state.branch} --state open --json number,headRefOid,author --jq '[.[] | {number, headRefOid, author}] | first'`,
+    `pr list --head '${escapeShellArg(state.branch)}' --state open --json number,headRefOid,author --jq '[.[] | {number, headRefOid, author}] | first'`,
   )
   if (prOut.trim() === "" || prOut.trim() === "null") {
     return { ok: false, code: "PR_NOT_FOUND", message: `no open PR for branch ${state.branch}` }
@@ -959,7 +959,7 @@ export async function destroyTaskWorktree(
 
 /** 分支是否有已合并的 PR */
 async function isPrMerged(branch: string): Promise<boolean> {
-  const { stdout } = await taskGh(`pr list --head ${branch} --state merged --json number --jq 'length'`)
+  const { stdout } = await taskGh(`pr list --head '${escapeShellArg(branch)}' --state merged --json number --jq 'length'`)
   return Number(stdout.trim()) > 0
 }
 
@@ -981,7 +981,7 @@ export async function readTaskStatus(
 
     const branch = `feat/${taskId}`
     const { stdout: prsOut } = await taskGh(
-      `pr list --head ${branch} --state all --json number,state,headRefName --jq '[.[] | {number, state, headRefName}]'`,
+      `pr list --head '${escapeShellArg(branch)}' --state all --json number,state,headRefName --jq '[.[] | {number, state, headRefName}]'`,
     )
     const prs = JSON.parse(prsOut) as Array<{ number: number; state: string; headRefName: string }>
 

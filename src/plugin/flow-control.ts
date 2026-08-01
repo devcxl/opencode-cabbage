@@ -6,6 +6,7 @@
  * server.ts 接线由后续批次统一处理（本批不注册，避免文件冲突）。
  */
 import { tool } from "@opencode-ai/plugin/tool"
+import { resolveProjectDir } from "../util/paths.js"
 import { requireToolCaller, CALLER_NOT_AUTHORIZED } from "../kernel/caller.js"
 import {
   FLOW_STAGES,
@@ -92,25 +93,28 @@ Caller: primary for all ops except complete-flow (goal-verify only).`,
       const denied = await requireToolCaller(ctx, "flow_control", op, deps.sessionClient)
       if (denied) return errorResponse(CALLER_NOT_AUTHORIZED, denied)
 
+      // 会话级项目目录优先（workspace root 异常会话下插件级 projectDir 可能是 `/`）
+      const runtimeDeps = { ...deps, projectDir: resolveProjectDir(ctx.directory, deps.projectDir) }
+
       try {
         switch (op) {
           case "create-flow":
-            return handleCreateFlow(deps, args, ctx.sessionID)
+            return handleCreateFlow(runtimeDeps, args, ctx.sessionID)
           case "status":
-            return handleStatus(deps, args)
+            return handleStatus(runtimeDeps, args)
           case "planning-start":
-            return handlePlanningStart(deps, args)
+            return handlePlanningStart(runtimeDeps, args)
           case "planning-pr":
-            return handlePlanningPr(deps, args)
+            return handlePlanningPr(runtimeDeps, args)
           case "stage-start":
           case "stage-complete":
-            return handleStage(deps, args, op)
+            return handleStage(runtimeDeps, args, op)
           case "complete-flow":
-            return handleCompleteFlow(deps, args, ctx)
+            return handleCompleteFlow(runtimeDeps, args, ctx)
           case "cancel-flow":
-            return handleCancelFlow(deps, args)
+            return handleCancelFlow(runtimeDeps, args)
           case "takeover":
-            return handleTakeover(deps, args, ctx.sessionID)
+            return handleTakeover(runtimeDeps, args, ctx.sessionID)
           default:
             return errorResponse("UNKNOWN_OP", `Unknown op: "${op}"`)
         }

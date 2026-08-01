@@ -3,6 +3,7 @@ import { promisify } from "node:util"
 import { readFile, writeFile } from "node:fs/promises"
 import { join, resolve, sep } from "node:path"
 import { tool } from "@opencode-ai/plugin/tool"
+import { resolveProjectDir } from "../util/paths.js"
 import { gh as ghCli } from "../util/gh.js"
 import { escapeShellArg } from "../util/shell.js"
 import { readProjectProfile } from "../kernel/profile.js"
@@ -151,13 +152,15 @@ Ops:
         )
         if (denied) return `Error: ${denied}`
 
-        const profile = await readProjectProfile(deps.projectDir)
+        // 会话级项目目录优先（workspace root 异常会话下插件级 projectDir 可能是 `/`）
+        const projectDir = resolveProjectDir(ctx.directory, deps.projectDir)
+        const profile = await readProjectProfile(projectDir)
 
         switch (op) {
           case "propose-version":
-            return proposeVersionOp(profile, deps.projectDir)
+            return proposeVersionOp(profile, projectDir)
           case "open-release-pr":
-            return openReleasePrOp(profile, args, deps.projectDir)
+            return openReleasePrOp(profile, args, projectDir)
           case "merge-release-pr":
             return mergeReleasePrOp(profile, args)
           case "monitor":

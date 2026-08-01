@@ -6,6 +6,7 @@
  * server.ts 接线由后续批次统一处理（本批不注册，避免文件冲突）。
  */
 import { tool } from "@opencode-ai/plugin/tool"
+import { resolveProjectDir } from "../util/paths.js"
 import { requireToolCaller, CALLER_NOT_AUTHORIZED } from "../kernel/caller.js"
 import {
   createTask,
@@ -88,24 +89,27 @@ Caller: primary only (developer has no task_control access).`,
       const denied = await requireToolCaller(ctx, "task_control", op, deps.sessionClient)
       if (denied) return errorResponse(CALLER_NOT_AUTHORIZED, denied)
 
+      // 会话级项目目录优先（workspace root 异常会话下插件级 projectDir 可能是 `/`）
+      const runtimeDeps = { ...deps, projectDir: resolveProjectDir(ctx.directory, deps.projectDir) }
+
       try {
         switch (op) {
           case "create-task":
-            return handleCreateTask(deps, args)
+            return handleCreateTask(runtimeDeps, args)
           case "start-task":
-            return handleStartTask(deps, args)
+            return handleStartTask(runtimeDeps, args)
           case "submit-task":
-            return handleSubmitTask(deps, args)
+            return handleSubmitTask(runtimeDeps, args)
           case "submit-review":
             return handleSubmitReview(args)
           case "merge-task":
-            return handleMergeTask(deps, args)
+            return handleMergeTask(runtimeDeps, args)
           case "cancel-task":
-            return handleCancelTask(deps, args)
+            return handleCancelTask(runtimeDeps, args)
           case "destroy-worktree":
-            return handleDestroyWorktree(deps, args)
+            return handleDestroyWorktree(runtimeDeps, args)
           case "status-task":
-            return handleStatusTask(deps, args)
+            return handleStatusTask(runtimeDeps, args)
           default:
             return errorResponse("UNKNOWN_OP", `Unknown op: "${op}"`)
         }

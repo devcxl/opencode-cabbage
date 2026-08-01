@@ -12,6 +12,7 @@
  * server.ts 接线由后续批次统一处理（本批提供工厂 + registerTddCheckpoint，不注册）。
  */
 import { tool } from "@opencode-ai/plugin/tool"
+import { resolveProjectDir } from "../util/paths.js"
 import { createHash } from "node:crypto"
 import { execFileSync } from "node:child_process"
 import { resolve, sep as pathSep } from "node:path"
@@ -722,8 +723,11 @@ Caller: developer + primary.`,
       const denied = await requireToolCaller(ctx, "tdd_checkpoint", op, deps.sessionClient)
       if (denied) return errorResponse(CALLER_NOT_AUTHORIZED, denied)
 
+      // 会话级项目目录优先（workspace root 异常会话下插件级 projectDir 可能是 `/`）
+      const runtimeDeps = { ...deps, projectDir: resolveProjectDir(ctx.directory, deps.projectDir) }
+
       try {
-        const resp = await dispatch(op, args, deps)
+        const resp = await dispatch(op, args, runtimeDeps)
         return resp.ok ? okResponse({ cycle: resp.cycle, evidence: resp.evidence }) : errorResponse(resp.error!.code, resp.error!.message)
       } catch (err) {
         return errorResponse("INTERNAL_ERROR", String(err))

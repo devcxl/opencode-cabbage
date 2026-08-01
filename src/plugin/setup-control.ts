@@ -1,5 +1,6 @@
 import { tool } from "@opencode-ai/plugin/tool"
 import { requireCaller, CALLER_NOT_AUTHORIZED, type CallerSessionClient } from "../kernel/caller.js"
+import { resolveProjectDir } from "../util/paths.js"
 import {
   probe,
   generateWorkflows,
@@ -50,15 +51,18 @@ Caller: primary.`,
       const denied = await requireCaller(ctx, ["primary"], op, deps.sessionClient)
       if (denied) return errorResponse(CALLER_NOT_AUTHORIZED, denied)
 
+      // 会话级项目目录优先（workspace root 异常会话下插件级 projectDir 可能是 `/`）
+      const projectDir = resolveProjectDir(ctx.directory, deps.projectDir)
+
       try {
         switch (op) {
           case "probe": {
-            const readiness = await probe(deps.projectDir)
+            const readiness = await probe(projectDir)
             return okResponse({ readiness })
           }
           case "generate-workflows": {
             const prTitle = (args.pr_title as string | undefined) ?? DEFAULT_PR_TITLE
-            const result = await generateWorkflows(deps.projectDir, { prTitle })
+            const result = await generateWorkflows(projectDir, { prTitle })
             if (!result.ok) {
               return errorResponse("SETUP_FAILED", result.error ?? "failed to generate workflows")
             }
@@ -69,7 +73,7 @@ Caller: primary.`,
             if (!overrides) {
               return errorResponse("POLICY_INVALID", "profile_overrides is required for confirm-profile")
             }
-            const result = await confirmProjectProfile(deps.projectDir, overrides)
+            const result = await confirmProjectProfile(projectDir, overrides)
             if (!result.ok) {
               return errorResponse(result.code ?? "POLICY_INVALID", result.message ?? "failed to confirm profile")
             }

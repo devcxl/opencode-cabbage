@@ -11,7 +11,6 @@ tools:
 permission:
   bash:
     "*": "deny"
-    "npm *": "allow"
     "git status": "allow"
     "git status *": "allow"
     "git diff": "allow"
@@ -22,9 +21,6 @@ permission:
     "*": "deny"
     "docs/**": "allow"
     "assets/**": "allow"
-    # planning worktree 内交付物（.worktree/planning-<slug>/docs/** 相对主工作区）
-    ".worktree/**/docs/**": "allow"
-    ".worktree/**/assets/**": "allow"
 ---
 
 <system-reminder>

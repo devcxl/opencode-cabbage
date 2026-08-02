@@ -29,6 +29,7 @@ permission:
     "git worktree*": "deny"
     "git checkout -b*": "deny"
     "git tag*": "deny"
+    "<profile-test-command> publish*": "deny"   # 防测试命令首 token（如 npm）被白名单放行到 publish
     "gh pr create*": "deny"
     "gh pr merge*": "deny"
     "gh pr review*": "deny"
@@ -49,8 +50,7 @@ permission:
 你认领 Task Record（GitHub Sub Issue），在对应 worktree 内按 TDD 实现代码与测试。
 
 **TDD 约束**：编码前加载 `flow-tdd` skill，遵循 RED→GREEN→final-regression→final-verification 流程。
-每个 stage 通过 `tdd_checkpoint` 提交证据到 Task 评论（唯一证据源，缺证据的 PR 会被拒绝）。
-self-report 每个 cycle 的状态，不跳过任何阶段。
+self-report 每个 cycle 的状态，不跳过任何阶段。测试质量由仓库 CI 把关。
 
 ## 工程原则（单份引用）
 
@@ -66,8 +66,8 @@ self-report 每个 cycle 的状态，不跳过任何阶段。
 - 检查相关 ADR（`docs/adr/`）确保实现与架构决策一致
 
 ### 2. 实现（TDD）
-- 加载 `flow-tdd` skill，按 Task 的 `tdd` 配置（test_commands/acceptance）执行 RED→GREEN cycle
-- 通过 `tdd_checkpoint` 提交每个 stage 的证据（cycle-start/red/green/abandon-cycle/final-regression/final-verification）
+- 加载 `flow-tdd` skill，按 Task 的验收标准与 `test_commands` 执行 RED→GREEN cycle
+- self-report 每个 stage（cycle-start/red/green/abandon-cycle/final-regression/final-verification）
 - 只改 Task 相关的文件；遵循项目现有代码规范与分层结构
 
 ### 3. 验证
@@ -76,10 +76,10 @@ self-report 每个 cycle 的状态，不跳过任何阶段。
 
 ### 4. 提交
 - 本地 `git add` + `git commit`（Conventional Commits，多次提交而非一次大提交）
-- **不 push**：分支推送与 PR 创建由 primary 的 `task_control` 完成
+- **不 push**：分支推送与 PR 创建由 primary 编排器统一完成
 
 ## 禁止事项
-- 不 push、不创建 PR、不操作 Issue（push/PR 由 primary 的 task_control 完成）
+- 不 push、不创建 PR、不操作 Issue（push/PR 由 primary 编排器统一完成）
 - 不修改与任务无关的文件
 - 不引入未在项目中使用的第三方依赖
 - 不提交硬编码的密钥/配置

@@ -16,16 +16,30 @@ function resolveSkillsPath(): string {
 export async function setupSkillsDir(sourceSkillsDir: string, promptsDir?: string): Promise<string> {
   const destDir = resolveSkillsPath()
 
-  // 清理旧内容，确保与插件版本一致
-  await rm(destDir, { recursive: true, force: true })
-  await mkdir(destDir, { recursive: true })
+  // 已安装且完整（含源目录的 SKILL.md）→ 跳过重建，避免多实例并发踩踏与无谓 IO
+  const sourceEntries = await readdir(sourceSkillsDir, { withFileTypes: true })
+  const sourceDirs = sourceEntries.filter(e => e.isDirectory()).map(e => e.name)
+  let installed = false
+  try {
+    const destEntries = await readdir(destDir, { withFileTypes: true })
+    const destDirs = destEntries.filter(e => e.isDirectory()).map(e => e.name)
+    installed = sourceDirs.every(d => destDirs.includes(d))
+  } catch {
+    installed = false
+  }
 
-  await cp(sourceSkillsDir, destDir, { recursive: true })
+  if (!installed) {
+    await rm(destDir, { recursive: true, force: true })
+    await mkdir(destDir, { recursive: true })
+    await cp(sourceSkillsDir, destDir, { recursive: true })
+  }
 
   if (promptsDir) {
     try {
       await cp(promptsDir, path.join(destDir, "_prompts"), { recursive: true })
-    } catch {}
+    } catch (err) {
+      console.warn("[cabbage] failed to copy prompts dir into skills:", err)
+    }
   }
 
   async function processDir(dir: string) {

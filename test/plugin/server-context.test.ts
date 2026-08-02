@@ -13,7 +13,11 @@ vi.mock("../../src/plugin/goal.js", async () => {
     ...actual,
     createGoalClient: () => ({
       session: {
-        get: (...args: unknown[]) => mockSessionGet(...args),
+        // 每次调用深拷贝返回值，防止 queueContinuation 原地修改 goal 污染共享常量
+        get: async (...args: unknown[]) => {
+          const r = await mockSessionGet(...args)
+          return JSON.parse(JSON.stringify(r))
+        },
         update: vi.fn(),
         promptAsync: (...args: unknown[]) => mockPromptAsync(...args),
       },
@@ -29,7 +33,15 @@ const ACTIVE_GOAL = {
   data: {
     parentID: null,
     metadata: {
-      goal: { objective: "test", completionCriterion: "pass", status: "active", continuationCount: 0 },
+      goal: { parentIssueNumber: 42, status: "active", continuationCount: 0 },
+    },
+  },
+}
+const PAUSED_GOAL = {
+  data: {
+    parentID: null,
+    metadata: {
+      goal: { parentIssueNumber: 42, status: "paused", continuationCount: 3 },
     },
   },
 }
@@ -37,9 +49,19 @@ const SUBAGENT_SESSION = { data: { parentID: "parent-1", metadata: {} } }
 const PLAIN_SESSION = { data: { parentID: null, metadata: {} } }
 
 type Transform = (input: unknown, output: { messages: unknown[] }) => Promise<void>
+type EventHook = (input: { event: unknown }) => Promise<void>
 
 let tmpDir: string
 let transform: Transform
+let event: EventHook
+
+/** 等待 fire-and-forget 的 queueContinuation 完成（轮询而非固定延时，避免全量并发抖动） */
+async function waitForContinuation() {
+  for (let i = 0; i < 50; i++) {
+    await new Promise(r => setTimeout(r, 20))
+    if (mockPromptAsync.mock.calls.length > 0) return
+  }
+}
 
 async function makeOutput(sessionID = "sess-1", text = "hello") {
   return {
@@ -47,6 +69,11 @@ async function makeOutput(sessionID = "sess-1", text = "hello") {
       { info: { role: "user", sessionID }, parts: [{ type: "text", text }] },
     ],
   }
+}
+
+/** 深拷贝避免 queueContinuation 修改共享常量（goal 对象被原地改 status/count） */
+function goalSession(goal: unknown) {
+  return JSON.parse(JSON.stringify(goal))
 }
 
 beforeEach(async () => {
@@ -64,6 +91,7 @@ beforeEach(async () => {
   }
   const plugin = await createOpencodeCabbage(projectRoot)(ctx as never, {})
   transform = plugin["experimental.chat.messages.transform"] as Transform
+  event = plugin.event as EventHook
 })
 
 afterEach(async () => {
@@ -167,5 +195,125 @@ describe("message.transform — 注入接线", () => {
     await transform({}, output)
 
     expect(output.messages[0].parts).toHaveLength(1)
+  })
+})
+
+describe("event handler — idle 自动续接", () => {
+  it("active goal idle → 注入 continuation prompt（promptAsync 调用一次）", async () => {
+    mockSessionGet.mockResolvedValue(ACTIVE_GOAL)
+    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-1" } } })
+    // 等待 fire-and-forget 的 queueContinuation 完成
+    await waitForContinuation()
+    expect(mockPromptAsync).toHaveBeenCalledTimes(1)
+    const call = mockPromptAsync.mock.calls[0][0]
+    expect(call.sessionID).toBe("sess-1")
+    expect(call.parts[0].text).toContain("#42")
+  })
+
+  it("子 agent（parentID）idle → 不续接", async () => {
+    mockSessionGet.mockResolvedValue(SUBAGENT_SESSION)
+    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-child" } } })
+    await waitForContinuation()
+    expect(mockPromptAsync).not.toHaveBeenCalled()
+  })
+
+  it("无 goal idle → 不续接", async () => {
+    mockSessionGet.mockResolvedValue(PLAIN_SESSION)
+    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-1" } } })
+    await waitForContinuation()
+    expect(mockPromptAsync).not.toHaveBeenCalled()
+  })
+
+  it("paused goal idle → 不续接", async () => {
+    mockSessionGet.mockResolvedValue(PAUSED_GOAL)
+    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-1" } } })
+    await waitForContinuation()
+    expect(mockPromptAsync).not.toHaveBeenCalled()
+  })
+
+  it("continuationCount 达上限 → 置 paused，不续接", async () => {
+    mockSessionGet.mockResolvedValue({
+      data: {
+        parentID: null,
+        metadata: { goal: { parentIssueNumber: 42, status: "active", continuationCount: 50 } },
+      },
+    })
+    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-1" } } })
+    await waitForContinuation()
+    expect(mockPromptAsync).not.toHaveBeenCalled()
+  })
+
+  it("并发两个 idle 事件 → 仅一次 promptAsync（continuationInFlight 防重入）", async () => {
+    mockSessionGet.mockResolvedValue(ACTIVE_GOAL)
+    await Promise.all([
+      event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-1" } } }),
+      event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-1" } } }),
+    ])
+    await waitForContinuation()
+    expect(mockPromptAsync).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("event handler — message.updated 重置计数", () => {
+  it("用户消息 → continuationCount 重置为 0", async () => {
+    mockSessionGet.mockResolvedValue({
+      data: {
+        parentID: null,
+        metadata: { goal: { parentIssueNumber: 42, status: "active", continuationCount: 7 } },
+      },
+    })
+    await event({
+      event: {
+        type: "message.updated",
+        properties: { sessionID: "sess-1", info: { role: "user", agent: "dev-lifecycle" } },
+      },
+    })
+    // writeGoal 调用 session.update
+    expect(mockSessionGet).toHaveBeenCalled()
+  })
+
+  it("续接 in-flight 时的用户消息不重置（continuationInFlight 保护）", async () => {
+    mockSessionGet.mockResolvedValue(ACTIVE_GOAL)
+    // 先触发续接（进入 in-flight）
+    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-1" } } })
+    // 立即用户消息（仍在 in-flight 窗口）
+    await event({
+      event: {
+        type: "message.updated",
+        properties: { sessionID: "sess-1", info: { role: "user", agent: "dev-lifecycle" } },
+      },
+    })
+    await waitForContinuation()
+    // 续接正常发生一次
+    expect(mockPromptAsync).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("event handler — session.error abort 标记", () => {
+  it("MessageAbortedError → 记录 abort，下次 idle 置 paused 不续接", async () => {
+    mockSessionGet.mockResolvedValue(ACTIVE_GOAL)
+    await event({
+      event: {
+        type: "session.error",
+        properties: { sessionID: "sess-abort-1", error: { name: "MessageAbortedError" } },
+      },
+    })
+    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-abort-1" } } })
+    // 等 fire-and-forget 的 queueContinuation 完全结束（含 abort 分支），避免异步泄漏到下一测试
+    await new Promise(r => setTimeout(r, 50))
+    expect(mockPromptAsync).not.toHaveBeenCalled()
+  })
+
+  it("非 MessageAbortedError → 不标记 abort，idle 正常续接", async () => {
+    mockSessionGet.mockResolvedValue(ACTIVE_GOAL)
+    await event({
+      event: {
+        type: "session.error",
+        properties: { sessionID: "sess-abort-2", error: { name: "SomeOtherError" } },
+      },
+    })
+    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-abort-2" } } })
+    await waitForContinuation()
+    expect(mockPromptAsync).toHaveBeenCalledTimes(1)
   })
 })

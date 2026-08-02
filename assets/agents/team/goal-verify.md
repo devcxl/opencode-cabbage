@@ -11,7 +11,8 @@ tools:
 permission:
   bash:
     "*": "deny"
-    "npm *": "allow"
+    "<profile-test-command> *": "allow"
+    "<profile-test-command> publish*": "deny"
     "git status": "allow"
     "git status *": "allow"
     "git diff": "allow"

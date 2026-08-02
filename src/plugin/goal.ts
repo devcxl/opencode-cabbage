@@ -2,7 +2,12 @@ import type { ToolContext, ToolResult } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin/tool"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import type { Session } from "@opencode-ai/sdk/v2"
-import { updateFlowSession } from "../kernel/session-index.js"
+import { bindSession, updateFlowSession, removeFlowSession } from "../kernel/session-index.js"
+import { KeyedMutex } from "../kernel/mutex.js"
+import { resolveProjectDir } from "../util/paths.js"
+
+/** goal 会话级串行：readGoal→修改→writeGoal 整个序列互斥，防 queueContinuation/message.updated 丢失更新 */
+const goalMutex = new KeyedMutex()
 
 export type GoalStatus = "active" | "paused" | "complete"
 
@@ -64,37 +69,6 @@ Work from evidence — inspect the current state before relying on anything.
 If the work is not done, just keep working. Do not narrate that you are continuing — execute.`
 }
 
-export function verifyAgentPrompt(): string {
-  return `You are the goal-verify agent. Your ONLY job is to determine whether a goal has been fully achieved by inspecting the current state.
-
-You are the only agent authorized to call goal({op:"complete"}). Other agents (reviewer, developer, architect) cannot complete the goal.
-
-You start with a FRESH context — do not assume any prior work was done correctly.
-
-First step: Call goal({op:"get"}) to retrieve the active flow's parent issue number, then read the Flow Record (Parent Issue body) for the objective and completion criteria.
-
----
-
-## Verification Procedure
-
-1. Call goal({op:"get"}) to retrieve the parent issue number.
-2. Read the Flow Record (Parent Issue body) for the objective and completion criteria.
-3. Break them into concrete, individual requirements.
-4. For EACH requirement, gather evidence:
-   - Read full files — not just snippets
-   - Run tests, builds, lint
-   - Check imports, exports, types resolve correctly
-5. Classify each finding: SATISFIED / NOT SATISFIED / UNCERTAIN
-6. If ALL requirements are SATISFIED:
-   Call goal({op:"complete"}) — only you can do this
-7. If ANY requirement is NOT SATISFIED or UNCERTAIN:
-   Do NOT call goal({op:"complete"}). Return a detailed report.
-
----
-
-Do not create or modify any files. You are a read-only verifier.`
-}
-
 export function createGoalClient(serverUrl: URL, v1Client: any) {
   const v1Config = v1Client?.getConfig?.() ?? {}
   return createOpencodeClient({
@@ -140,7 +114,10 @@ export async function writeGoal(
 
 export function createGoalTool(
   client: ReturnType<typeof createOpencodeClient>,
+  projectDirFallback?: string,
 ) {
+  /** 会话级项目目录：优先 ToolContext.directory，退化到插件级 projectDir（异常会话下避免写入根目录） */
+  const sessionProjectDir = (ctxDirectory?: string) => resolveProjectDir(ctxDirectory, projectDirFallback ?? "")
   return tool({
     description: `Manage the active goal-mode objective (minimal: parentIssueNumber/status/continuationCount).
 
@@ -153,11 +130,12 @@ Use a single op field:
 - complete: marks the goal as completed. Follow the returned instructions.`,
     args: {
       op: tool.schema.enum(["create", "get", "complete", "resume", "cancel", "pause"]).describe("Goal operation"),
-      parent_issue_number: tool.schema.number().describe("Parent GitHub Issue number of the Flow Record (required for create)"),
+      parent_issue_number: tool.schema.number().optional().describe("Parent GitHub Issue number of the Flow Record (required for create)"),
     },
     async execute(args: Record<string, any>, ctx: ToolContext): Promise<ToolResult> {
       const sessionID = (ctx as any).sessionID as string
-
+      // 会话级串行：整个 goal 读改写序列互斥（防与 queueContinuation/message.updated 并发丢失更新）
+      return goalMutex.runExclusive(sessionID, async () => {
       const session = await readGoal(client, sessionID)
       const isSubAgent = !!session.session?.parentID
       const targetSessionID = session.session?.parentID ?? sessionID
@@ -181,7 +159,7 @@ Use a single op field:
         await writeGoal(client, targetSessionID, parent.goal, parent.session)
         // flow 级持久化：complete-flow 可跨会话识别验证完成（不依赖 index 会话一致性）
         try {
-          await updateFlowSession(ctx.directory, parent.goal.parentIssueNumber, { goalComplete: true })
+          await updateFlowSession(sessionProjectDir(ctx.directory), parent.goal.parentIssueNumber, { goalComplete: true })
         } catch {
           // 索引写入失败不阻塞 goal 完成（goal 本身已持久化）
         }
@@ -198,6 +176,12 @@ Use a single op field:
           // 快照创建时的 agent（模型由 message.updated 用户消息事件补充）
           const goal = createGoal(Number(args.parent_issue_number), { agent: ctx.agent })
           await writeGoal(client, sessionID, goal)
+          // flow 级绑定：供插件重启后的 autoResume 恢复 active goal
+          try {
+            await bindSession(sessionProjectDir(ctx.directory), goal.parentIssueNumber, sessionID)
+          } catch {
+            // 索引写入失败不阻塞 goal 创建（goal 本身已持久化在 session metadata）
+          }
           return `Goal created: Flow #${goal.parentIssueNumber}\nStatus: active`
         }
 
@@ -236,12 +220,19 @@ Use a single op field:
           const { goal, session: s } = await readGoal(client, sessionID)
           if (!goal) return "No goal to cancel."
           await writeGoal(client, sessionID, null, s)
+          // 同步清除 session-index entry，避免重启 autoResume 恢复已取消 goal
+          try {
+            await removeFlowSession(sessionProjectDir(ctx.directory), goal.parentIssueNumber)
+          } catch {
+            // 索引清理失败不阻塞取消（goal 本身已移除）
+          }
           return `Goal cancelled: Flow #${goal.parentIssueNumber}`
         }
 
         default:
           return `Error: unknown operation "${args.op}"`
       }
+      })
     },
   })
 }

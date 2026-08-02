@@ -2,6 +2,7 @@ import { globSync, readdirSync } from "node:fs"
 import { readFileSync, existsSync } from "node:fs"
 import path from "node:path"
 import { parse as parseYaml } from "yaml"
+import { permissionPatternMatches } from "../kernel/permission.js"
 
 export interface LintFinding {
   severity: "error" | "warn"
@@ -229,14 +230,8 @@ function isReviewerAgent(filePath: string): boolean {
 }
 
 function permissionKeyMatchesCommand(key: string, command: string): boolean {
-  if (key === "*") return false
-  if (key === command) return true
-  if (key.endsWith("*")) {
-    const prefix = key.slice(0, -1).trim()
-    if (prefix.length === 0) return false
-    return command === prefix || command.startsWith(prefix + " ")
-  }
-  return false
+  // 复用 kernel/permission.ts 的匹配语义（含 `*` 全匹配、`前缀*` 前缀匹配、glob），避免双实现漂移
+  return permissionPatternMatches(key, command)
 }
 
 function permissionValueAllowsCommand(

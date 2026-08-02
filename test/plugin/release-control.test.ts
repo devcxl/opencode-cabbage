@@ -230,7 +230,7 @@ describe("release_control tool", () => {
         const ghCalls: string[] = []
         mockGh({
           "pr list --head 'release/v1.5.0' --json number --jq '.[0].number'": "12",
-          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
+          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[]? | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
             '["SUCCESS"]',
           "pr merge 12 --squash --delete-branch": "",
           "pr view 12 --json mergeCommit --jq '.mergeCommit.oid'": "d3adb3e7deadbeefdeadbeefdeadbeefdeadbeef",
@@ -267,7 +267,7 @@ describe("release_control tool", () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
         mockGh({
           "pr list --head 'release/v1.5.0' --json number --jq '.[0].number'": "12",
-          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
+          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[]? | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
             '["FAILURE"]',
         })
         const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0", user_confirmed: true }))
@@ -280,7 +280,7 @@ describe("release_control tool", () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
         mockGh({
           "pr list --head 'release/v1.5.0' --json number --jq '.[0].number'": "12",
-          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
+          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[]? | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
             '["IN_PROGRESS", "SUCCESS"]',
         })
         const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0", user_confirmed: true }))
@@ -293,7 +293,7 @@ describe("release_control tool", () => {
       await withProject(PROFILE, { version: "1.4.2" }, async dir => {
         mockGh({
           "pr list --head 'release/v1.5.0' --json number --jq '.[0].number'": "12",
-          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[] | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
+          "pr view 12 --json statusCheckRollup --jq '[.statusCheckRollup[]? | if .conclusion == null then \"IN_PROGRESS\" else .conclusion end] | unique'":
             "[]",
         })
         const out = String(await call(dir, "merge-release-pr", { proposed_version: "1.5.0", user_confirmed: true }))

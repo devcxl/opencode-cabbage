@@ -312,7 +312,7 @@ async function mergeReleasePrOp(profile: ProjectProfile, args: Record<string, an
 
   // CI 校验：读取 statusCheckRollup；进行中项显式标记 IN_PROGRESS，不得放行
   const rollup = (await runGh(
-    `pr view ${prNumber} --json statusCheckRollup --jq '[.statusCheckRollup[] | if .conclusion == null then "IN_PROGRESS" else .conclusion end] | unique'`,
+    `pr view ${prNumber} --json statusCheckRollup --jq '[.statusCheckRollup[]? | if .conclusion == null then "IN_PROGRESS" else .conclusion end] | unique'`,
   )).stdout.trim()
   let conclusions: string[]
   try {

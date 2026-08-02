@@ -925,10 +925,10 @@ export async function mergeTask(
   return { ok: true, prNumber: pr.number, risk, ...(warnings.length > 0 ? { warning: warnings.join("; ") } : {}) }
 }
 
-/** 读 PR 的 statusCheckRollup 精简列表（CheckRun 用 conclusion、StatusContext 用 state） */
+/** 读 PR 的 statusCheckRollup 精简列表（CheckRun 用 conclusion、StatusContext 用 state；gh go-jq 需显式字段访问） */
 async function readPrChecks(prNumber: number): Promise<Array<{ name: string; state: string }>> {
   const { stdout } = await taskGh(
-    `pr view ${prNumber} --json statusCheckRollup --jq '[.[] | {name: (.name // .context // "check"), state: (.state // .conclusion // "PENDING")}]'`,
+    `pr view ${prNumber} --json statusCheckRollup --jq '[.statusCheckRollup[]? | {name: (.name // .context // "check"), state: (.conclusion // .state // "PENDING")}]'`,
   )
   return JSON.parse(stdout) as Array<{ name: string; state: string }>
 }

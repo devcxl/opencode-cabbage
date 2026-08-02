@@ -284,7 +284,7 @@ export async function readFlowStatus(parentIssueNumber: number): Promise<FlowSta
     const pullRequests: RelatedPrSummary[] = []
     for (const pr of related) {
       const { stdout: rollupOut } = await flowGh(
-        `pr view ${pr.number} --json statusCheckRollup --jq '[.[] | {name, context, state}]'`,
+        `pr view ${pr.number} --json statusCheckRollup --jq '[.statusCheckRollup[]? | {name: .name, context: .context, state: (.conclusion // .state)}]'`,
       )
       const rollup = JSON.parse(rollupOut) as Array<{ name?: string; context?: string; state: string }>
       pullRequests.push({ ...pr, checks: summarizeChecks(rollup) })

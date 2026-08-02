@@ -1,11 +1,11 @@
 ---
 name: flow-requirements
-description: 渐进式需求澄清 → PRD → Flow Record（flow_control）
+description: 渐进式需求澄清 → PRD → Parent Issue
 ---
 
 # flow-requirements
 
-通过渐进式需求澄清将松散想法凝固为 PRD，并用 `flow_control{op:"create-flow"}` 创建 Flow Record（Parent Issue）。
+通过渐进式需求澄清将松散想法凝固为 PRD，并创建 Parent Issue（Flow Record）作为后续阶段的权威来源。
 
 ## 核心理念：战争迷雾（Fog of War）
 
@@ -29,19 +29,24 @@ Ticket 类型：Grilling（与用户对话澄清）/ Research（查文档）/ Pr
 
 从 Decision Map 的 Answer 提炼为 PRD，保存到 `docs/prd/<title>.md`。
 
-## Phase D：创建 Flow Record
+## Phase D：创建 Parent Issue
 
-调用 `flow_control{op:"create-flow", title:"<英文功能标题>"}` 创建 Draft Parent Issue（Flow Record）。
-内核负责 slug 派生与校验、Profile 门禁、双 session 检查、legacy 检测——创建动作全部收敛到工具内。
+用 gh 创建 Parent Issue（Flow Record），作为目标与验收标准的权威来源：
+
+```bash
+gh issue create --title "<英文功能标题>" --body "<目标 + 验收标准>"
+```
+
+标题使用英文功能短语（kebab-case），后续分支名、目录名以其为基准。
 
 ## CONTEXT.md 术语发现
 
-需求澄清中发现的领域术语写入根 `CONTEXT.md`（术语权威）。发现新术语或冲突时暂停提问，用户确认后由 `flow_control` 更新。
+需求澄清中发现的领域术语写入根 `CONTEXT.md`（术语权威）。发现新术语或冲突时暂停提问，用户确认后更新。
 
 ## Output
 - `docs/dev/decision-map.md` — 决策映射（PRD 生成后可删除）
 - `docs/prd/<title>.md` — PRD
-- Flow Record（Parent Issue，由 flow_control 创建）
+- Parent Issue（Flow Record）
 
 ## 下一阶段
 - **/design** — 基于 PRD 进行技术设计
@@ -55,30 +60,30 @@ Ticket 类型：Grilling（与用户对话澄清）/ Research（查文档）/ Pr
 - 用户提供的功能描述（来自消息文本）
 
 ### Preconditions
-- `/setup` 已完成（Profile 已确认，gh CLI 可用）
+- gh CLI 可用
 
 ### Procedure
 1. 锚定核心问题，创建 Decision Map
 2. 渐进式解决所有前沿 Ticket（Grilling / Research / Prototype）
 3. 迷雾推至足够远 → 凝固为 PRD
 4. 记录领域术语到 CONTEXT.md
-5. 调用 `flow_control{op:"create-flow"}` 创建 Flow Record
+5. 用 gh issue create 创建 Parent Issue
 
 ### Outputs
 - `docs/dev/decision-map.md`
 - `docs/prd/<title>.md`
-- Flow Record（Parent Issue）
+- Parent Issue
 
 ### Failure
-- Profile 未确认 → flow_control 返回 `SETUP_REQUIRED`，提示先执行 `/setup`
+- gh 未认证 → 提示用户 `gh auth login` 后重试
 - Issue 创建失败 → 记录错误，不阻塞 PRD 写入
 
 ### Idempotency
 - Decision Map 已存在 → 从中断点继续
 - PRD 文件已存在 → 更新而非覆盖
-- Flow Record 已创建 → 绑定已有 Issue（`parent_issue_number`）而非重复创建
+- Parent Issue 已创建 → 复用其编号而非重复创建
 
 ### Prohibited Actions
 - 不跳过 Phase A 和 Phase B 直接输出 PRD
 - 不一次问多个问题
-- 不绕过 flow_control 手工创建 Issue（由 create-flow 完成）
+- 不创建重复的 Parent Issue（复用已有编号）

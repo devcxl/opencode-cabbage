@@ -1,6 +1,6 @@
 ---
 name: flow-tdd
-description: TDD Prompt 协议 — RED→GREEN 状态机 + tdd_checkpoint Runtime 证据
+description: TDD Prompt 协议 — RED→GREEN 状态机 + self-report 证据
 ---
 
 # flow-tdd
@@ -10,7 +10,7 @@ TDD（Test-Driven Development）Prompt 协议，为所有编码阶段提供统�
 
 ## Advisory Procedure
 
-Agent 自行遵循 TDD 流程并 self-report 状态。每个 stage 同时通过 `tdd_checkpoint` 提交证据。
+Agent 自行遵循 TDD 流程并 self-report 状态。测试质量由仓库 CI 把关，内核不强制证据。
 
 ### Cycle 状态机
 
@@ -143,22 +143,6 @@ Agent 自行遵循 TDD 流程并 self-report 状态。每个 stage 同时通过 
 - criteria_pending: <未满足>
 ```
 
-## Runtime Procedure
-
-每个 stage 通过 `tdd_checkpoint` 提交证据到 Task Record 单个受控评论（marker 包裹，唯一证据源）。
-工具亲自执行测试，不接受内联 evidence；RED 有效性校验（失败分类 + 实现文件相对基线未变 + 输入未偷换）。
-
-| Stage | tdd_checkpoint op |
-|-------|-------------------|
-| cycle-start | `tdd_checkpoint{op:"cycle-start", task_id, criterion_id, test_paths, test_selector}` |
-| red | `tdd_checkpoint{op:"red", task_id, cycle_id, test_selector}` — 测试失败 + 实现文件未变 |
-| green | `tdd_checkpoint{op:"green", task_id, cycle_id, test_selector}` — 同 selector 通过 |
-| abandon-cycle | `tdd_checkpoint{op:"abandon-cycle", task_id, cycle_id, reason}` |
-| final-regression | `tdd_checkpoint{op:"final-regression", task_id}` — 全量测试通过 |
-| final-verification | `tdd_checkpoint{op:"final-verification", task_id}` — 每条 criterion 有 pass cycle |
-
-纯文档变更豁免：`tdd_checkpoint{op:"not-applicable"}`（仅 primary）；其他豁免须用户批准（`exempt-request`）。
-
 ## Contract
 
 ### Trigger
@@ -168,24 +152,23 @@ Agent 自行遵循 TDD 流程并 self-report 状态。每个 stage 同时通过 
 - Task Record 中的 `acceptance_criteria`（来源：`flow-tasks` 产出）
 - Task Record 中的 `test_commands`（来源：`flow-tasks` 产出）
 - Task Record 中的 `verify_commands`（来源：`flow-tasks` 产出）
-- Task Record 中的 `tdd` 配置块 — `mode`（`strict`/`advisory`）、`min_cycles`（来源：`flow-tasks` 产出）
 
 ### Preconditions
-- Task Record 存在，包含 `acceptance_criteria`、`test_commands`、`tdd` 配置块
+- Task Record 存在，包含 `acceptance_criteria`、`test_commands`
 - 测试运行环境就绪（worktree 内依赖已安装）
 
 ### Procedure
 1. 读取 Task 的 `acceptance_criteria`、`test_commands`、`verify_commands`
 2. 为每个验收标准识别对应的测试用例
-3. 执行 `cycle-start` → 声明当前 cycle 目标并调用 tdd_checkpoint
-4. 执行 `red` → 编写测试，验证失败，提交 evidence
-5. 执行 `green` → 最小实现，验证通过，提交 evidence
+3. 执行 `cycle-start` → 声明当前 cycle 目标
+4. 执行 `red` → 编写测试，验证失败，记录 self-report
+5. 执行 `green` → 最小实现，验证通过，记录 self-report
 6. 重复 cycle 直到所有 criterion 覆盖
 7. 执行 `final-regression` → 运行全部测试
 8. 执行 `final-verification` → 逐条对照 acceptance_criteria
 
 ### Outputs
-- 每个 cycle 的 self-report + tdd_checkpoint evidence（Task Record 评论）
+- 每个 cycle 的 self-report
 - `final-regression` 报告（测试通过/失败统计）
 - `final-verification` 报告（criterion 覆盖情况）
 
@@ -203,5 +186,4 @@ Agent 自行遵循 TDD 流程并 self-report 状态。每个 stage 同时通过 
 - 不跳过 RED 阶段直接进入 GREEN
 - 不跳过 final-regression 直接 commit
 - 不在 abandon-cycle 后保留修改
-- 不修改 Task `tdd` 配置块中的 `mode` 和 `min_cycles` 值
-- 不伪造/内联 tdd_checkpoint evidence（工具亲自执行测试）
+- 不伪造测试结果（实际运行命令后再 self-report）

@@ -1,20 +1,33 @@
 ---
 name: flow-design
-description: 技术方案设计 → 方案文档 + ADR（planning worktree + Planning PR）
+description: 技术方案设计 → 方案文档 + ADR → Planning PR
 ---
 
 # flow-design
 
-基于 PRD 进行技术方案设计，architect 在 planning worktree 产出 CONTEXT.md + PRD + Design + ADR，
-并由 `flow_control` 通过 Planning PR 合入形成 Planning Baseline。
+基于 PRD 进行技术方案设计，产出方案文档与 ADR，并通过 Planning PR 合入形成设计基线。
 
-## 核心：调用 flow_control
+## 核心流程
 
-1. `flow_control{op:"planning-start"}` — 创建 planning worktree `.worktree/planning-<slug>`（architect 在此写文档）
-2. 在 planning worktree 内产出：根 `CONTEXT.md` 术语更新 + `docs/prd/<title>.md` + `docs/dev/specs/<title>.md` + `docs/adr/<date>-<slug>.md`
-3. `flow_control{op:"planning-pr"}` — 对 planning worktree 变更创建 Planning PR（合并后 = Planning Baseline）
-
-worktree 创建与 Planning PR 创建均由内核工具完成，创建动作全部收敛到工具内。
+1. **创建工作分支**（在默认分支基础上）
+   ```bash
+   BASE=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
+   git checkout $BASE && git pull origin $BASE
+   git checkout -b "feat/<slug>-design"
+   ```
+2. **产出文档**：
+   - 根 `CONTEXT.md` 术语更新（如发现新领域术语）
+   - `docs/prd/<title>.md`（PRD 确认版）
+   - `docs/dev/specs/<title>.md`（技术方案）
+   - `docs/adr/<date>-<slug>.md`（ADR 决议）
+3. **提交并创建 Planning PR**
+   ```bash
+   git add -A && git commit -m "docs: <slug> design baseline"
+   git push -u origin "feat/<slug>-design"
+   gh pr create --base $BASE --head "feat/<slug>-design" \
+     --title "design: <slug>" --body "Planning Baseline for <slug>"
+   ```
+4. **合入基线**：PR 合并后即形成设计基线（Planning Baseline），后续任务拆解以此为前置。
 
 ## 设计约束
 
@@ -28,13 +41,13 @@ worktree 创建与 Planning PR 创建均由内核工具完成，创建动作全�
 ## CONTEXT.md 术语
 
 阅读项目根 CONTEXT.md（领域术语权威，已自动注入内容与 digest）；
-设计中发现的新术语经用户确认后写入根 CONTEXT.md（术语权威）。
+设计中发现的新术语经用户确认后写入根 CONTEXT.md。
 
 ## Output
 - `docs/dev/specs/<title>.md` — 技术方案
 - `docs/adr/<date>-<slug>.md` — ADR 决议
 - 根 CONTEXT.md 术语更新（如发现新术语）
-- Planning PR（由 flow_control 创建）
+- Planning PR（合入后 = 设计基线）
 
 ## 后续
 - **/tasks** — 基于设计方案拆解为 DAG 任务
@@ -46,22 +59,22 @@ worktree 创建与 Planning PR 创建均由内核工具完成，创建动作全�
 
 ### Inputs
 - `docs/prd/<title>.md` — 上游 PRD（来源：requirements 阶段产出）
-- Flow Record 编号（来源：requirements 阶段产出）
+- Parent Issue 编号（来源：requirements 阶段产出）
 
 ### Preconditions
-- `/requirements` 已完成 → PRD 与 Flow Record 存在
+- `/requirements` 已完成 → PRD 与 Parent Issue 存在
 - requirements 基线已用户确认
 
 ### Procedure
-1. 调用 `flow_control{op:"planning-start"}` 创建 planning worktree
+1. 基于默认分支创建工作分支
 2. 阅读 PRD、已有 ADR、根 CONTEXT.md 术语
 3. 输出技术方案到 `docs/dev/specs/<title>.md`
 4. 记录 ADR 到 `docs/adr/<YYYY-MM-DD>-<slug>.md`
-5. 调用 `flow_control{op:"planning-pr"}` 创建 Planning PR
+5. 提交并创建 Planning PR
 
 ### Outputs
-- 技术方案 + ADR（planning worktree 内）
-- Planning PR（Planning Baseline 的一部分）
+- 技术方案 + ADR
+- Planning PR
 
 ### Failure
 - ADR 与已有决策冲突 → 记录冲突并标注
@@ -70,9 +83,8 @@ worktree 创建与 Planning PR 创建均由内核工具完成，创建动作全�
 ### Idempotency
 - 技术方案已存在 → 读取并更新
 - ADR 已存在 → 不重复创建
-- planning worktree 已存在 → 复用（工具校验分支一致性）
+- 分支已存在 → 检出后追加提交
 
 ### Prohibited Actions
-- 不绕过 flow_control 手工创建 worktree / Planning PR（由内核工具完成）
 - 不跳过 ADR 兼容性检查
-- 不直接 push 到默认分支
+- 不直接 push 到默认分支（写操作走分支 + PR）

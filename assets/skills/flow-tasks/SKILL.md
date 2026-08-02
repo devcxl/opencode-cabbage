@@ -1,16 +1,23 @@
 ---
 name: flow-tasks
-description: DAG 任务拆解 → Task Record（task_control）
+description: DAG 任务拆解 → GitHub Sub Issues
 ---
 
 # flow-tasks
 
-将设计方案拆解为 DAG（有向无环图）任务，并用 `task_control{op:"create-task"}` 创建 Task Record（GitHub Sub Issue）。
+将设计方案拆解为 DAG（有向无环图）任务，并用 gh 创建 GitHub Sub Issue（Task Record），关联 Parent Issue。
 
-## 核心：调用 task_control
+## 核心流程
 
-`task_control{op:"create-task", title:"<英文功能标题>", acceptance_criteria:"<JSON>", ...}` 创建 Sub Issue。
-内核负责 slug 派生与校验、标题规范（R3）、关联 Parent Issue——创建动作全部收敛到工具内。
+基于技术方案拆解 DAG 后，为每个任务创建 Sub Issue：
+
+```bash
+gh issue create --parent <parent-issue-number> \
+  --title "<英文功能标题>" \
+  --body "# Task: <slug>\n\n## Acceptance Criteria\n- [ ] <id>: <描述> [tdd]\n\n## Dependencies\n- #<依赖任务编号>\n\nCloses 约定：PR body 含 \"Closes #<issue>\" 以在合并时关闭本 Sub Issue"
+```
+
+标题使用英文功能短语（kebab-case），作为分支名 `feat/<slug>` 的基准。
 
 ## DAG 拆解
 
@@ -32,12 +39,12 @@ DAG 使用 Mermaid 语法绘制，保存为 `docs/dev/tasks/<YYYY-MM-DD-NNN-slug
 
 ## 任务定义文件
 
-每个任务一个文件 `docs/dev/tasks/<task-name>.md`，frontmatter 含 `test_commands` / `verify_commands` / `tdd` 配置块 / `acceptance` 结构化验收标准。
+每个任务一个文件 `docs/dev/tasks/<task-name>.md`，frontmatter 含 `test_commands` / `verify_commands` / `acceptance` 结构化验收标准。
 这些字段是 `flow-tdd` skill 的输入（RED→GREEN cycle、final-regression、final-verification）。
 
 ## Output
 - `docs/dev/tasks/*.md` — 独立任务文件
-- GitHub Sub Issues（由 task_control 创建，依赖关系在 body 中声明）
+- GitHub Sub Issues（依赖关系在 body 中声明）
 
 ## 后续
 - **/code** — 认领 Sub Issue 开始编码
@@ -49,15 +56,15 @@ DAG 使用 Mermaid 语法绘制，保存为 `docs/dev/tasks/<YYYY-MM-DD-NNN-slug
 
 ### Inputs
 - `docs/dev/specs/<title>.md` — 技术方案
-- Flow Record 编号
+- Parent Issue 编号
 
 ### Preconditions
-- `/design` 已完成 → 技术方案和 ADR 存在（Planning Baseline 已合入）
+- `/design` 已完成 → 技术方案和 ADR 存在（设计基线已合入）
 
 ### Procedure
 1. 基于技术方案拆解 DAG（Mermaid 图 + 任务文件）
-2. 为每个任务调用 `task_control{op:"create-task"}` 创建 Sub Issue
-3. 任务文件随 Planning PR 合入默认分支
+2. 为每个任务用 gh 创建 Sub Issue（关联 Parent Issue，body 声明依赖）
+3. 任务文件合入默认分支
 
 ### Outputs
 - `docs/dev/tasks/<feature-slug>/` — DAG 与任务文件
@@ -69,9 +76,9 @@ DAG 使用 Mermaid 语法绘制，保存为 `docs/dev/tasks/<YYYY-MM-DD-NNN-slug
 
 ### Idempotency
 - 任务文件已存在 → 读取并更新
-- Sub Issue 已创建 → 内核检测同名冲突（未合并分支/worktree）并拒绝
+- Sub Issue 已创建 → 复用其编号而非重复创建
 
 ### Prohibited Actions
 - 不跳过 DAG 依赖检查
-- 不绕过 task_control 手工创建 Sub Issue（由 create-task 完成）
+- 不创建重复 Sub Issue
 - 不直接 push 到默认分支

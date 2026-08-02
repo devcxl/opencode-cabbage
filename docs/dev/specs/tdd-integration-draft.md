@@ -1,5 +1,6 @@
 # TDD 集成技术方案 v2.1：运行时证据与分层质量门禁
 
+> ⚠️ **已废弃（2026-08-02）**：Runtime TDD 工具链（`tdd_checkpoint`）已整体移除，TDD 回归 advisory self-report + CI 把关。保留本文档作为历史决策记录。
 > 状态：Draft（依据 v1 审查及 v2 读者测试重写）  
 > 日期：2026-07-20  
 > 兼容决策：ADR 0006（Prompt Contract-first）、ADR 0007（FlowRun 阶段性接入）  

@@ -20,7 +20,7 @@
 }
 ```
 
-Once started, the plugin automatically injects 7 slash commands, 8 flow skills, 5 agents, and 5 deterministic lifecycle tools.
+Once started, the plugin automatically injects 7 slash commands, 8 flow skills, 5 agents, and 1 goal tool.
 
 ## Command Overview
 
@@ -30,8 +30,8 @@ Once started, the plugin automatically injects 7 slash commands, 8 flow skills, 
 | `/requirements` | Requirements | PRD → `docs/prd/` + Draft Parent Issue |
 | `/design` | Design | Technical specification + necessary ADR → `docs/dev/specs/` + `docs/adr/` |
 | `/tasks` | Task decomposition | DAG tasks + Sub Issues (GitHub 权威源) |
-| `/code` | Coding | Task + Runtime TDD evidence + PR |
-| `/review` | Review | Dual-axis review + automatic merge |
+| `/code` | Coding | Task + PR (TDD enforced by CI) |
+| `/review` | Review | Dual-axis review + merge |
 | `/release` | ⚠️ Manual release | Version proposal → Release PR → tag push → workflow monitor |
 
 ## Quick Start
@@ -58,35 +58,26 @@ npm install @devcxl/opencode-cabbage
 src/                          # Thin TypeScript layer
 ├── index.ts                  # Plugin entry point
 ├── plugin.ts                 # Package root resolution
-├── plugin/                   # Loaders + tool factories
-│   ├── server.ts             # Main factory: injects skills, commands, agents, 5 lifecycle tools
+├── plugin/                   # Loaders + goal tool
+│   ├── server.ts             # Main factory: injects skills/commands/agents, goal tool, context, auto-continuation
+│   ├── goal.ts               # goal tool (status + goal-verify authorization)
 │   ├── commands.ts           # Command loader
 │   ├── skills.ts             # Skill loader
 │   ├── prompts.ts            # Prompt loader
 │   ├── bootstrap.ts          # Startup guidance
 │   ├── agents.ts             # Agent injection
-│   ├── setup-control.ts      # setup_control tool
-│   ├── flow-control.ts       # flow_control tool
-│   ├── task-control.ts       # task_control tool
-│   ├── tdd-checkpoint.ts     # tdd_checkpoint tool
-│   └── release-control.ts    # release_control tool
-└── kernel/                   # Deterministic thin kernel
-    ├── slug.ts               # Functional slug derivation/validation
-    ├── records.ts            # Flow/Task Record CRUD (GitHub authoritative)
-    ├── worktree.ts           # Worktree lifecycle (no --force)
-    ├── tdd/                  # Runtime TDD pure functions + evidence
-    ├── review.ts             # Merge gates (CI/protection/risk/approval)
-    ├── release.ts            # Version proposal + tag immutability
-    ├── context.ts            # Root CONTEXT.md discovery/injection
+│   ├── shell.ts              # Agent shell env isolation
+│   └── prompt-lint.ts        # Prompt asset consistency checks
+└── kernel/                   # Minimal supporting modules
+    ├── context.ts            # root CONTEXT.md discovery/injection
     ├── profile.ts            # AGENTS.md Project Profile parsing
-    ├── session-index.ts      # Flow→session index + takeover
-    ├── caller.ts             # Caller role matrix
+    ├── session-index.ts      # Flow→session index (goal binding + auto-resume)
     ├── permission.ts         # Permission matching semantics
-    └── legacy.ts             # Legacy FlowRun detection
+    └── mutex.ts              # Keyed async mutex
 
-assets/                       # Runtime assets
+assets/                       # Runtime assets (pure Prompt flows)
 ├── commands/                 # 7 slash commands
-├── skills/                   # 8 flow-* skills
+├── skills/                   # 8 flow-* skills (Prompt-driven, direct git/gh)
 ├── agents/                   # 5 agent definitions
 └── prompts/                  # Guidance prompts and templates
 ```

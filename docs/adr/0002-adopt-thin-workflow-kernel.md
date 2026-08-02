@@ -1,6 +1,6 @@
 # ADR 0002: 采用薄工作流内核（Thin Kernel + Project Context）
 
-**状态:** Accepted
+**状态:** Superseded（2026-08-02 被"纯 Prompt + goal 架构"推翻：内核不再承担流程门禁，回归 agent/skill 直接驱动；仅保留 goal 工具与最小支撑模块）
 **日期:** 2026-08-01
 
 ## 背景

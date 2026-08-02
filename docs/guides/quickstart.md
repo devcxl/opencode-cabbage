@@ -31,7 +31,7 @@
 插件会：
 1. 检测 gh CLI 是否可用
 2. 检查 GitHub 远程仓库配置
-3. 创建 `docs/` 目录结构
+3. 逐项确认 Project Profile 并写入根 AGENTS.md
 
 ## 第三步：提需求
 

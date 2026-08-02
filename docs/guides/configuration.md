@@ -48,12 +48,12 @@
 
 | 命令 | 触发 agent | 说明 |
 |------|-----------|------|
-| `/setup` | — | 初始化：检测 gh CLI、Project Profile、CI/release workflow |
-| `/requirements` | — | 需求访谈 → PRD → Draft Parent Issue |
-| `/design` | `@architect` | 技术方案 + 必要 ADR（planning worktree） |
+| `/setup` | — | 初始化：探测环境、确认 Project Profile |
+| `/requirements` | — | 需求访谈 → PRD → Parent Issue |
+| `/design` | `@architect` | 技术方案 + 必要 ADR → 设计 PR |
 | `/tasks` | `@architect` | DAG 任务拆解 → Sub Issues |
-| `/code` | — | Task 编码 + Runtime TDD → PR |
-| `/review` | `@reviewer` | 双轴审查 → 自动合并 |
+| `/code` | `@developer` | Task 编码 + TDD → PR |
+| `/review` | `@reviewer` | 双轴审查 → 合并 |
 | `/release` | — | 版本提议 → Release PR → tag push → workflow 监控 |
 
 每个 command 对应一个 `flow-*` skill，定义在 `assets/skills/` 目录中；所有命令共享单一 Stage contract（`assets/prompts/stage-contract.md`）。
@@ -62,52 +62,55 @@
 
 | Agent | 模式 | 角色 |
 |-------|------|------|
-| `@dev-lifecycle` | primary | 全流程编排器，自动串联各阶段 |
-| `@architect` | subagent | 架构设计、技术方案、DAG 拆解（仅 planning worktree 文档可写） |
-| `@developer` | subagent | 技术栈无关代码 TDD 实现（仅 worktree 内可写） |
+| `@dev-lifecycle` | primary | 全流程编排器，自动串联各阶段（全权执行 git/gh） |
+| `@architect` | subagent | 架构设计、技术方案、DAG 拆解（只写 docs/assets） |
+| `@developer` | subagent | 技术栈无关代码 TDD 实现（worktree 内开发，不 push） |
 | `@reviewer` | subagent | 只读代码审查，输出结构化报告 |
-| `@goal-verify` | subagent | 独立验证 Flow 完成状态（唯一可调用 `flow_control{complete-flow}`） |
+| `@goal-verify` | subagent | 独立验证 Flow 完成状态（唯一可 complete goal） |
 
-### 9 个 Flow Skills
+### 8 个 Flow Skills
 
 | Skill | 对应命令 | 用途 |
 |-------|---------|------|
-| `flow-setup` | `/setup` | 环境初始化 |
+| `flow-setup` | `/setup` | 环境初始化 + Profile 确认 |
 | `flow-requirements` | `/requirements` | 需求分析 |
 | `flow-design` | `/design` | 技术设计 |
 | `flow-tasks` | `/tasks` | 任务拆解 |
 | `flow-code` | `/code` | 编码实现 |
-| `flow-tdd` | — | TDD 协议唯一来源（tdd_checkpoint op 映射） |
+| `flow-tdd` | — | TDD 协议唯一来源（advisory，self-report） |
 | `flow-review` | `/review` | 代码审查 |
 | `flow-release` | `/release` | 发布 |
 
 Skills 被复制到固定目录（`~/.config/opencode/cabbage/skills`）中运行，不会污染项目目录。
 
-## Thin Kernel 工具
+### 1 个工具：goal
 
-### 5 个生命周期工具
+插件只注册一个工具 `goal`，用于会话级 Flow 状态跟踪：
 
-| 工具 | 职责 |
-|------|------|
-| `setup_control` | probe / generate-workflows / confirm-profile（readiness 报告） |
-| `flow_control` | create-flow / status / planning-start / planning-pr / stage / complete-flow / cancel / takeover |
-| `task_control` | create-task / start-task / submit-task / submit-review / merge-task / cancel / destroy / status |
-| `tdd_checkpoint` | cycle-start / red / green / final-regression / final-verification / abandon / status / not-applicable / exempt |
-| `release_control` | propose-version / open-release-pr / merge-release-pr / monitor |
+| op | 说明 |
+|----|------|
+| `create` | 建立 goal（绑定 Parent Issue 编号） |
+| `get` | 读取当前 goal 状态 |
+| `pause` / `resume` | 暂停 / 恢复 goal |
+| `cancel` | 取消 goal |
+| `complete` | 标记完成（仅 `goal-verify` 可调用） |
 
-### 5 个 Stage
+目标与验收标准从 Parent Issue body 读取，不存储在 goal 中。
 
-`requirements → design → tasks → code → review`
+## 阶段契约
 
-每个阶段有前置门禁（由工具校验）：
+7 个阶段，顺序推进（stage-contract 为单一来源）：
 
-- **requirements**：需求基线须用户确认一次
-- **design**：产出技术方案 + 必要 ADR；高风险方案在 design→tasks 间暂停确认
-- **tasks**：Planning Baseline 合并后才能创建 Sub Issues
-- **code**：Planning Baseline 已合并、依赖 Task 已 merged、并行 < 5
-- **review**：CI checks + 分支保护 + 风险双层判定 + 高风险非作者 approval
+```
+setup → requirements → design → tasks → code → review → release（手动）
+```
 
-### Task DAG
+- 阶段完成 = Parent Issue body checklist `- [x] <stage>`
+- requirements 完成需用户确认一次
+- 设计基线（docs + ADR）合入后才能拆解任务
+- 测试质量由仓库 CI workflow 把关，插件不重复执行
+
+## Task DAG
 
 任务支持依赖关系。只有所有依赖任务已合并，当前任务才能开始：
 
@@ -122,31 +125,9 @@ task-4:
   dependsOn: [task-2, task-3]  # 依赖前两者都完成
 ```
 
-### 合并门禁
-
-PR 合并前必须通过：
-
-| 检查点 | 说明 |
-|--------|------|
-| CI checks | 全部 SUCCESS（statusCheckRollup） |
-| branchProtection | main 分支保护规则存在 |
-| 风险双层判定 | 模型初判 + 内核按 diff 升级（只升不降） |
-| 高风险 approval | 非作者人类 APPROVED review（高风险任务） |
-| mergeResult | 合并操作成功（--match-head-commit） |
-
-### 弹性配置
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| 并行上限 | 5 | 同时运行的 Task 数 |
-| Task 重试 | 3 | 失败自动重试次数 |
-| Review 轮次 | 3 | 自动修复上限 |
-| 停滞判定 | 3 | 连续无进展 continuation 次数后暂停 |
-| compactionThreshold | 20 | 每 20 次 continuation 自动 compact |
+DAG 依赖由编排器（dev-lifecycle）维护，按拓扑顺序分批执行。
 
 ## 文档目录结构
-
-插件自动创建并管理以下文档目录：
 
 ```
 docs/

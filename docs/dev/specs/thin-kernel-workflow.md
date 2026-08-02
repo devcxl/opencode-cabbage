@@ -1,5 +1,6 @@
 # Thin Kernel + Project Context 工作流 — 技术方案
 
+> ⚠️ **已废弃（2026-08-02）**：本方案描述的 5 个生命周期工具已整体移除，回归"纯 Prompt + goal"架构。保留本文档作为历史决策记录，勿按此实现。
 > 对应 PRD：`docs/prd/thin-kernel-workflow.md` · ADR：`docs/adr/0002-adopt-thin-workflow-kernel.md`
 > 版本目标：`0.3.2 → 1.0.0`（major，不保留旧 Flow 双轨）
 

@@ -15,7 +15,7 @@ hero:
 
 features:
   - title: 全流程覆盖
-    details: 从需求到发布，9 个 slash command 覆盖完整开发生命周期
+    details: 从需求到发布，7 个 slash command 覆盖完整开发生命周期
     icon: 🔄
   - title: 自动编排
     details: 需求确认后输入 @dev-lifecycle，全自动完成剩余流程

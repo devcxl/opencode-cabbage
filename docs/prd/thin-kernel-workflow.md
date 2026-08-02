@@ -1,5 +1,7 @@
 # PRD: Thin Kernel + Project Context 工作流重构
 
+> ⚠️ **已废弃（2026-08-02）**：本 PRD 描述的生命周期工具方案已整体移除，回归"纯 Prompt + goal"架构。保留作为历史决策记录。
+
 **状态:** Approved（访谈确认 + Planning PR 审查通过）
 **日期:** 2026-08-01
 

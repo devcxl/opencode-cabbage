@@ -1,6 +1,6 @@
 # ADR 0008: TDD 强制约束架构 — Task-local PR Gate、三层约束模型与单 Orchestrator
 
-**状态:** Proposed  
+**状态:** Superseded（2026-08-02：Runtime TDD 工具链已整体移除，TDD 回归 advisory self-report + CI 把关；见 ADR 0002 的 Superseded 说明）
 **日期:** 2026-07-20  
 **上级:** [ADR 0001](/adr/0001-replace-openspec-with-full-flow)（全流程插件架构）、[ADR 0006](/adr/2026-07-15-prompt-contract-first)（Prompt Contract-first）、[ADR 0007](/adr/2026-07-15-flowrun-spike)（FlowRun 阶段性接入）
 

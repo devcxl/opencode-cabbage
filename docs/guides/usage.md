@@ -34,8 +34,7 @@
 
 **产出**：
 - `docs/prd/`、`docs/adr/`、`docs/dev/{specs,tasks,api,db,guides}/` 目录
-- 根 `AGENTS.md` 的 Project Profile 区块
-- 缺失的 CI / release workflow 草案
+- 根 `AGENTS.md` 的 Project Profile 区块（用户确认后写入）
 
 **何时执行**：第一次使用插件时，或切换到一个新项目时。
 
@@ -173,8 +172,8 @@ acceptance: 用户可以通过邮箱+密码注册，收到验证邮件
 ```
 
 **合并条件**：
-- 无 Critical/High 问题 → Approve + 自动合并
-- 有 Critical/High → Request Changes + 修复后重审（最多 9 轮）
+- 无 Critical/High 问题 → Approve + 合并
+- 有 Critical/High → Request Changes + 修复后重审（最多 3 轮）
 
 ---
 
@@ -183,10 +182,26 @@ acceptance: 用户可以通过邮箱+密码注册，收到验证邮件
 **⚠️ 该阶段为手动触发**，不会在自动模式中执行。
 
 **流程**（技术栈无关，按 Profile 的 Release 规则）：
-1. 调用 `release_control{propose-version}` 聚合上一 tag 后 main 的变更并提议 SemVer 版本（用户确认）
-2. 调用 `release_control{open-release-pr}` 创建 Release PR（更新版本文件 + Release Notes）
-3. CI 通过 + 人工批准后调用 `release_control{merge-release-pr}` 合并并打 tag
-4. 调用 `release_control{monitor}` 监控项目 GitHub Actions release workflow，成功后发布完成
+1. **确定版本**：聚合上一 tag 后全部 commit，按 Profile 版本规则分类（breaking→major, feature→minor, fix→patch）：
+   ```bash
+   git describe --tags --abbrev=0
+   git log --oneline <last-tag>..HEAD
+   ```
+2. **创建 Release 分支 + 更新版本文件**（用户确认版本后）
+   ```bash
+   git checkout -b "release/<version>"
+   # 按 Profile version file 规则更新版本号
+   git commit -m "chore: release <version>"
+   git push -u origin "release/<version>"
+   ```
+3. **创建 Release PR**（用户确认）→ CI 通过 + 人工批准后合并并打 tag：
+   ```bash
+   HEAD_SHA=$(gh pr view <n> --json headRefOid --jq .headRefOid)
+   gh pr merge <n> --squash --delete-branch --match-head-commit "$HEAD_SHA"
+   git tag "v<version>"
+   git push origin "v<version>"
+   ```
+4. **监控发布**：tag push 触发项目 GitHub Actions release workflow，监听运行结果
 
 实际发布由项目自己的 GitHub Actions release workflow 执行，不假设 npm 或其他生态。
 
@@ -219,15 +234,16 @@ Complete: goal 验证 + 完成
 | 场景 | 处理 |
 |------|------|
 | 步骤失败 | Pause flow，通知用户 |
-| 审查不通过 | 修复→重审，最多 9 轮 |
+| Task 失败 | 自动重试 3 次 → 标记 blocked 并停止下游 |
+| 审查不通过 | 修复→重审，最多 3 轮 |
 | Continuation 耗尽 | Pause，用户介入 |
-| 子 agent 错误 | 自动重试 3 次 → 跳过 2 次 → Pause |
+| 上下文压力大 | 自动写 handoff 文档，恢复时先读它 |
 
 ### Goal 状态管理
 
 Flow 状态通过 `goal` tool 管理：
 
-- `goal({op:"create", objective, completion_criterion})` — 开始 flow
+- `goal({op:"create", parent_issue_number:<Parent Issue 编号>})` — 开始 flow（目标/验收从 Parent Issue body 读取）
 - `goal({op:"get"})` — 查看当前 flow 状态
 - `goal({op:"pause"})` — 暂停 flow
 - `goal({op:"resume"})` — 恢复 flow

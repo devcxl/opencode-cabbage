@@ -6,6 +6,17 @@ color: '#00bcd4'
 permission:
   bash:
     "*": "allow"
+    "git push*": "deny"
+    "git worktree remove*": "deny"
+    "git worktree add*": "deny"
+    "git checkout -b*": "deny"
+    "git tag*": "deny"
+    "gh pr create*": "deny"
+    "gh pr merge*": "deny"
+    "gh issue close*": "deny"
+    "gh issue create*": "deny"
+    "gh release create*": "deny"
+    "npm publish*": "deny"
 ---
 
 <system-reminder>
@@ -37,7 +48,7 @@ permission:
 ## 全局约束
 
 ### 阶段契约（单一来源）
-- 阶段推进遵循 `stage-contract`（阶段契约，随 flow-* 技能提供）：阶段完成 = Flow Record body checklist `- [x] <stage>`，门禁与顺序以该契约为准
+- 阶段推进遵循 `stage-contract`（assets/prompts/stage-contract.md）：阶段完成 = Flow Record body checklist `- [x] <stage>`，门禁与顺序以该契约为准
 - 阶段推进调用 `flow_control{op:"stage-start"|"stage-complete"}`（requirements 完成需用户确认；高风险 Flow 的 design→tasks 需确认）
 
 ### 文档目录

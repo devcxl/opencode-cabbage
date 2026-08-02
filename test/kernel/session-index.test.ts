@@ -4,11 +4,8 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import {
   bindSession,
-  getFlowSession,
   readIndex,
   sessionIndexPath,
-  takeoverSession,
-  unbindSession,
   updateFlowSession,
   writeIndex,
   type SessionIndex,
@@ -53,7 +50,7 @@ describe("sessionIndexPath", () => {
 })
 
 describe("并发安全（KeyedMutex 串行化 read-modify-write）", () => {
-  it("并发绑定不同 flow：两条绑定都不丢失", async () => {
+  it("并发绑定不同 flow：三条绑定都不丢失", async () => {
     const dir = await makeProjectDir()
     await Promise.all([
       bindSession(dir, 1, "sess_a"),
@@ -62,9 +59,9 @@ describe("并发安全（KeyedMutex 串行化 read-modify-write）", () => {
     ])
     const index = await readIndex(dir)
     expect(Object.keys(index.flows).sort()).toEqual(["1", "2", "3"])
-    expect(getFlowSession(index, 1)?.sessionID).toBe("sess_a")
-    expect(getFlowSession(index, 2)?.sessionID).toBe("sess_b")
-    expect(getFlowSession(index, 3)?.sessionID).toBe("sess_c")
+    expect(index.flows["1"]?.sessionID).toBe("sess_a")
+    expect(index.flows["2"]?.sessionID).toBe("sess_b")
+    expect(index.flows["3"]?.sessionID).toBe("sess_c")
   })
 
   it("并发绑定 + 更新同一 flow：最终状态一致且不丢失 entry", async () => {
@@ -76,8 +73,8 @@ describe("并发安全（KeyedMutex 串行化 read-modify-write）", () => {
       updateFlowSession(dir, 7, { continuationCount: 3 }),
     ])
     const index = await readIndex(dir)
-    const flow = getFlowSession(index, 7)
-    expect(flow).not.toBeNull()
+    const flow = index.flows["7"]
+    expect(flow).toBeDefined()
     expect(flow?.continuationCount).toBe(3)
   })
 
@@ -87,7 +84,7 @@ describe("并发安全（KeyedMutex 串行化 read-modify-write）", () => {
     const result = await updateFlowSession(dir, 7, { status: "bogus" as never })
     expect(result).toBeNull()
     const index = await readIndex(dir)
-    expect(getFlowSession(index, 7)?.status).toBe("active")
+    expect(index.flows["7"]?.status).toBe("active")
   })
 })
 
@@ -143,114 +140,35 @@ describe("writeIndex / readIndex 往返", () => {
   })
 })
 
-describe("getFlowSession", () => {
-  it("返回已绑定 flow 的 entry", () => {
-    const index: SessionIndex = { flows: { "12": entry() as never } }
-    expect(getFlowSession(index, 12)?.sessionID).toBe("sess_abc")
-  })
-
-  it("未绑定 flow 返回 null", () => {
-    expect(getFlowSession({ flows: {} }, 12)).toBeNull()
-  })
-})
-
 describe("bindSession", () => {
-  it("未绑定 flow：绑定成功，status=active", async () => {
+  it("绑定成功，status=active，continuationCount=0", async () => {
     const dir = await makeProjectDir()
-    const result = await bindSession(dir, 12, "sess_new")
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.entry.sessionID).toBe("sess_new")
-    expect(result.entry.status).toBe("active")
-    expect(result.entry.continuationCount).toBe(0)
-    const index = await readIndex(dir)
-    expect(index.flows["12"]?.sessionID).toBe("sess_new")
-  })
-
-  it("同一 session 重复绑定：幂等成功并保留 continuationCount", async () => {
-    const dir = await makeProjectDir()
-    await bindSession(dir, 12, "sess_a")
-    await updateFlowSession(dir, 12, { continuationCount: 5 })
-    const result = await bindSession(dir, 12, "sess_a")
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.entry.continuationCount).toBe(5)
-  })
-
-  it("另一 active session 绑定同一 flow：拒绝 FLOW_SESSION_CONFLICT", async () => {
-    const dir = await makeProjectDir()
-    await bindSession(dir, 12, "sess_active")
-    const result = await bindSession(dir, 12, "sess_other")
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.code).toBe("FLOW_SESSION_CONFLICT")
-    expect(result.message).toContain("sess_active")
-  })
-
-  it("旧 session 非 active（paused/completed/cancelled）：允许覆盖绑定", async () => {
-    const dir = await makeProjectDir()
-    await bindSession(dir, 12, "sess_old")
-    await updateFlowSession(dir, 12, { status: "paused" })
-    const result = await bindSession(dir, 12, "sess_new")
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.entry.sessionID).toBe("sess_new")
-    expect(result.entry.continuationCount).toBe(0)
-  })
-})
-
-describe("takeoverSession", () => {
-  it("另一 active session 且未确认：拒绝 TAKEOVER_NOT_CONFIRMED", async () => {
-    const dir = await makeProjectDir()
-    await bindSession(dir, 12, "sess_old")
-    const result = await takeoverSession(dir, 12, "sess_new", false)
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.code).toBe("TAKEOVER_NOT_CONFIRMED")
-    expect(result.message).toContain("sess_old")
-  })
-
-  it("另一 active session 且已确认：新 session 接管绑定（索引只保留当前绑定），旧 sessionID 被替换", async () => {
-    const dir = await makeProjectDir()
-    await bindSession(dir, 12, "sess_old")
-    const result = await takeoverSession(dir, 12, "sess_new", true)
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.entry.sessionID).toBe("sess_new")
-    expect(result.entry.status).toBe("active")
+    await bindSession(dir, 12, "sess_new")
     const index = await readIndex(dir)
     expect(index.flows["12"]?.sessionID).toBe("sess_new")
     expect(index.flows["12"]?.status).toBe("active")
-    // 旧 session 置 paused 由 flow_control 写入旧 session goal metadata，索引不再保留旧 sessionID
-    expect(index.flows["12"]?.sessionID).not.toBe("sess_old")
+    expect(index.flows["12"]?.continuationCount).toBe(0)
   })
 
-  it("新 session 已是绑定 session：幂等成功（无需确认）", async () => {
+  it("同一 session 重复绑定：幂等并保留 continuationCount", async () => {
     const dir = await makeProjectDir()
     await bindSession(dir, 12, "sess_a")
-    const result = await takeoverSession(dir, 12, "sess_a", false)
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.entry.sessionID).toBe("sess_a")
-    expect(result.entry.status).toBe("active")
+    await updateFlowSession(dir, 12, { continuationCount: 5 })
+    await bindSession(dir, 12, "sess_a")
+    const index = await readIndex(dir)
+    expect(index.flows["12"]?.sessionID).toBe("sess_a")
+    expect(index.flows["12"]?.continuationCount).toBe(5)
   })
 
-  it("未绑定 flow：直接绑定成功（无需确认）", async () => {
+  it("另一 session 绑定同一 flow：覆盖旧绑定（无双 session 强制）", async () => {
     const dir = await makeProjectDir()
-    const result = await takeoverSession(dir, 12, "sess_new", false)
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.entry.sessionID).toBe("sess_new")
-  })
-
-  it("旧 session 非 active：接管无需确认", async () => {
-    const dir = await makeProjectDir()
-    await bindSession(dir, 12, "sess_old")
-    await updateFlowSession(dir, 12, { status: "paused" })
-    const result = await takeoverSession(dir, 12, "sess_new", false)
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.entry.sessionID).toBe("sess_new")
+    await bindSession(dir, 12, "sess_active")
+    await bindSession(dir, 12, "sess_other")
+    const index = await readIndex(dir)
+    expect(index.flows["12"]?.sessionID).toBe("sess_other")
+    expect(index.flows["12"]?.status).toBe("active")
+    // 覆盖时 continuationCount 归零（sessionID 变更）
+    expect(index.flows["12"]?.continuationCount).toBe(0)
   })
 })
 
@@ -270,21 +188,5 @@ describe("updateFlowSession", () => {
     const dir = await makeProjectDir()
     expect(await updateFlowSession(dir, 99, { status: "paused" })).toBeNull()
     expect((await readIndex(dir)).flows["99"]).toBeUndefined()
-  })
-})
-
-describe("unbindSession", () => {
-  it("sessionID 匹配：删除 entry 返回 true", async () => {
-    const dir = await makeProjectDir()
-    await bindSession(dir, 12, "sess_a")
-    expect(await unbindSession(dir, 12, "sess_a")).toBe(true)
-    expect((await readIndex(dir)).flows["12"]).toBeUndefined()
-  })
-
-  it("sessionID 不匹配：不动索引返回 false", async () => {
-    const dir = await makeProjectDir()
-    await bindSession(dir, 12, "sess_a")
-    expect(await unbindSession(dir, 12, "sess_other")).toBe(false)
-    expect((await readIndex(dir)).flows["12"]?.sessionID).toBe("sess_a")
   })
 })

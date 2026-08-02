@@ -1,7 +1,8 @@
 /**
- * 对抗测试 #6 — 模型绕过工具直接 gh pr create/merge / git push / git worktree remove：
- * OpenCode permission 模型（bash 规则 + 最后匹配优先 + auto 模式 deny 生效）必须拒绝，
- * 高风险写命令不得出现在 dev-lifecycle（primary）的 allow 集合。
+ * 对抗测试 #6 — permission 语义：
+ * 纯 Prompt 架构下 dev-lifecycle 作为 primary 编排器直接执行 git/gh 命令（"*": "allow"）；
+ * 安全边界由用户审查与模型能力承担。本测试验证 permission 匹配原语本身正确：
+ * 最后匹配优先、auto 模式仅 allow 放行、architect 只读代码只写 docs。
  */
 import { describe, it, expect } from "vitest"
 import path from "node:path"
@@ -11,53 +12,39 @@ import { matchPermission, isAllowedInAutoMode } from "../../src/kernel/permissio
 
 const AGENTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets/agents")
 
-/** 直接绕过生命周期工具的高风险写命令（spec §12 #6 / PRD 验收 3） */
-const BYPASS_WRITE_COMMANDS = [
-  "gh pr create --title x",
-  "gh pr merge 42",
-  "git push origin feat/x",
-  "git worktree remove .worktree/x",
-  "git worktree add .worktree/x",
-  "git checkout -b feat/x",
-  "git tag v1.0.0",
-  "gh issue close 42",
-  "gh issue create --title x",
-  "gh release create v1.0.0",
-  "npm publish",
-]
+describe("adversarial #6 — permission 匹配语义", () => {
+  it("最后匹配优先：deny 置尾覆盖前序 allow，规避模型注入规则顺序", () => {
+    const rules = { "*": "allow", "git push*": "deny" }
+    expect(matchPermission(rules, "git push origin main")).toBe("deny")
+    const rules2 = { "*": "deny", "git status*": "allow" }
+    expect(matchPermission(rules2, "gh pr merge 1")).toBe("deny")
+  })
 
-function devLifecycleBashRules(): Record<string, string> {
-  const agents = loadAgents(AGENTS_DIR)
-  const dev = agents.find((a: AgentEntry) => a.key === "dev-lifecycle")
-  expect(dev, "dev-lifecycle agent must exist").toBeDefined()
-  const bash = dev!.permission?.bash as Record<string, string> | undefined
-  expect(bash, "dev-lifecycle must declare bash permission rules").toBeDefined()
-  return bash!
-}
+  it("auto 模式下仅 allow 放行；deny/ask 均拒绝", () => {
+    const rules = { "*": "ask", "git status*": "allow" }
+    expect(isAllowedInAutoMode(rules, "git status")).toBe(true)
+    expect(isAllowedInAutoMode(rules, "git push origin main")).toBe(false)
+  })
 
-describe("adversarial #6 — 直接 gh/git 写命令绕过必须被拒", () => {
-  it("dev-lifecycle 的 bash 规则对全部写命令解析为非 allow（deny/ask）", () => {
-    const rules = devLifecycleBashRules()
-    for (const cmd of BYPASS_WRITE_COMMANDS) {
-      expect(matchPermission(rules, cmd), `${cmd} 不应 allow`).not.toBe("allow")
+  it("dev-lifecycle 作为 primary 编排器拥有全部 bash 权限（纯 Prompt 架构）", () => {
+    const agents = loadAgents(AGENTS_DIR)
+    const dev = agents.find((a: AgentEntry) => a.key === "dev-lifecycle")
+    expect(dev, "dev-lifecycle agent must exist").toBeDefined()
+    const bash = dev!.permission?.bash as Record<string, string> | undefined
+    expect(bash, "dev-lifecycle must declare bash permission rules").toBeDefined()
+    // primary 编排器直接执行 push/PR/merge 等命令，全部 allow
+    for (const cmd of [
+      "git push origin feat/x",
+      "gh pr create --title x",
+      "gh pr merge 42",
+      "git worktree add .worktree/x",
+      "git checkout -b feat/x",
+    ]) {
+      expect(matchPermission(bash!, cmd), `${cmd} 应为 allow`).toBe("allow")
     }
   })
 
-  it("auto 模式下写命令一律拒绝（仅 allow 放行）", () => {
-    const rules = devLifecycleBashRules()
-    for (const cmd of BYPASS_WRITE_COMMANDS) {
-      expect(isAllowedInAutoMode(rules, cmd), `${cmd} 在 auto 模式必须被拒`).toBe(false)
-    }
-  })
-
-  it("只读查询命令仍在 allow 集合（工作流不被锁死）", () => {
-    const rules = devLifecycleBashRules()
-    for (const cmd of ["git status", "git log --oneline -5", "gh pr view 42", "gh issue view 5"]) {
-      expect(matchPermission(rules, cmd), `${cmd} 应为 allow`).toBe("allow")
-    }
-  })
-
-  it("architect 的 edit 规则放行主工作区与 planning worktree 的 docs/assets 交付物", () => {
+  it("architect 只读代码、只写 docs/assets 交付物", () => {
     const agents = loadAgents(AGENTS_DIR)
     const arch = agents.find((a: AgentEntry) => a.key === "architect")
     expect(arch, "architect agent must exist").toBeDefined()
@@ -67,19 +54,21 @@ describe("adversarial #6 — 直接 gh/git 写命令绕过必须被拒", () => {
     // 主工作区交付物
     expect(matchPermission(edit!, "docs/prd/x.md")).toBe("allow")
     expect(matchPermission(edit!, "docs/dev/specs/x.md")).toBe("allow")
-    // planning worktree 内交付物（相对主工作区路径，§7.4 缺陷回归）
-    expect(matchPermission(edit!, ".worktree/planning-user-auth/docs/prd/x.md")).toBe("allow")
-    expect(matchPermission(edit!, ".worktree/planning-user-auth/docs/dev/specs/x.md")).toBe("allow")
-    // worktree 内非交付物仍拒绝
-    expect(matchPermission(edit!, ".worktree/planning-user-auth/src/index.ts")).toBe("deny")
-    // 主工作区非 docs 仍拒绝
+    // 非 docs 仍拒绝
     expect(matchPermission(edit!, "src/index.ts")).toBe("deny")
   })
 
-  it("最后匹配优先：deny 置尾覆盖前序 allow，规避模型注入规则顺序", () => {
-    const rules = { "*": "allow", "git push*": "deny" }
-    expect(matchPermission(rules, "git push origin main")).toBe("deny")
-    const rules2 = { "*": "deny", "git status*": "allow" }
-    expect(matchPermission(rules2, "gh pr merge 1")).toBe("deny")
+  it("goal-verify 只读：bash 只放行查询命令", () => {
+    const agents = loadAgents(AGENTS_DIR)
+    const gv = agents.find((a: AgentEntry) => a.key === "goal-verify")
+    expect(gv, "goal-verify agent must exist").toBeDefined()
+    const bash = gv!.permission?.bash as Record<string, string> | undefined
+    expect(bash, "goal-verify must declare bash permission rules").toBeDefined()
+    for (const cmd of ["git status", "git diff", "git log --oneline -5"]) {
+      expect(matchPermission(bash!, cmd), `${cmd} 应为 allow`).toBe("allow")
+    }
+    for (const cmd of ["git push origin main", "gh pr merge 1", "npm publish"]) {
+      expect(matchPermission(bash!, cmd), `${cmd} 不应 allow`).not.toBe("allow")
+    }
   })
 })

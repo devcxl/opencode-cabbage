@@ -1,7 +1,7 @@
 {
   "name": "@devcxl/opencode-cabbage",
   "version": "1.1.0",
-  "description": "OpenCode 全流程开发插件 — 需求→设计→任务→编码→测试→审查→自动合并，支持自动编排与并行 Subagent",
+  "description": "OpenCode 全流程开发插件 — 需求→设计→任务→编码→测试→审查→自动合并，支持自动编排与并行 Subagent。兼容 OpenCode 与 Codex 双平台。",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/devcxl/opencode-cabbage.git"
@@ -11,6 +11,11 @@
     "url": "https://github.com/devcxl/opencode-cabbage/issues"
   },
   "keywords": [
+    "codex",
+    "codex-plugin",
+    "development-workflow",
+    "orchestration",
+    "tdd",
     "opencode",
     "opencode-plugin"
   ],

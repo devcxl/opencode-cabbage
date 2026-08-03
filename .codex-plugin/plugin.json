@@ -1,0 +1,39 @@
+{
+  "name": "opencode-cabbage",
+  "version": "1.1.0",
+  "description": "全流程开发编排插件 — 需求→设计→任务→编码→测试→审查→自动合并，兼容 OpenCode 与 Codex",
+  "author": {
+    "name": "devcxl",
+    "url": "https://github.com/devcxl"
+  },
+  "homepage": "https://devcxl.github.io/opencode-cabbage/",
+  "repository": "https://github.com/devcxl/opencode-cabbage",
+  "license": "MIT",
+  "keywords": [
+    "development-workflow",
+    "orchestration",
+    "tdd",
+    "codex",
+    "opencode",
+    "multi-agent"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "OpenCode Cabbage",
+    "shortDescription": "全流程开发编排 — 需求到自动合并",
+    "longDescription": "覆盖需求、设计、DAG 任务拆解、并行编码（TDD）、审查与自动合并的全流程开发编排插件。支持自动编排与并行 Subagent，适配 OpenCode 与 Codex 双平台。",
+    "developerName": "devcxl",
+    "category": "Development",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": [
+      "使用 OpenCode Cabbage 初始化项目 — 运行 /setup 开始",
+      "使用 OpenCode Cabbage 从需求到实现 — 运行 /requirements 开始",
+      "使用 OpenCode Cabbage 的 dev-lifecycle 自动编排全流程"
+    ],
+    "brandColor": "#00bcd4",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png"
+  }
+}

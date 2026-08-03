@@ -1,0 +1,20 @@
+{
+  "name": "local-opencode-cabbage",
+  "interface": {
+    "displayName": "Local Cabbage Plugins"
+  },
+  "plugins": [
+    {
+      "name": "opencode-cabbage",
+      "source": {
+        "source": "local",
+        "path": "./plugins/opencode-cabbage"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    }
+  ]
+}

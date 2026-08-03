@@ -18,9 +18,10 @@ describe("setupSkillsDir with prompts", () => {
     await expect(access(promptsPath)).resolves.toBeUndefined()
 
     const files = await readdir(promptsPath)
-    expect(files).toContain("PRD-FORMAT.md")
-    expect(files).toContain("ADR-FORMAT.md")
+    // 仅保留仍被加载的 bootstrap（PRD/ADR 格式模板已随生命周期内核删除，格式内嵌于 skill）
     expect(files).toContain("bootstrap.md")
+    expect(files).not.toContain("PRD-FORMAT.md")
+    expect(files).not.toContain("ADR-FORMAT.md")
   })
 
   it("flow-design SKILL.md references project root CONTEXT.md（内置 _context 已删除）", async () => {

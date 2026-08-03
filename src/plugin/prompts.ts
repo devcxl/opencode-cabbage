@@ -12,11 +12,6 @@ export function initPrompts(packageRoot: string, projectDir: string) {
   _projectDir = projectDir
 }
 
-export function resetPrompts() {
-  _packageRoot = ""
-  _projectDir = ""
-}
-
 export async function loadPrompt(name: string): Promise<string> {
   const projectPath = path.join(_projectDir, ".opencode", PLUGIN_ID, "prompts", `${name}.md`)
   if (await pathExists(projectPath)) {

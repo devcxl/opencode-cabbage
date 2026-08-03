@@ -16,14 +16,14 @@ function resolveSkillsPath(): string {
 export async function setupSkillsDir(sourceSkillsDir: string, promptsDir?: string): Promise<string> {
   const destDir = resolveSkillsPath()
 
-  // 已安装且完整（含源目录的 SKILL.md）→ 跳过重建，避免多实例并发踩踏与无谓 IO
-  const sourceEntries = await readdir(sourceSkillsDir, { withFileTypes: true })
-  const sourceDirs = sourceEntries.filter(e => e.isDirectory()).map(e => e.name)
+  // 已安装且完整（目录列表与源一致）→ 跳过全量重建；否则重建（防多实例并发踩踏与无谓 IO）
+  const sourceDirs = (await readdir(sourceSkillsDir, { withFileTypes: true }))
+    .filter(e => e.isDirectory()).map(e => e.name)
   let installed = false
   try {
-    const destEntries = await readdir(destDir, { withFileTypes: true })
-    const destDirs = destEntries.filter(e => e.isDirectory()).map(e => e.name)
-    installed = sourceDirs.every(d => destDirs.includes(d))
+    const destDirs = (await readdir(destDir, { withFileTypes: true }))
+      .filter(e => e.isDirectory()).map(e => e.name)
+    installed = sourceDirs.every(d => destDirs.includes(d)) && destDirs.length === sourceDirs.length
   } catch {
     installed = false
   }
@@ -35,8 +35,11 @@ export async function setupSkillsDir(sourceSkillsDir: string, promptsDir?: strin
   }
 
   if (promptsDir) {
+    const promptsDest = path.join(destDir, "_prompts")
     try {
-      await cp(promptsDir, path.join(destDir, "_prompts"), { recursive: true })
+      // 同步 _prompts：先清空再拷贝，保证源中删除的文件不残留
+      await rm(promptsDest, { recursive: true, force: true })
+      await cp(promptsDir, promptsDest, { recursive: true })
     } catch (err) {
       console.warn("[cabbage] failed to copy prompts dir into skills:", err)
     }

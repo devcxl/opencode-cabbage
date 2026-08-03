@@ -22,7 +22,3 @@ export async function initBootstrap() {
 export function getBootstrapContent(): string {
   return _bootstrapCache ?? _fallbackContent
 }
-
-export function resetBootstrap() {
-  _bootstrapCache = undefined
-}

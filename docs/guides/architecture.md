@@ -22,9 +22,9 @@
 │  └───────────────────────────────────────────────────────┘  │
 │                                                             │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │           Agent 团队 (5 agents)                        │  │
+│  │           Agent 团队 (6 agents)                        │  │
 │  │  @dev-lifecycle → @architect → @developer             │  │
-│  │                    → @reviewer → @goal-verify          │  │
+│  │     → @reviewer → @researcher → @goal-verify          │  │
 │  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -90,6 +90,7 @@ setup → requirements → design → tasks → code → review → release（�
 
 - **primary 编排器（dev-lifecycle）** 全权：直接执行 push/PR/merge 等高险命令
 - **子 agent 只读/受限**：architect 只写 docs；developer 只在 worktree 内开发不 push；reviewer 只读；goal-verify 只读 + 测试（deny publish）
+- **子 agent 技能隔离**：`permission.skill` 默认 `deny` 全部 skill，仅放行各自归属技能（architect→design/tasks；developer→code/tdd；reviewer→review；researcher→research；goal-verify 无）
 - 复用宿主 `gh auth`，不建设第二套凭据
 
 ### Project Context 注入
@@ -147,9 +148,10 @@ setup → requirements → design → tasks → code → review → release（�
 
 ### dev-lifecycle 自动编排
 
-需求确认后，`@dev-lifecycle` 一条命令跑完 `design → tasks → code → review`：
+`@dev-lifecycle` 先做 **Phase 0 场景分诊**，按输入选择路径（功能流或轻量路径，路由表见 `assets/agents/dev-lifecycle.md`），再按路径编排；功能流一条命令跑完 `design → tasks → code → review`：
 
 ```
+0. Phase 0: 场景分诊 → 功能流继续下方；非功能路径（修复/hotfix/业务调整/重构/技术债/基础设施/文档/回滚/调研）按轻量路径执行
 1. goal({op:"create", parent_issue_number}) → 读取 Parent Issue 目标
 2. Phase 1: 委派 @architect 出方案 + ADR → 分支 + PR 合入（设计基线）
 3. Phase 2: 委派 @architect 拆 DAG → gh issue create 建 Sub Issues
@@ -163,6 +165,9 @@ setup → requirements → design → tasks → code → review → release（�
        → git worktree remove（脏目录提示人工处理）
 5. Phase 4: 确认全部合并 → 派 @goal-verify 独立验证
 6. goal-verify 验证通过 → goal({op:"complete"})
+
+调研等非功能场景：派发 `@researcher` 加载 `flow-research` 产出 `docs/dev/research/<topic>.md`；
+异常处理在重试后先派发 `@deep-think`（更强模型）系统审视，再 Pause 求助。
 ```
 
 关键机制：
@@ -173,13 +178,14 @@ setup → requirements → design → tasks → code → review → release（�
 
 ### Agent 权限矩阵
 
-| agent | bash | edit/write | 职责 |
-|-------|------|-----------|------|
-| `dev-lifecycle` | 全部 allow | 全权 | 编排一切（push/PR/merge/worktree） |
-| `architect` | 只读查询 | 只写 docs/assets | 方案、ADR、DAG 拆解 |
-| `developer` | 只读查询 | 全权（worktree 内） | TDD 实现 |
-| `reviewer` | 只读查询 | 只读 | 双轴审查 |
-| `goal-verify` | 查询 + 测试，deny publish | 只读 | 独立验证 + goal complete |
+| agent | bash | edit/write | 技能(skill) | 职责 |
+|-------|------|-----------|------|------|
+| `dev-lifecycle` | 全部 allow | 全权 | 全部 | 编排一切（push/PR/merge/worktree） |
+| `architect` | 只读查询 | 只写 docs/assets | flow-design, flow-tasks | 方案、ADR、DAG 拆解 |
+| `developer` | 只读查询 | 全权（worktree 内） | flow-code, flow-tdd | TDD 实现 |
+| `reviewer` | 只读查询 | 只读 | flow-review | 双轴审查 |
+| `researcher` | 只读 + 网络读取(curl) | 只写 docs/dev/research | flow-research | 调研、事实核查 |
+| `goal-verify` | 查询 + 测试，deny publish | 只读 | 无 | 独立验证 + goal complete |
 
 ## 事件驱动
 
@@ -227,6 +233,7 @@ Continue working.
 - 只有 `@goal-verify` 可以 complete goal（goal.ts 内置授权）
 - goal-verify 为只读验证 agent（bash deny publish）
 - 子 agent 无高险写权限：developer 不 push、reviewer 只读、architect 只写 docs
+- 子 agent 技能隔离：`permission.skill` deny 非归属 skill，防越权加载与上下文污染
 - worktree 销毁前检查干净状态；脏目录不自动删除
 
 ## 依赖关系

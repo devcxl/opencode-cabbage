@@ -175,6 +175,18 @@ describe("server config hook — agent 注入（permission 规则，无 tools �
     expect(agent).toBeDefined()
     expect(agent.permission).toBeDefined()
     expect(agent.permission.bash).toBeDefined()
+    // 子 agent 技能隔离：默认 deny 全部 skill，仅放行各自归属 skill
+    expect(agent.permission.skill).toEqual({
+      "*": "deny",
+      "flow-design": "allow",
+      "flow-tasks": "allow",
+    })
+    const dev = config.agent.developer
+    expect(dev.permission.skill).toEqual({
+      "*": "deny",
+      "flow-code": "allow",
+      "flow-tdd": "allow",
+    })
     // agent frontmatter 的 tools 布尔已废弃：不注入 read/bash/write/edit
     // （goal 布尔由 configureGoalTools 作为 config 层工具开关注入，属预期）
     expect(agent.tools?.read).toBeUndefined()

@@ -42,6 +42,10 @@ permission:
   edit:
     "*": "deny"
     ".worktree/**": "allow"
+  skill:
+    "*": "deny"
+    "flow-code": "allow"
+    "flow-tdd": "allow"
 ---
 
 <system-reminder>
@@ -51,6 +55,8 @@ permission:
 
 **TDD 约束**：编码前加载 `flow-tdd` skill，遵循 RED→GREEN→final-regression→final-verification 流程。
 self-report 每个 cycle 的状态，不跳过任何阶段。测试质量由仓库 CI 把关。
+
+**技能归属**：本 agent 只加载 `flow-code`（编码实现）、`flow-tdd`（TDD 协议）两个 skill；禁止加载其他 skill。
 
 ## 工程原则（单份引用）
 

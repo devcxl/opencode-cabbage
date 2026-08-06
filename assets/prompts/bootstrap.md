@@ -10,11 +10,12 @@
 - /review — 双轴审查（规范+规格）→ 合并
 - /release — ⚠️ 手动阶段：版本 → Release PR → GitHub Actions 发布
 
-推荐流程（顺序执行）：
-setup → requirements → design → tasks → code → review → release
+推荐流程：
+- 新功能/需求：setup → requirements → design → tasks → code → review → release
+- 非功能场景（Bug 修复/紧急修复/业务调整/重构/技术债/基础设施/文档/回滚）：输入 @dev-lifecycle，自动分诊并按对应轻量路径执行
 
 阶段契约：每个 stage 的完成权威是 Parent Issue body checklist（`- [x] <stage>`），
 阶段顺序与约束详见 stage-contract。
 
-⚡ 自动化模式：需求确认后输入 @dev-lifecycle 自动执行流程（终点为合并，不包含 release）
+⚡ 自动化模式：输入 @dev-lifecycle，先按输入场景分诊再执行对应流程；功能流终点为合并（不含 release），发布走 /release 手动阶段
 </EXTREMELY_IMPORTANT>

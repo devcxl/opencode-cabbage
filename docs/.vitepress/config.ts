@@ -97,6 +97,7 @@ export default withMermaid(defineConfig({
           { text: '配置指南', link: '/guides/configuration' },
           { text: '使用指南', link: '/guides/usage' },
           { text: '架构概览', link: '/guides/architecture' },
+          { text: '场景 SOP', link: '/guides/sops/' },
         ],
       },
       {

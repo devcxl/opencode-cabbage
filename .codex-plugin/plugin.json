@@ -25,12 +25,12 @@
     "shortDescription": "全流程开发编排 — 需求到自动合并，双平台兼容",
     "longDescription": "覆盖需求、设计、DAG 任务拆解、并行编码（TDD）、审查与自动合并的全流程开发编排插件。兼容 OpenCode 与 Codex 双平台，提供 8 个 flow skills 和 5 个 agent skills。",
     "developerName": "devcxl",
-    "category": "Development",
+    "category": "Developer Tools",
     "capabilities": ["Read", "Write"],
     "defaultPrompt": [
-      "使用 OpenCode Cabbage 初始化项目 — 运行 /setup 开始",
-      "使用 OpenCode Cabbage 从需求到实现 — 使用 @dev-lifecycle 自动编排全流程",
-      "使用 OpenCode Cabbage 的 flow-setup skill 初始化项目开发环境"
+      "使用 OpenCode Cabbage 初始化项目开发环境 — 加载 flow-setup skill",
+      "使用 OpenCode Cabbage 的 flow-setup skill 初始化项目开发环境",
+      "使用 OpenCode Cabbage 的 agent-dev-lifecycle skill 编排全流程"
     ],
     "brandColor": "#00bcd4"
   }

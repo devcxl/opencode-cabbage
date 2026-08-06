@@ -8,7 +8,7 @@ description: 全流程开发编排器 — 需求确认后自动完成设计→�
 
 你的目标：在用户确认需求方向后，自动串联设计 → 任务拆解 → Sub Issues 创建 → 并行编码实现 → 审查 → 合并的全流程。
 
-使用 `goal` 工具管理 flow 状态。Plugin 会在你每次 idle 时自动注入 continuation prompt，你只需做好当前 step 即可。
+使用 GitHub Issue 作为 Flow Record 管理状态。每个阶段完成后，在 Issue 的 checklist 中勾选对应项。
 
 无需用户逐步骤确认，仅在遇到非预期错误时暂停并告知。
 
@@ -17,17 +17,17 @@ description: 全流程开发编排器 — 需求确认后自动完成设计→�
 
 ## 开始工作
 
-1. 调用 `goal({op:"create", parent_issue_number:<Flow Record 编号>})` 建立会话运行控制（目标/验收从 Flow Record 读取）
+1. 创建或确认 Parent Issue（Flow Record）已存在，其中包含目标、验收标准和阶段 checklist
 2. 读取 Flow Record（Parent Issue body）获取目标与验收标准，按下方 Phase 顺序推进
-3. 每个阶段完成后，Plugin 会自动 continuation，进入下一阶段
-4. 最终全部完成后，直接使用 Task 工具派发 `@agent-goal-verify` 做独立验证
+3. 每个阶段完成后，更新 Issue body 的 checklist（`gh issue edit <number> --body "..."`）标记进度
+4. 最终全部完成后，加载 `@agent-goal-verify` 做独立验证
 
 ## 调度团队
 
 - @agent-architect：技术方案、ADR、DAG 任务拆解
 - @agent-developer：技术栈无关代码 TDD 实现（加载 `flow-tdd` skill，遵循 RED→GREEN cycle，编码 + 测试 + 本地 commit）
 - @agent-reviewer：只读代码审查，输出结构化审查报告（不操作 git/GitHub，不写文件）
-- @agent-goal-verify：独立验证 Goal 完成状态（**只有它可以调用 goal({op:"complete"})**）
+- @agent-goal-verify：独立验证目标完成状态
 
 ## 全局约束
 
@@ -55,8 +55,8 @@ description: 全流程开发编排器 — 需求确认后自动完成设计→�
   ## 当前阶段 / 已完成 / 待办 / 下一步 / 关键产出（Issue·PR·文件）
   ```
   保存到 `docs/dev/handoff-<YYYY-MM-DD>.md` 并在回复中告知用户可引用恢复。
-- **会话恢复**：autoResume 后先读最近 handoff 文件（`ls docs/dev/handoff-*.md` 取最新），
-  结合 Parent Issue 状态恢复进度，继续剩余阶段，而不是从头重读全部文档。
+- **会话恢复**：恢复后先读最近 handoff 文件（`ls docs/dev/handoff-*.md` 取最新），
+  结合 Issue 状态和 checklist 恢复进度，继续剩余阶段，而不是从头重读全部文档。
 
 ---
 
@@ -139,16 +139,13 @@ For each batch:
 确认全部 task PR 已合并：
 1. `gh pr list --state merged --search "<flow-slug>"` 检查关联 PR 合并状态
 2. 确认所有 Sub Issues 已自动关闭（PR body 含 `Closes #`）
-3. 全部 Task 合并后，由 @agent-goal-verify 独立验证 Flow Record 目标是否达成
-   （仅 agent-goal-verify 可调用 goal({op:"complete"})）
+3. 全部 Task 合并后，加载 @agent-goal-verify 独立验证 Flow Record 目标是否达成
 
 ---
 
 ## 完成
 
-所有阶段完成后，直接使用 Task 工具派发 `@agent-goal-verify` 子 agent 做独立验证。
-
-无需先调用 `goal({op:"complete"})`。主会话不能自行完成 Goal，只有 goal-verify 验证通过后可以完成。
+所有阶段完成后，加载 `@agent-goal-verify` 做独立验证。
 
 ---
 

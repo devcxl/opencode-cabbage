@@ -39,7 +39,10 @@
   "files": [
     "dist",
     "assets",
-    "README.md"
+    "README.md",
+    ".codex-plugin",
+    "skills",
+    "hooks"
   ],
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",

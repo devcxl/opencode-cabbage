@@ -1,11 +1,12 @@
 /**
- * Cabbage Session Start Hook — loads dev-lifecycle agent prompt and project context.
+ * Cabbage Session Start Hook — loads plugin overview and project context.
  * Runs on Codex SessionStart lifecycle event.
+ * Compiled to dist/hooks/session-start.js by tsc.
  */
 import { readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
 
-const PLUGIN_ROOT = process.env.PLUGIN_ROOT || process.cwd()
+// PLUGIN_ROOT is set by Codex hooks runtime
 const PROJECT_DIR = process.cwd()
 
 function getHeader(): string {
@@ -34,6 +35,7 @@ Load skills by name: @agent-dev-lifecycle, @agent-architect, @agent-developer, @
 }
 
 function getProjectContext(): string {
+  // Try root AGENTS.md from project directory
   const agentsMd = join(PROJECT_DIR, "AGENTS.md")
   if (existsSync(agentsMd)) {
     const content = readFileSync(agentsMd, "utf8")

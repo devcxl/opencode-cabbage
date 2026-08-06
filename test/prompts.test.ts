@@ -1,11 +1,25 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import fs from "node:fs"
 import path from "node:path"
+import os from "node:os"
 import { setupSkillsDir } from "../src/plugin/skills.js"
 import { readdir, access, readFile } from "node:fs/promises"
 
 function assetPath(name: string): string {
   return path.resolve(import.meta.dirname || __dirname, "..", "assets", name)
 }
+
+let tmpDir: string
+
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cabbage-prompt-test-"))
+  process.env.CABBAGE_SKILLS_DIR = path.join(tmpDir, "skills")
+})
+
+afterEach(() => {
+  delete process.env.CABBAGE_SKILLS_DIR
+  fs.rmSync(tmpDir, { recursive: true, force: true })
+})
 
 describe("setupSkillsDir with prompts", () => {
   it("copies _prompts into skills temp dir", async () => {

@@ -3,3 +3,4 @@ dist/
 .worktree/
 .vitepress-dist/
 .opencode
+.codegraph/

@@ -108,6 +108,16 @@ describe("queueContinuation — 子会话活动闸", () => {
     await queueContinuation(client as never, "sess-main")
     expect(client.session.promptAsync).not.toHaveBeenCalled()
   })
+
+  it("children 查询失败同样保守跳过（fail-closed 一致）", async () => {
+    const { client } = makeClient({
+      goal: activeGoal(),
+      messages: [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "工作完成。" }] }],
+    })
+    ;(client.session.children as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("boom"))
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+  })
 })
 
 describe("queueContinuation — 尾部静默检查", () => {
@@ -174,6 +184,26 @@ describe("queueContinuation — [BLOCKED:] 阻塞报告", () => {
     const update = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { status: string; statusReason: string } } }
     expect(update.metadata.goal.status).toBe("active")
     expect(update.metadata.goal.statusReason).toBe("")
+  })
+
+  it("首 tick 正常推进也消费豁免，后续真实 blocked 不再被误豁免", async () => {
+    const { client } = makeClient({
+      goal: activeGoal({ statusReason: "resumed" }),
+      messages: [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "正常推进。" }] }],
+    })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).toHaveBeenCalledTimes(1)
+    const firstUpdate = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { statusReason: string } } }
+    expect(firstUpdate.metadata.goal.statusReason).toBe("")
+    // 后续 tick：真实 blocked 报告 → 不再豁免，暂停
+    ;(client.session.messages as ReturnType<typeof vi.fn>).mockResolvedValue({ data: [{
+      info: ASSISTANT_INFO,
+      parts: [{ type: "text", text: "[BLOCKED: still missing]" }],
+    }] })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).toHaveBeenCalledTimes(1) // 未再发送
+    const lastUpdate = client.session.update.mock.calls.at(-1)![0] as unknown as { metadata: { goal: { status: string } } }
+    expect(lastUpdate.metadata.goal.status).toBe("paused")
   })
 })
 
@@ -245,5 +275,24 @@ describe("queueContinuation — 先写后发与失败回滚", () => {
     const lastUpdate = client.session.update.mock.calls.at(-1)![0] as unknown as { metadata: { goal: { continuationCount: number; status: string } } }
     expect(lastUpdate.metadata.goal.continuationCount).toBe(3)
     expect(lastUpdate.metadata.goal.status).toBe("active")
+  })
+
+  it("消息拉取失败时跳过续接（fail-closed）", async () => {
+    const { client } = makeClient({ goal: activeGoal(), messages })
+    ;(client.session.messages as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("boom"))
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+  })
+
+  it("continuationCount 达 compaction 阈值时先发 compact 再发续接", async () => {
+    const { client } = makeClient({
+      goal: activeGoal({ continuationCount: 19 }),
+      messages,
+    })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).toHaveBeenCalledTimes(2)
+    const promptCalls = client.session.promptAsync.mock.calls as unknown as Array<[{ parts: Array<{ text: string }> }]>
+    expect(promptCalls[0]![0].parts[0]!.text).toContain("[compact]")
+    expect(promptCalls[1]![0].parts[0]!.text).toContain("#42")
   })
 })

@@ -104,11 +104,11 @@
 
 **建议**:加 `edit` op(仅改 parentIssueNumber 与可选 budget,保留计数),若同时做了 2.4 才需要 budget 字段。成本:半小时。
 
-### 2.7 轻微:无 turn error 处理
+### 2.7 轻微:无 turn error 处理(已由 [BLOCKED:] 报告机制覆盖)
 
-**证据**:server.ts 事件处理只有 MessageAbortedError → abortedSessions;普通 assistant turn error(如 provider 500)不处理,循环继续续接(下一个 idle 又来)。OpenChamber:turn error → blocked。
+**证据**:server.ts 事件处理只有 MessageAbortedError → abortedSessions;普通 assistant turn error(如 provider 500)不单独触发暂停。
 
-**影响**:连续失败的会话会反复续接直到 50 次。与 2.2 同源,建议合并处理(检测到 error 事件 → pause)。
+**影响**:连续失败的会话会反复续接直到 50 次。**修复口径(2026-08-09)**:卡点检测统一由 `[BLOCKED:]` 报告机制承担(agent 在续接回复中显式声明无法推进 → 插件置 paused),不单独监听 error 事件暂停——error 与"需要用户输入"是不同语义,前者可能自愈,后者必须停。若实测发现 error 反复空转,再补 error 事件 pause。
 
 ---
 

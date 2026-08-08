@@ -86,7 +86,9 @@ async function hasWorkingChildren(
       const status = child?.id ? statuses[child.id] : null
       return status?.type === "busy" || status?.type === "retry"
     })
-  } catch {
+  } catch (error) {
+    // 查询失败 → 保守跳过（fail-closed）；告警使长期故障可观测（否则续接会静默永久停止）
+    console.warn(`[cabbage] child-session check failed for ${sessionID}:`, (error as Error | null)?.message ?? error)
     return true
   }
 }
@@ -172,6 +174,10 @@ export async function queueContinuation(
           if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
           return { goal, value: null }
         }
+      } else if (goal.statusReason === "resumed") {
+        // 豁免消费：resume 后的首次 tick 无论是否命中 blocked 都清除 kickoff 信号。
+        // 若不消费，首 tick 正常推进后 statusReason 残留，后续真实 blocked 会被误豁免一次。
+        goal.statusReason = ""
       }
 
       // Token 记账（快照法）：最新完成 assistant 轮的 input+cache.read+output 即整段成本

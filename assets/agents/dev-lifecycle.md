@@ -43,6 +43,21 @@ permission:
 - requirements 完成需用户确认；高风险 Flow 的 design→tasks 需用户确认
 - 上述阶段顺序与 checklist 适用于功能流；非功能路径按 Phase 0 轻量路径执行，完成标准见各路径要点
 
+### Testing Decisions 存量兼容门
+
+功能流进入或恢复 tasks、code、review 时，先检查相关行为是否在技术方案中具有完整的 `Testing Decisions`。
+
+如果完整，直接继续当前步骤。如果缺失：
+
+1. 记录当前 stage，不调用 goal 改回 design，也不修改已完成阶段的 checklist。
+2. 在创建 Sub Issue、派发 developer 或输出 review 结论前停止当前动作，汇总一个 Design Gap：Design 文件、缺失行为、已有 Interface / 测试惯例、需要补充的决策。
+3. 在**当前 stage 内**委派 `@architect` 加载 `flow-design` 执行 Design Amendment：只向原技术方案补充缺失的 Test Seam、Observable Result 与 Test Level。
+4. 读回并在当前 stage 保存修改后的 Design；补齐后从头重新执行当前 Task Planning、developer 派发或 review，不重复已完成的 lifecycle stage。
+5. 一轮 amendment 后仍无法确定稳定 Seam，或出现新的高风险架构取舍 → 保持当前 stage 并暂停，请用户决策；禁止自动循环重试。
+
+兼容门不得创建新 lifecycle 状态，不得重复发布 Sub Issue，不得让 developer/reviewer 临时发明 Test Seam。已有完整 Testing Decisions 时不得重写。
+如果当前 code/review worktree 尚不包含 amended Design，重新派发时必须把补充后的 Testing Decisions 明确放入 agent 上下文，不能让 agent 继续读取旧版本并再次触发 Design Gap。
+
 ### 文档目录
 - PRD → `docs/prd/`
 - ADR → `docs/adr/`
@@ -156,24 +171,62 @@ permission:
 ```
 基于 PRD（docs/prd/<title>.md）输出技术方案和 ADR。
 1. 技术方案 → docs/dev/specs/<title>.md
-2. ADR → docs/adr/<date>-<slug>.md
-3. gh issue comment 附到对应 Issue
+2. 为关键行为定义 Testing Decisions：公共 Test Seam + Observable Result
+3. ADR → docs/adr/<date>-<slug>.md
+4. gh issue comment 附到对应 Issue
 ```
 
-## Phase 2：DAG 任务拆解 + Sub Issues
+## Phase 2：Task Planning + Publish
+
+先执行 Testing Decisions 存量兼容门；通过后再委派 Task Planning。
 
 委派 @architect：
 ```
-基于技术方案拆解 DAG 任务。
-1. 任务定义 → docs/dev/tasks/<task-name>.md（含 frontmatter）
-2. 每个任务创建 GitHub Sub Issue，关联 Parent Issue
+读取 design/spec/ADR，生成 tracer-bullet Task Plan。
+1. 每个 Task 定义可验证的端到端行为、Acceptance Criteria 与真实 blocking edge
+2. 任务定义 → docs/dev/tasks/<task-name>.md（含 frontmatter）
+3. 输出 Mermaid DAG、拓扑顺序与 Task Plan
+4. 返回 Task Plan，不创建 GitHub Issue
 ```
+
+@dev-lifecycle 收到 Task Plan 后：
+
+1. 检查每个 Task 是否包含 `Builds`，且可由 fresh-context developer 独立理解和验证。
+2. 检查每个行为是否映射到 Design `Testing Decisions` 中约定的公共 Test Seam。
+3. 检查是否存在 Controller / Service / DAO 等技术分层式拆分，或完成后不可工作的空壳 Task。
+4. 检查 DAG 是否有环，并确认每条 `Blocked By` 都是真实 blocking edge。
+5. 普通 Flow 自动继续；高风险 Flow 按阶段契约展示 Task Plan，等待用户确认。
+6. 按 DAG 拓扑顺序创建 GitHub Sub Issues。生成长 Markdown 时统一使用下方的 `--body-file -` 示例。
+
+```bash
+gh issue create \
+  --parent "$PARENT" \
+  --title "$TITLE" \
+  --body-file - <<'EOF'
+## Builds
+
+...
+
+## Acceptance Criteria
+
+- [ ] ...
+
+## Blocked By
+
+None
+EOF
+```
+
+7. GitHub Issue 正文只包含 `Builds`、`Acceptance Criteria`、`Blocked By`；不复制 Task frontmatter、测试命令或内部实现说明。
+8. 使用实际 Issue 编号更新 Task frontmatter 的 `issue`、Task 的 `Blocked By` 与 DAG。
+9. 确认 Task 文件和 DAG 已保存后进入 Phase 3。
 
 ---
 
 ## Phase 3：并行编码实现
 
 按 DAG 拓扑排序逐 batch 处理。每个 batch 内，无依赖的 task 使用独立 worktree 并行开发。
+进入 Phase 3 或恢复存量 code/review 工作时，先对当前 Task 执行 Testing Decisions 存量兼容门。
 
 ```
 For each batch:
@@ -203,7 +256,8 @@ For each batch:
     6. 委派 @reviewer 双轴审查各 PR，附带 worktree 路径和分支信息：
        gh pr view <pr-number> --json headRefName,number,title
        ⚠️ 审查提示中必须包含：本地 worktree 路径（`.worktree/<task-slug>`）或分支名、
-       PR 编号、明确指令：**在 worktree/分支内本地审查，禁止 WebFetch 远程代码**
+       PR 编号、Task 文件、PRD、技术方案（含 Testing Decisions），以及明确指令：
+       **在 worktree/分支内本地审查，禁止 WebFetch 远程代码**
     7. 根据审查结果发布 review：
        gh pr review <pr-number> --approve    （或 --request-changes）
     8. CI 通过 + 审查通过后合并：

@@ -16,6 +16,7 @@ description: 渐进式需求澄清 → PRD → Parent Issue
 在 `docs/dev/decision-map.md` 创建映射，追踪所有待决策问题（Ticket 含 slug / Blocked by / Status / Type / Question / Answer）。初始只创建 2–4 个前沿 Ticket，不试图穷举。
 
 Ticket 类型：Grilling（与用户对话澄清）/ Research（查文档）/ Prototype（低保真验证）。
+Research 型 Ticket → 派发 `@agent-researcher` 加载 `flow-research` skill 产出调研文档后，据结论 resolved。
 
 ## Phase B：渐进式解决
 
@@ -54,7 +55,7 @@ gh issue create --title "<英文功能标题>" --body "<目标 + 验收标准>"
 ## Contract
 
 ### Trigger
-由 `/requirements` 命令或 `@dev-lifecycle` 触发。
+由 `/requirements` 命令或 `@agent-dev-lifecycle` 触发。
 
 ### Inputs
 - 用户提供的功能描述（来自消息文本）

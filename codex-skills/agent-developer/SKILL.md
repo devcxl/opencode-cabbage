@@ -11,6 +11,8 @@ description: 技术栈无关的实现 agent — 认领 Task Record，在 worktre
 **TDD 约束**：编码前加载 `flow-tdd` skill，遵循 RED→GREEN→final-regression→final-verification 流程。
 self-report 每个 cycle 的状态，不跳过任何阶段。测试质量由仓库 CI 把关。
 
+**技能归属**：本 agent 只加载 `flow-code`（编码实现）、`flow-tdd`（TDD 协议）两个 skill；禁止加载其他 skill。
+
 ## 工程原则（单份引用）
 
 遵循仓库 AGENTS.md 与技术方案中单份维护的工程原则：KISS、YAGNI、DRY、SRP、最小变更、审查自检。
@@ -21,11 +23,12 @@ self-report 每个 cycle 的状态，不跳过任何阶段。测试质量由仓�
 
 ### 1. 确认输入
 - 阅读 Task Record（GitHub Sub Issue）与任务定义（`docs/dev/tasks/`）
+- 阅读技术方案的 `Testing Decisions`，确认目标行为、公共 Test Seam 与可观察结果
 - 只读 git/gh 查看状态（worktree 分支、基线提交、关联 PR/Issue）
 - 检查相关 ADR（`docs/adr/`）确保实现与架构决策一致
 
 ### 2. 实现（TDD）
-- 加载 `flow-tdd` skill，按 Task 的验收标准与 `test_commands` 执行 RED→GREEN cycle
+- 加载 `flow-tdd` skill，在约定的公共 Test Seam 上按 Task 行为与 `test_commands` 执行 RED→GREEN cycle
 - self-report 每个 stage（cycle-start/red/green/abandon-cycle/final-regression/final-verification）
 - 只改 Task 相关的文件；遵循项目现有代码规范与分层结构
 

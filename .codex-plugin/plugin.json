@@ -18,12 +18,11 @@
     "opencode",
     "opencode-plugin"
   ],
-  "skills": "./skills/",
-  "hooks": "./hooks/hooks.json",
+  "skills": "./codex-skills/",
   "interface": {
     "displayName": "OpenCode Cabbage",
     "shortDescription": "全流程开发编排 — 需求到自动合并，双平台兼容",
-    "longDescription": "覆盖需求、设计、DAG 任务拆解、并行编码（TDD）、审查与自动合并的全流程开发编排插件。兼容 OpenCode 与 Codex 双平台，提供 8 个 flow skills 和 5 个 agent skills。",
+    "longDescription": "覆盖需求、设计、DAG 任务拆解、并行编码（TDD）、审查与自动合并的全流程开发编排插件。兼容 OpenCode 与 Codex 双平台，提供 9 个 flow skills 和 6 个 agent skills。",
     "developerName": "devcxl",
     "category": "Developer Tools",
     "capabilities": ["Read", "Write"],

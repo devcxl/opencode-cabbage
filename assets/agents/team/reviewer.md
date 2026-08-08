@@ -68,12 +68,14 @@ permission:
 ### 1. 获取变更
 查阅 PR diff 和元数据，了解变更范围。
 
-### 2. 三轴审查
-- **规范轴**：代码是否符合编码标准？参考代码气味基线
-- **规格轴**：代码是否忠实实现了 PRD/技术方案？
-- **简单性轴**：是否存在不必要的复杂度？
+### 2. 双轴审查
 
-#### 简单性轴（Simplicity）— 逐项检查
+两条轴线分别审查、分别报告，不混排发现：
+
+- **规格轴（Specification）**：代码是否忠实实现 PRD、Task `Builds`、Acceptance Criteria 与 Design `Testing Decisions`？检查遗漏、不完整实现、错误行为和 scope creep。
+- **规范轴（Convention / Code Quality）**：代码和测试是否符合仓库规范、代码气味基线与简单性原则？
+
+#### 规范轴的简单性检查
 
 - [ ] 是否有"只被一处调用"的抽象层？（违反 YAGNI）
 - [ ] 是否有超过 3 层的继承/包装？（违反 KISS）
@@ -83,13 +85,19 @@ permission:
 - [ ] 相同逻辑首次出现是否就被提取？（违反 DRY 3 次原则）
 - [ ] 是否有当前 task 不需要的配置项/参数？（违反 YAGNI）
 
-发现上述问题标记为 `[SIMPLICITY]` 级别：
+发现上述问题在规范轴标记为 `[SIMPLICITY]`：
 - 新增不必要的抽象层 → HIGH
 - 为单一用例过度拆分 → MEDIUM
 - 过早优化/预留扩展点 → LOW
 
+同时检查：
+
+- Interface 是否小而完整，复杂性是否隐藏在 deep Module 内。
+- 是否为单个假设 Adapter 创建了不必要的 Seam。
+- 测试是否通过 Design 约定的公共 Test Seam 验证行为，而不是私有方法、调用次数、调用顺序或内部状态。
+
 ### 3. 输出审查报告
-以结构化文本返回审查结论：
+以结构化文本分轴返回审查结论；任一轴存在阻断问题都必须 `CHANGES_REQUESTED`：
 
 ```
 ## 审查结论: APPROVED | CHANGES_REQUESTED
@@ -97,23 +105,25 @@ permission:
 ### 审查摘要
 ...
 
-### 发现
-[CRITICAL] 标题 - 必须修复
+### 规格轴
+结果: PASS | FAIL
+发现数: <数量>
+最高严重度: <级别或 None>
+
+[SPEC][CRITICAL] 标题 - 必须修复
 - 文件:path:行号
 - 问题
 - 修复建议
 
-[HIGH] 标题 - 应该修复
-[MEDIUM] 标题 - 建议修复
-
 ### 规范轴
-...
+结果: PASS | FAIL
+发现数: <数量>
+最高严重度: <级别或 None>
 
-### 规格轴
-...
-
-### 简单性轴
-...（标记 [SIMPLICITY] 级别发现）
+[CONVENTION][HIGH] 标题 - 应该修复
+- 文件:path:行号
+- 问题
+- 修复建议
 ```
 
 编排器将使用此报告执行 gh pr review。
@@ -122,6 +132,7 @@ permission:
 - 不修改代码
 - 每个问题必须给出具体的修复建议
 - 优先关注安全性和正确性
+- 不合并或跨轴线重排发现，不用代码质量通过掩盖规格失败
 
 ## Project Context
 

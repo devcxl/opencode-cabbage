@@ -8,9 +8,20 @@ const activeGoal = () => ({
 })
 
 describe("GoalData 最小化", () => {
-  it("createGoal 只含 parentIssueNumber/status/continuationCount", () => {
+  it("createGoal 只含最小状态与记账字段（不含目标内容）", () => {
     const goal = createGoal(42)
-    expect(goal).toEqual({ parentIssueNumber: 42, status: "active", continuationCount: 0 })
+    expect(goal).toMatchObject({
+      parentIssueNumber: 42,
+      status: "active",
+      continuationCount: 0,
+      tokensUsed: 0,
+    })
+    expect(goal.tokenBudget).toBeUndefined()
+    expect(goal.tokensBaseline).toBeUndefined()
+    expect("objective" in goal).toBe(false)
+    expect("completionCriterion" in goal).toBe(false)
+    // createdAt 为创建时刻时间戳，单独断言
+    expect(typeof goal.createdAt).toBe("number")
   })
 
   it("createGoal 支持 sessionProfile 快照（agent/模型续接防切换）", () => {

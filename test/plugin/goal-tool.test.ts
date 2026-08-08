@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { mkdtemp, rm, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { createGoalTool, mutateGoal } from "../../src/plugin/goal.js"
+import { createGoalTool, mutateGoal, isBlockedReport, snapshotTokenTotal, budgetReached } from "../../src/plugin/goal.js"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { sessionIndexPath } from "../../src/kernel/session-index.js"
 
@@ -28,6 +28,8 @@ function makeClient(initial: Record<string, unknown> = {}) {
         return { data: { sessionID, metadata } }
       }),
       promptAsync: vi.fn(),
+      // create 初始化 tokensBaseline 时会拉历史消息
+      messages: vi.fn(async () => ({ data: [] })),
     },
   }
   return { client, sessions }
@@ -67,6 +69,41 @@ describe("goal 工具 — create", () => {
     expect(String(out)).toContain("Goal created")
     expect(String(out)).toContain("Flow #42")
     expect(client.session.update).toHaveBeenCalledTimes(1)
+  })
+
+  it("create 时设置 tokenBudget 与 createdAt", async () => {
+    const { client } = makeClient()
+    const tool = createGoalTool(client as unknown as ReturnType<typeof createOpencodeClient>)
+    const out = await tool.execute({ op: "create", parent_issue_number: 42, token_budget: 100000 }, makeCtx())
+    expect(String(out)).toContain("Goal created")
+    const updated = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: Record<string, unknown> } }
+    expect(updated.metadata.goal.tokenBudget).toBe(100000)
+    expect(typeof updated.metadata.goal.createdAt).toBe("number")
+  })
+
+  it("create 时从历史消息计算 tokensBaseline（排除创建后的轮次）", async () => {
+    const { client } = makeClient()
+    // 创建时刻 Date.now() 介于 1e9（旧轮）与 9.99e12（未来轮）之间
+    ;(client.session.messages as ReturnType<typeof vi.fn>).mockResolvedValue({ data: [
+      { info: { role: "assistant", time: { completed: 1_000_000_000 }, tokens: { input: 10, output: 5, cache: { read: 20 } } } },
+      { info: { role: "user", time: {}, tokens: { input: 1, output: 1, cache: { read: 0 } } } },
+      { info: { role: "assistant", time: { completed: 9_999_999_999_999 }, tokens: { input: 100, output: 50, cache: { read: 200 } } } },
+    ] })
+    const tool = createGoalTool(client as unknown as ReturnType<typeof createOpencodeClient>)
+    await tool.execute({ op: "create", parent_issue_number: 42 }, makeCtx())
+    const updated = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: Record<string, unknown> } }
+    // 仅创建前完成的 assistant 轮计入：10 + 20 + 5 = 35（未来轮 350 不计）
+    expect(updated.metadata.goal.tokensBaseline).toBe(35)
+  })
+
+  it("消息拉取失败时 baseline 为 0，goal 仍创建", async () => {
+    const { client } = makeClient()
+    ;(client.session.messages as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("boom"))
+    const tool = createGoalTool(client as unknown as ReturnType<typeof createOpencodeClient>)
+    const out = await tool.execute({ op: "create", parent_issue_number: 42 }, makeCtx())
+    expect(String(out)).toContain("Goal created")
+    const updated = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: Record<string, unknown> } }
+    expect(updated.metadata.goal.tokensBaseline).toBe(0)
   })
 
   it("缺少 parent_issue_number 时拒绝", async () => {
@@ -232,8 +269,42 @@ describe("goal 工具 — create 写 session-index 绑定", () => {
   })
 })
 
-describe("mutateGoal 并发串行化", () => {
-  it("两个并发递增不丢失更新（锁内读改写）", async () => {
+describe("isBlockedReport — 阻塞报告检测", () => {
+  it("识别标准 [BLOCKED: 报告", () => {
+    expect(isBlockedReport("[BLOCKED: missing API key]")).toBe(true)
+  })
+
+  it("大小写与空白容错", () => {
+    expect(isBlockedReport("foo\n[blocked:  needs decision ]bar")).toBe(true)
+  })
+
+  it("普通回复不误判", () => {
+    expect(isBlockedReport("继续工作中，已完成 X 和 Y。")).toBe(false)
+    expect(isBlockedReport("blocked 这个词出现在正文里")).toBe(false)
+    expect(isBlockedReport("")).toBe(false)
+  })
+})
+
+describe("token 记账辅助", () => {
+  it("snapshotTokenTotal = input + cache.read + output", () => {
+    expect(snapshotTokenTotal({ input: 1, output: 3, cache: { read: 2 } })).toBe(6)
+    expect(snapshotTokenTotal({ input: 1, output: 3, cache: { read: 2 } })).toBe(6)
+  })
+
+  it("异常输入返回 0（防御）", () => {
+    expect(snapshotTokenTotal(null)).toBe(0)
+    expect(snapshotTokenTotal({})).toBe(0)
+    expect(snapshotTokenTotal({ input: -5, output: "x", cache: {} })).toBe(0)
+  })
+
+  it("budgetReached：tokensUsed >= tokenBudget 才达限", () => {
+    expect(budgetReached({ parentIssueNumber: 1, status: "active", continuationCount: 0, tokenBudget: 100, tokensUsed: 100 })).toBe(true)
+    expect(budgetReached({ parentIssueNumber: 1, status: "active", continuationCount: 0, tokenBudget: 100, tokensUsed: 99 })).toBe(false)
+    expect(budgetReached({ parentIssueNumber: 1, status: "active", continuationCount: 0 })).toBe(false)
+  })
+})
+
+describe("mutateGoal 并发串行化", () => {  it("两个并发递增不丢失更新（锁内读改写）", async () => {
     const { client, sessions } = makeClient({
       "sess-main": { goal: { parentIssueNumber: 42, status: "active", continuationCount: 5 } },
     })

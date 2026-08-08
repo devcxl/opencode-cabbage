@@ -1,0 +1,249 @@
+import { describe, it, expect, vi } from "vitest"
+import { queueContinuation } from "../../src/plugin/server.js"
+
+/**
+ * queueContinuation 的 client mock：
+ * - session.get/update：供 goal.js 的 mutateGoal 读改写
+ * - session.messages：续接前消息拉取（尾部检查 + blocked 检测 + token 记账）
+ * - session.children / session.status：子会话活动闸
+ * - session.promptAsync：续接发送
+ * projectDir 传 undefined，避免依赖 context/index 文件系统。
+ */
+
+const ASSISTANT_INFO = {
+  id: "msg-1",
+  role: "assistant",
+  time: { completed: 2 },
+  providerID: "provider",
+  modelID: "model",
+  agent: "dev-lifecycle",
+  tokens: { input: 100, output: 50, cache: { read: 200 } },
+}
+
+interface ClientOptions {
+  goal?: Record<string, unknown> | null
+  messages?: Array<{ info: Record<string, unknown>; parts?: Array<{ type: string; text?: string }> }>
+  children?: Array<{ id: string }>
+  statuses?: Record<string, { type: string }>
+  promptError?: Error
+}
+
+function makeClient(options: ClientOptions = {}) {
+  const sessions = new Map<string, { parentID?: string; metadata: Record<string, unknown> }>()
+  const goalMeta = options.goal === undefined
+    ? { parentIssueNumber: 42, status: "active" as const, continuationCount: 0 }
+    : options.goal
+  sessions.set("sess-main", {
+    parentID: undefined,
+    metadata: goalMeta ? { goal: goalMeta } : {},
+  })
+  const client = {
+    session: {
+      get: vi.fn(async () => {
+        const s = sessions.get("sess-main")!
+        return { data: { parentID: s.parentID ?? null, metadata: s.metadata } }
+      }),
+      update: vi.fn(async ({ sessionID, metadata }: { sessionID: string; metadata: Record<string, unknown> }) => {
+        sessions.set(sessionID, { metadata })
+        return { data: { sessionID, metadata } }
+      }),
+      messages: vi.fn(async () => ({ data: options.messages ?? [] })),
+      children: vi.fn(async () => ({ data: options.children ?? [] })),
+      status: vi.fn(async () => ({ data: options.statuses ?? {} })),
+      promptAsync: options.promptError
+        ? vi.fn(async () => { throw options.promptError })
+        : vi.fn(async () => ({ data: {} })),
+    },
+  }
+  return { client, sessions }
+}
+
+const activeGoal = (overrides: Record<string, unknown> = {}) => ({
+  parentIssueNumber: 42,
+  status: "active" as const,
+  continuationCount: 0,
+  sessionProfile: { agent: "dev-lifecycle", model: { providerID: "provider", modelID: "model" } },
+  ...overrides,
+})
+
+describe("queueContinuation — 子会话活动闸", () => {
+  it("直接子会话 busy 时跳过续接", async () => {
+    const { client } = makeClient({
+      goal: activeGoal(),
+      messages: [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "工作完成。" }] }],
+      children: [{ id: "child-1" }],
+      statuses: { "child-1": { type: "busy" } },
+    })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+  })
+
+  it("直接子会话 retry 时跳过续接", async () => {
+    const { client } = makeClient({
+      goal: activeGoal(),
+      messages: [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "工作完成。" }] }],
+      children: [{ id: "child-1" }],
+      statuses: { "child-1": { type: "retry" } },
+    })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+  })
+
+  it("无子会话或子会话空闲时正常续接", async () => {
+    const { client } = makeClient({
+      goal: activeGoal(),
+      messages: [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "工作完成。" }] }],
+    })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).toHaveBeenCalledTimes(1)
+  })
+
+  it("children/status 查询失败时保守跳过（不续接）", async () => {
+    const { client } = makeClient({
+      goal: activeGoal(),
+      messages: [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "工作完成。" }] }],
+      children: [{ id: "child-1" }],
+    })
+    ;(client.session.status as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("boom"))
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+  })
+})
+
+describe("queueContinuation — 尾部静默检查", () => {
+  it("最后一条是 user 消息时跳过续接", async () => {
+    const { client } = makeClient({
+      goal: activeGoal(),
+      messages: [{ info: { id: "msg-user", role: "user" } }],
+    })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+  })
+
+  it("最后 assistant 未完成（无 completed 时间）时跳过续接", async () => {
+    const { client } = makeClient({
+      goal: activeGoal(),
+      messages: [{ info: { id: "msg-inflight", role: "assistant", time: {} } }],
+    })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+  })
+
+  it("无任何 assistant 消息时跳过续接（无 provider/model 可续）", async () => {
+    const { client } = makeClient({ goal: activeGoal(), messages: [] })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+  })
+})
+
+describe("queueContinuation — [BLOCKED:] 阻塞报告", () => {
+  it("agent 报告阻塞时暂停 goal 且不续接", async () => {
+    const { client } = makeClient({
+      goal: activeGoal(),
+      messages: [{
+        info: ASSISTANT_INFO,
+        parts: [{ type: "text", text: "[BLOCKED: missing API key] 无法继续" }],
+      }],
+    })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    const update = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { status: string } } }
+    expect(update.metadata.goal.status).toBe("paused")
+  })
+
+  it("普通回复不触发阻塞暂停", async () => {
+    const { client } = makeClient({
+      goal: activeGoal(),
+      messages: [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "继续推进，已修复 X。" }] }],
+    })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).toHaveBeenCalledTimes(1)
+  })
+
+  it("resume 后首次 tick 豁免 blocked 检测（避免 resume 立即被旧报告再次暂停）", async () => {
+    const { client } = makeClient({
+      goal: activeGoal({ statusReason: "resumed" }),
+      messages: [{
+        info: ASSISTANT_INFO,
+        parts: [{ type: "text", text: "[BLOCKED: missing API key] 无法继续" }],
+      }],
+    })
+    await queueContinuation(client as never, "sess-main")
+    // 豁免：继续续接，且 statusReason 被消费清除
+    expect(client.session.promptAsync).toHaveBeenCalledTimes(1)
+    const update = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { status: string; statusReason: string } } }
+    expect(update.metadata.goal.status).toBe("active")
+    expect(update.metadata.goal.statusReason).toBe("")
+  })
+})
+
+describe("queueContinuation — token 记账与预算护栏", () => {
+  const makeMessages = () => [
+    // 创建前完成的轮次（baseline 候选）：10+20+5=35
+    { info: { id: "msg-pre", role: "assistant", time: { completed: 500 }, tokens: { input: 10, output: 5, cache: { read: 20 } } } },
+    // 最新完成轮：500+100+900=1500
+    { info: { id: "msg-latest", role: "assistant", time: { completed: 2000 }, providerID: "provider", modelID: "model", agent: "dev-lifecycle", tokens: { input: 500, output: 100, cache: { read: 900 } } }, parts: [{ type: "text", text: "完成。" }] },
+  ]
+
+  it("首次 tick 初始化 baseline 并记账（排除创建前历史）", async () => {
+    const { client } = makeClient({
+      goal: activeGoal({ createdAt: 1000, tokenBudget: 2000 }),
+      messages: makeMessages(),
+    })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).toHaveBeenCalledTimes(1)
+    const update = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { tokensBaseline: number; tokensUsed: number } } }
+    expect(update.metadata.goal.tokensBaseline).toBe(35)
+    expect(update.metadata.goal.tokensUsed).toBe(1500 - 35)
+  })
+
+  it("tokensUsed 达预算时暂停且不续接", async () => {
+    const { client } = makeClient({
+      goal: activeGoal({ createdAt: 1000, tokenBudget: 1000 }),
+      messages: makeMessages(),
+    })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    const update = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { status: string } } }
+    expect(update.metadata.goal.status).toBe("paused")
+  })
+
+  it("tokensUsed 单调不减（context 收缩不回退）", async () => {
+    const { client } = makeClient({
+      goal: activeGoal({ createdAt: 1000, tokenBudget: 99999, tokensUsed: 5000 }),
+      messages: makeMessages(),
+    })
+    await queueContinuation(client as never, "sess-main")
+    const update = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { tokensUsed: number } } }
+    expect(update.metadata.goal.tokensUsed).toBe(5000)
+  })
+})
+
+describe("queueContinuation — 先写后发与失败回滚", () => {
+  const messages = [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "完成。" }] }]
+
+  it("计数先于 prompt 落盘（防崩溃窗口双发）", async () => {
+    const { client } = makeClient({
+      goal: activeGoal({ continuationCount: 3 }),
+      messages,
+    })
+    await queueContinuation(client as never, "sess-main")
+    const updateOrder = client.session.update.mock.invocationCallOrder[0]
+    const promptOrder = client.session.promptAsync.mock.invocationCallOrder[0]
+    expect(updateOrder).toBeLessThan(promptOrder)
+    const update = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { continuationCount: number } } }
+    expect(update.metadata.goal.continuationCount).toBe(4)
+  })
+
+  it("prompt 发送失败时回滚计数，goal 保持 active", async () => {
+    const { client } = makeClient({
+      goal: activeGoal({ continuationCount: 3 }),
+      messages,
+      promptError: new Error("boom"),
+    })
+    await queueContinuation(client as never, "sess-main")
+    const lastUpdate = client.session.update.mock.calls.at(-1)![0] as unknown as { metadata: { goal: { continuationCount: number; status: string } } }
+    expect(lastUpdate.metadata.goal.continuationCount).toBe(3)
+    expect(lastUpdate.metadata.goal.status).toBe("active")
+  })
+})

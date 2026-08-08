@@ -7,7 +7,7 @@ import { loadCommands } from "./commands.js"
 import { setupSkillsDir } from "./skills.js"
 import { loadAgents } from "./agents.js"
 import { createAgentShellEnv } from "./shell.js"
-import { createGoalClient, createGoalTool, readGoal, mutateGoal, MAX_CONTINUATIONS, continuationPrompt, formatGoal } from "./goal.js"
+import { createGoalClient, createGoalTool, readGoal, mutateGoal, MAX_CONTINUATIONS, continuationPrompt, formatGoal, isBlockedReport, snapshotTokenTotal, budgetReached } from "./goal.js"
 import { readIndex, updateFlowSession } from "../kernel/session-index.js"
 import { getContextBlock, formatContextBlock, CONTEXT_MARKER } from "../kernel/context.js"
 import type { ContextBlock } from "../kernel/context.js"
@@ -66,7 +66,32 @@ export function configureGoalTools(config: GoalToolConfig): void {
   }
 }
 
-async function queueContinuation(
+/**
+ * 子会话活动闸：后台 subagent 运行时父会话保持 idle（结果稍后注入父会话）。
+ * 此时续接会压过子代理结果注入，必须跳过本次续接，等子代理结束后父会话的
+ * 下一次 busy→idle 循环再触发。查询失败视为 unknown → 保守跳过（不续接）。
+ */
+async function hasWorkingChildren(
+  client: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient>,
+  sessionID: string,
+): Promise<boolean> {
+  try {
+    const childrenResult = await client.session.children({ sessionID }) as unknown as { data?: Array<{ id?: string }> }
+    const children = Array.isArray(childrenResult?.data) ? childrenResult.data : []
+    if (children.length === 0) return false
+    const statusResult = await client.session.status() as unknown as { data?: Record<string, { type?: string }> }
+    const statuses = statusResult?.data
+    if (!statuses || typeof statuses !== "object") return true
+    return children.some((child) => {
+      const status = child?.id ? statuses[child.id] : null
+      return status?.type === "busy" || status?.type === "retry"
+    })
+  } catch {
+    return true
+  }
+}
+
+export async function queueContinuation(
   client: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient>,
   sessionID: string,
   projectDir?: string
@@ -75,7 +100,10 @@ async function queueContinuation(
   continuationInFlight.add(sessionID)
 
   try {
-    await mutateGoal(client, sessionID, async (goal) => {
+    const decision = await mutateGoal(client, sessionID, async (goal): Promise<{
+      goal: typeof goal
+      value: { proceed: boolean; goal: typeof goal } | null
+    }> => {
       // 读改写与 message.updated 同锁串行，杜绝续接计数/状态被并发覆盖
       if (!goal || goal.status !== "active") return { goal, value: null }
 
@@ -96,38 +124,138 @@ async function queueContinuation(
         return { goal, value: null }
       }
 
-      if (goal.continuationCount > 0 && goal.continuationCount % COMPACTION_THRESHOLD === 0) {
-        try {
-          await client.session.promptAsync({
-            sessionID,
-            parts: [{ type: "text" as const, text: "[compact] The session history is growing long. Summarize completed work and continue.", synthetic: true }],
-          })
-        } catch (err) {
-          console.warn("[cabbage] compaction prompt failed:", err)
-        }
-      }
-
-      const contextBlock = projectDir ? await getContextBlock(projectDir) : null
-      const contextText = contextBlock ? `${formatContextBlock(contextBlock)}\n\n` : ""
-
-      // abort 二次检查：idle 与 abort 事件并发时，避免对已 abort 的会话发出续接
-      if (abortedSessions.has(sessionID)) {
-        abortedSessions.delete(sessionID)
-        goal.status = "paused"
+      // 子会话活动闸：后台 subagent 仍 busy/retry 时跳过续接（父会话 idle 不代表任务静默）
+      if (await hasWorkingChildren(client, sessionID)) {
         return { goal, value: null }
       }
 
-      // 先发续接 prompt，成功后递增计数（失败不消耗配额）
-      await client.session.promptAsync({
-        sessionID,
-        parts: [{ type: "text" as const, text: contextText + continuationPrompt(goal.parentIssueNumber), synthetic: true }],
-        ...(goal.sessionProfile ? { agent: goal.sessionProfile.agent, model: goal.sessionProfile.model } : {}),
-      })
+      // 尾部静默检查：idle 事件可能竞态了后续消息/未落盘的回复。
+      // 最后一条是 user 消息、或最后 assistant 未完成（无 completed 时间）→
+      // 会话正在或即将忙碌，等下一次 idle 事件重新触发；无 assistant 消息则无 provider/model 可续。
+      const messagesResult = await client.session.messages({ sessionID, limit: 40 }) as unknown as {
+        data?: Array<{ info?: Record<string, unknown> }>
+      }
+      const messages = Array.isArray(messagesResult?.data) ? messagesResult.data : null
+      if (!messages) return { goal, value: null }
+      const lastMessageInfo = messages.length > 0 ? messages[messages.length - 1]?.info : null
+      if (lastMessageInfo?.role === "user") return { goal, value: null }
+      let lastAssistantMessage: { info?: Record<string, unknown>; parts?: Array<{ type?: string; text?: string }> } | null = null
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const message = messages[i]
+        if (message?.info?.role === "assistant") {
+          lastAssistantMessage = message
+          break
+        }
+      }
+      const lastAssistantInfo = lastAssistantMessage?.info ?? null
+      const assistantCompleted = typeof lastAssistantInfo?.time === "object"
+        && lastAssistantInfo.time !== null
+        && (lastAssistantInfo.time as { completed?: number }).completed
+        && (lastAssistantInfo.time as { completed?: number }).completed! > 0
+      if (!lastAssistantInfo) return { goal, value: null }
+      if (!assistantCompleted && !lastAssistantInfo.error) return { goal, value: null }
+      if (!lastAssistantInfo.id) return { goal, value: null }
 
+      // [BLOCKED:] 阻塞报告：agent 明确无法推进 → 暂停 goal（防空转烧 token）。
+      // resume 后首次 tick 豁免（statusReason='resumed' 被消费清除），
+      // 否则 resume 会立即被上一轮旧报告再次暂停成死路。
+      const assistantText = (lastAssistantMessage?.parts ?? [])
+        .filter((part) => part?.type === "text" && typeof part.text === "string")
+        .map((part) => part.text!)
+        .join("\n")
+      if (isBlockedReport(assistantText)) {
+        if (goal.statusReason === "resumed") {
+          goal.statusReason = ""
+        } else {
+          goal.status = "paused"
+          goal.statusReason = "blocked report"
+          if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
+          return { goal, value: null }
+        }
+      }
+
+      // Token 记账（快照法）：最新完成 assistant 轮的 input+cache.read+output 即整段成本
+      // （OpenCode 每轮 cache.read 已含此前所有付费 token）。goal 相对化：首次 tick
+      // 用创建时刻前最后完成的 assistant 轮初始化 baseline；单调不减，context 收缩不回退。
+      // compaction 不做分段（预算为护栏非账单）。
+      let tokensBaseline = goal.tokensBaseline ?? 0
+      if (!(tokensBaseline > 0) && typeof goal.createdAt === "number") {
+        for (const message of messages) {
+          const info = message?.info
+          if (info?.role !== "assistant") continue
+          const completed = (info.time as { completed?: number } | undefined)?.completed
+          if (!(completed && completed > 0) || completed > goal.createdAt) continue
+          tokensBaseline = Math.max(tokensBaseline, snapshotTokenTotal(info.tokens))
+        }
+      }
+      const tokensUsed = Math.max(
+        goal.tokensUsed ?? 0,
+        Math.max(0, snapshotTokenTotal(lastAssistantInfo.tokens) - tokensBaseline),
+      )
+      goal.tokensBaseline = tokensBaseline
+      goal.tokensUsed = tokensUsed
+
+      // token 预算护栏：达限即暂停（用户需提高预算后 resume，护栏优先）
+      if (budgetReached(goal)) {
+        goal.status = "paused"
+        goal.statusReason = "token budget reached"
+        if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
+        return { goal, value: null }
+      }
+
+      // 先写计数后发 prompt：崩溃窗口只会"少发一次续接"（等下次 idle 重试），
+      // 不会"prompt 已发但计数未落盘"导致重启 autoResume 双发。
       goal.continuationCount++
       if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { continuationCount: goal.continuationCount })
-      return { goal, value: null }
+      return { goal, value: { proceed: true, goal } }
     })
+
+    if (!decision?.proceed || !decision.goal) return
+
+    // abort 二次检查：idle 与 abort 事件并发时，避免对已 abort 的会话发出续接
+    if (abortedSessions.has(sessionID)) {
+      abortedSessions.delete(sessionID)
+      await mutateGoal(client, sessionID, async (goal) => {
+        if (!goal) return { goal, value: null }
+        goal.status = "paused"
+        goal.continuationCount = Math.max(0, goal.continuationCount - 1)
+        if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
+        return { goal, value: null }
+      }).catch(() => undefined)
+      return
+    }
+
+    // 每 20 次续接主动 compact 会话历史（压缩失败不阻塞续接）
+    if (decision.goal.continuationCount > 0 && decision.goal.continuationCount % COMPACTION_THRESHOLD === 0) {
+      try {
+        await client.session.promptAsync({
+          sessionID,
+          parts: [{ type: "text" as const, text: "[compact] The session history is growing long. Summarize completed work and continue.", synthetic: true }],
+        })
+      } catch (err) {
+        console.warn("[cabbage] compaction prompt failed:", err)
+      }
+    }
+
+    const contextBlock = projectDir ? await getContextBlock(projectDir) : null
+    const contextText = contextBlock ? `${formatContextBlock(contextBlock)}\n\n` : ""
+
+    try {
+      await client.session.promptAsync({
+        sessionID,
+        parts: [{ type: "text" as const, text: contextText + continuationPrompt(decision.goal.parentIssueNumber), synthetic: true }],
+        ...(decision.goal.sessionProfile ? { agent: decision.goal.sessionProfile.agent, model: decision.goal.sessionProfile.model } : {}),
+      })
+    } catch (err) {
+      // 发送失败 → 回滚计数（尽力；回滚失败只会少一次续接，方向安全）
+      console.error("[cabbage] continuation prompt failed, rolling back counter:", err)
+      await mutateGoal(client, sessionID, async (goal) => {
+        if (!goal) return { goal, value: null }
+        goal.continuationCount = Math.max(0, goal.continuationCount - 1)
+        if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { continuationCount: goal.continuationCount })
+        return { goal, value: null }
+      }).catch(() => undefined)
+    }
   } catch (err) {
     console.error("[cabbage] continuation failed:", err)
   } finally {

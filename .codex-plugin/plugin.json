@@ -1,0 +1,36 @@
+{
+  "name": "opencode-cabbage",
+  "version": "1.1.0",
+  "description": "全流程开发编排插件 — 需求→设计→任务→编码→测试→审查→自动合并，支持 OpenCode 与 Codex 双平台",
+  "author": {
+    "name": "devcxl",
+    "url": "https://github.com/devcxl"
+  },
+  "homepage": "https://devcxl.github.io/opencode-cabbage/",
+  "repository": "https://github.com/devcxl/opencode-cabbage",
+  "license": "MIT",
+  "keywords": [
+    "development-workflow",
+    "orchestration",
+    "tdd",
+    "codex",
+    "codex-plugin",
+    "opencode",
+    "opencode-plugin"
+  ],
+  "skills": "./codex-skills/",
+  "interface": {
+    "displayName": "OpenCode Cabbage",
+    "shortDescription": "全流程开发编排 — 需求到自动合并，双平台兼容",
+    "longDescription": "覆盖需求、设计、DAG 任务拆解、并行编码（TDD）、审查与自动合并的全流程开发编排插件。兼容 OpenCode 与 Codex 双平台，提供 9 个 flow skills 和 6 个 agent skills。",
+    "developerName": "devcxl",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": [
+      "使用 OpenCode Cabbage 初始化项目开发环境 — 加载 flow-setup skill",
+      "使用 OpenCode Cabbage 的 flow-setup skill 初始化项目开发环境",
+      "使用 OpenCode Cabbage 的 agent-dev-lifecycle skill 编排全流程"
+    ],
+    "brandColor": "#00bcd4"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${PLUGIN_ROOT}/dist/hooks/session-start.js",
+            "statusMessage": "Loading Cabbage development context",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

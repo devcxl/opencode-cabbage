@@ -148,7 +148,7 @@ describe("flow-tdd Advisory Skill", () => {
 describe("skills convergence (R12, §6.2)", () => {
   const EXPECTED_SKILLS = [
     "flow-setup", "flow-requirements", "flow-design", "flow-tasks",
-    "flow-code", "flow-tdd", "flow-review", "flow-release",
+    "flow-code", "flow-tdd", "flow-review", "flow-release", "flow-research",
   ]
 
   // 已删除的生命周期工具（skill 不得再引用）

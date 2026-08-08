@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { mkdtemp, rm, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { createGoalTool } from "../../src/plugin/goal.js"
+import { createGoalTool, mutateGoal } from "../../src/plugin/goal.js"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { sessionIndexPath } from "../../src/kernel/session-index.js"
 
@@ -229,5 +229,26 @@ describe("goal 工具 — create 写 session-index 绑定", () => {
     const out = await tool.execute({ op: "create", parent_issue_number: 42 }, makeCtx({ directory: "/nonexistent-dir" }))
     expect(String(out)).toContain("Goal created")
     expect(client.session.update).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("mutateGoal 并发串行化", () => {
+  it("两个并发递增不丢失更新（锁内读改写）", async () => {
+    const { client, sessions } = makeClient({
+      "sess-main": { goal: { parentIssueNumber: 42, status: "active", continuationCount: 5 } },
+    })
+    // 模拟两个并发续接递增：若未串行化，两者都基于旧值 5 写回 → 最终 6（丢一次更新）
+    await Promise.all([
+      mutateGoal(client as unknown as ReturnType<typeof createOpencodeClient>, "sess-main", async (goal) => {
+        goal!.continuationCount += 1
+        return { goal, value: null }
+      }),
+      mutateGoal(client as unknown as ReturnType<typeof createOpencodeClient>, "sess-main", async (goal) => {
+        goal!.continuationCount += 1
+        return { goal, value: null }
+      }),
+    ])
+    const final = sessions.get("sess-main")!.metadata.goal as { continuationCount: number }
+    expect(final.continuationCount).toBe(7) // 5 + 1 + 1，两次都生效
   })
 })

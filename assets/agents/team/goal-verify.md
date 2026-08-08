@@ -20,6 +20,8 @@ permission:
     "git log": "allow"
     "git log *": "allow"
   edit: "deny"
+  skill:
+    "*": "deny"
 ---
 
 <system-reminder>

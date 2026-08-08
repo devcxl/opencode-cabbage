@@ -6,7 +6,7 @@ import { bindSession, updateFlowSession, removeFlowSession } from "../kernel/ses
 import { KeyedMutex } from "../kernel/mutex.js"
 import { resolveProjectDir } from "../util/paths.js"
 
-/** goal 会话级串行：readGoal→修改→writeGoal 整个序列互斥，防 queueContinuation/message.updated 丢失更新 */
+/** goal 会话级串行锁：所有读改写统一经 mutateGoal 走该锁，防并发丢失更新 */
 const goalMutex = new KeyedMutex()
 
 export type GoalStatus = "active" | "paused" | "complete"
@@ -112,6 +112,26 @@ export async function writeGoal(
   await client.session.update({ sessionID, metadata })
 }
 
+/**
+ * 带锁的 goal 读-改-写单一入口：同一 sessionID 的操作串行，杜绝并发丢失更新。
+ * fn 接收当前 goal 与 session，返回写回的 goal（null 表示删除）与调用方结果 value。
+ * 当前无 goal 且 fn 也返回 null 时跳过写回（避免对不存在 goal 的无谓删除/写入）。
+ */
+export async function mutateGoal<T>(
+  client: ReturnType<typeof createOpencodeClient>,
+  sessionID: string,
+  fn: (goal: GoalData | null, session: Session | null) => Promise<{ goal: GoalData | null; value: T }>,
+): Promise<T> {
+  return goalMutex.runExclusive(sessionID, async () => {
+    const current = await readGoal(client, sessionID)
+    const { goal: next, value } = await fn(current.goal, current.session)
+    if (next !== null || current.goal !== null) {
+      await writeGoal(client, sessionID, next, current.session)
+    }
+    return value
+  })
+}
+
 export function createGoalTool(
   client: ReturnType<typeof createOpencodeClient>,
   projectDirFallback?: string,
@@ -134,11 +154,10 @@ Use a single op field:
     },
     async execute(args: Record<string, any>, ctx: ToolContext): Promise<ToolResult> {
       const sessionID = (ctx as any).sessionID as string
-      // 会话级串行：整个 goal 读改写序列互斥（防与 queueContinuation/message.updated 并发丢失更新）
-      return goalMutex.runExclusive(sessionID, async () => {
-      const session = await readGoal(client, sessionID)
-      const isSubAgent = !!session.session?.parentID
-      const targetSessionID = session.session?.parentID ?? sessionID
+      // 只读判断：当前会话是否为子 agent、目标会话（父会话）ID
+      const { session } = await readGoal(client, sessionID)
+      const isSubAgent = !!session?.parentID
+      const targetSessionID = session?.parentID ?? sessionID
 
       if (isSubAgent && ["create", "pause", "resume", "cancel"].includes(args.op)) {
         return `Error: sub-agents cannot call goal({op:"${args.op}"}). Goal lifecycle operations are restricted to the main session.`
@@ -149,41 +168,41 @@ Use a single op field:
         if (agentName !== "goal-verify") {
           return `Error: only the goal-verify agent can complete the goal. Agent "${agentName}" is not authorized.`
         }
-        const parent = await readGoal(client, targetSessionID)
-        if (!parent.goal) return "No goal to complete in the parent session."
-        if (parent.goal.status !== "active") {
-          return `Parent session goal is not active (status: ${parent.goal.status}).`
-        }
-
-        parent.goal.status = "complete"
-        await writeGoal(client, targetSessionID, parent.goal, parent.session)
-        // flow 级持久化：complete-flow 可跨会话识别验证完成（不依赖 index 会话一致性）
-        try {
-          await updateFlowSession(sessionProjectDir(ctx.directory), parent.goal.parentIssueNumber, { goalComplete: true })
-        } catch {
-          // 索引写入失败不阻塞 goal 完成（goal 本身已持久化）
-        }
-        return `Goal completed and verified: Flow #${parent.goal.parentIssueNumber}`
+        return mutateGoal(client, targetSessionID, async (goal) => {
+          if (!goal) return { goal, value: "No goal to complete in the parent session." }
+          if (goal.status !== "active") {
+            return { goal, value: `Parent session goal is not active (status: ${goal.status}).` }
+          }
+          goal.status = "complete"
+          // flow 级持久化：complete-flow 可跨会话识别验证完成（不依赖 index 会话一致性）
+          try {
+            await updateFlowSession(sessionProjectDir(ctx.directory), goal.parentIssueNumber, { goalComplete: true })
+          } catch {
+            // 索引写入失败不阻塞 goal 完成（goal 本身已持久化）
+          }
+          return { goal, value: `Goal completed and verified: Flow #${goal.parentIssueNumber}` }
+        })
       }
 
       switch (args.op) {
-        case "create": {
-          if (!args.parent_issue_number) return "Error: parent_issue_number is required"
-          const existing = (await readGoal(client, sessionID)).goal
-          if (existing?.status === "active") {
-            return `Error: an active goal already exists for Flow #${existing.parentIssueNumber}`
-          }
-          // 快照创建时的 agent（模型由 message.updated 用户消息事件补充）
-          const goal = createGoal(Number(args.parent_issue_number), { agent: ctx.agent })
-          await writeGoal(client, sessionID, goal)
-          // flow 级绑定：供插件重启后的 autoResume 恢复 active goal
-          try {
-            await bindSession(sessionProjectDir(ctx.directory), goal.parentIssueNumber, sessionID)
-          } catch {
-            // 索引写入失败不阻塞 goal 创建（goal 本身已持久化在 session metadata）
-          }
-          return `Goal created: Flow #${goal.parentIssueNumber}\nStatus: active`
-        }
+        case "create":
+          return mutateGoal(client, sessionID, async (goal) => {
+            if (!args.parent_issue_number) {
+              return { goal, value: "Error: parent_issue_number is required" }
+            }
+            if (goal?.status === "active") {
+              return { goal, value: `Error: an active goal already exists for Flow #${goal.parentIssueNumber}` }
+            }
+            // 快照创建时的 agent（模型由 message.updated 用户消息事件补充）
+            const created = createGoal(Number(args.parent_issue_number), { agent: ctx.agent })
+            // flow 级绑定：供插件重启后的 autoResume 恢复 active goal
+            try {
+              await bindSession(sessionProjectDir(ctx.directory), created.parentIssueNumber, sessionID)
+            } catch {
+              // 索引写入失败不阻塞 goal 创建（goal 本身已持久化在 session metadata）
+            }
+            return { goal: created, value: `Goal created: Flow #${created.parentIssueNumber}\nStatus: active` }
+          })
 
         case "get": {
           const { goal } = await readGoal(client, targetSessionID)
@@ -197,42 +216,38 @@ Use a single op field:
           return `BLOCKED: Call the goal-verify sub-agent via the Task tool. Only the sub-agent can complete verification.`
         }
 
-        case "resume": {
-          const { goal, session: s } = await readGoal(client, sessionID)
-          if (!goal) return "No goal to resume."
-          if (!canTransitionTo(goal, "active")) return `Goal cannot be resumed (status: ${goal.status}).`
-          goal.status = "active"
-          goal.continuationCount = 0
-          await writeGoal(client, sessionID, goal, s)
-          return `Goal resumed: Flow #${goal.parentIssueNumber}\nStatus: active`
-        }
+        case "resume":
+          return mutateGoal(client, sessionID, async (goal) => {
+            if (!goal) return { goal, value: "No goal to resume." }
+            if (!canTransitionTo(goal, "active")) return { goal, value: `Goal cannot be resumed (status: ${goal.status}).` }
+            goal.status = "active"
+            goal.continuationCount = 0
+            return { goal, value: `Goal resumed: Flow #${goal.parentIssueNumber}\nStatus: active` }
+          })
 
-        case "pause": {
-          const { goal, session: s } = await readGoal(client, sessionID)
-          if (!goal) return "No goal to pause."
-          if (!canTransitionTo(goal, "paused")) return `Goal cannot be paused (status: ${goal.status}).`
-          goal.status = "paused"
-          await writeGoal(client, sessionID, goal, s)
-          return `Goal paused: Flow #${goal.parentIssueNumber}\nStatus: paused`
-        }
+        case "pause":
+          return mutateGoal(client, sessionID, async (goal) => {
+            if (!goal) return { goal, value: "No goal to pause." }
+            if (!canTransitionTo(goal, "paused")) return { goal, value: `Goal cannot be paused (status: ${goal.status}).` }
+            goal.status = "paused"
+            return { goal, value: `Goal paused: Flow #${goal.parentIssueNumber}\nStatus: paused` }
+          })
 
-        case "cancel": {
-          const { goal, session: s } = await readGoal(client, sessionID)
-          if (!goal) return "No goal to cancel."
-          await writeGoal(client, sessionID, null, s)
-          // 同步清除 session-index entry，避免重启 autoResume 恢复已取消 goal
-          try {
-            await removeFlowSession(sessionProjectDir(ctx.directory), goal.parentIssueNumber)
-          } catch {
-            // 索引清理失败不阻塞取消（goal 本身已移除）
-          }
-          return `Goal cancelled: Flow #${goal.parentIssueNumber}`
-        }
+        case "cancel":
+          return mutateGoal(client, sessionID, async (goal) => {
+            if (!goal) return { goal, value: "No goal to cancel." }
+            // 同步清除 session-index entry，避免重启 autoResume 恢复已取消 goal
+            try {
+              await removeFlowSession(sessionProjectDir(ctx.directory), goal.parentIssueNumber)
+            } catch {
+              // 索引清理失败不阻塞取消（goal 本身已移除）
+            }
+            return { goal: null, value: `Goal cancelled: Flow #${goal.parentIssueNumber}` }
+          })
 
         default:
           return `Error: unknown operation "${args.op}"`
       }
-      })
     },
   })
 }

@@ -7,7 +7,7 @@ import { loadCommands } from "./commands.js"
 import { setupSkillsDir } from "./skills.js"
 import { loadAgents } from "./agents.js"
 import { createAgentShellEnv } from "./shell.js"
-import { createGoalClient, createGoalTool, readGoal, writeGoal, MAX_CONTINUATIONS, continuationPrompt, formatGoal } from "./goal.js"
+import { createGoalClient, createGoalTool, readGoal, mutateGoal, MAX_CONTINUATIONS, continuationPrompt, formatGoal } from "./goal.js"
 import { readIndex, updateFlowSession } from "../kernel/session-index.js"
 import { getContextBlock, formatContextBlock, CONTEXT_MARKER } from "../kernel/context.js"
 import type { ContextBlock } from "../kernel/context.js"
@@ -71,66 +71,63 @@ async function queueContinuation(
   sessionID: string,
   projectDir?: string
 ) {
-  const { goal } = await readGoal(client, sessionID)
-  if (!goal || goal.status !== "active") return
-
   if (continuationInFlight.has(sessionID)) return
   continuationInFlight.add(sessionID)
 
-  if (projectDir) {
-    await updateFlowSession(projectDir, goal.parentIssueNumber, { status: goal.status, continuationCount: goal.continuationCount })
-  }
-
-  if (abortedSessions.has(sessionID)) {
-    abortedSessions.delete(sessionID)
-    continuationInFlight.delete(sessionID)
-    goal.status = "paused"
-    await writeGoal(client, sessionID, goal)
-    if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
-    return
-  }
-
-  if (goal.continuationCount >= MAX_CONTINUATIONS) {
-    continuationInFlight.delete(sessionID)
-    goal.status = "paused"
-    await writeGoal(client, sessionID, goal)
-    if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
-    return
-  }
-
   try {
-    if (goal.continuationCount > 0 && goal.continuationCount % COMPACTION_THRESHOLD === 0) {
-      try {
-        await client.session.promptAsync({
-          sessionID,
-          parts: [{ type: "text" as const, text: "[compact] The session history is growing long. Summarize completed work and continue.", synthetic: true }],
-        })
-      } catch (err) {
-        console.warn("[cabbage] compaction prompt failed:", err)
+    await mutateGoal(client, sessionID, async (goal) => {
+      // 读改写与 message.updated 同锁串行，杜绝续接计数/状态被并发覆盖
+      if (!goal || goal.status !== "active") return { goal, value: null }
+
+      if (projectDir) {
+        await updateFlowSession(projectDir, goal.parentIssueNumber, { status: goal.status, continuationCount: goal.continuationCount })
       }
-    }
 
-    const contextBlock = projectDir ? await getContextBlock(projectDir) : null
-    const contextText = contextBlock ? `${formatContextBlock(contextBlock)}\n\n` : ""
+      if (abortedSessions.has(sessionID)) {
+        abortedSessions.delete(sessionID)
+        goal.status = "paused"
+        if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
+        return { goal, value: null }
+      }
 
-    // abort 二次检查：idle 与 abort 事件并发时，避免对已 abort 的会话发出续接
-    if (abortedSessions.has(sessionID)) {
-      abortedSessions.delete(sessionID)
-      goal.status = "paused"
-      await writeGoal(client, sessionID, goal)
-      return
-    }
+      if (goal.continuationCount >= MAX_CONTINUATIONS) {
+        goal.status = "paused"
+        if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
+        return { goal, value: null }
+      }
 
-    // 先发续接 prompt，成功后递增计数（失败不消耗配额）
-    await client.session.promptAsync({
-      sessionID,
-      parts: [{ type: "text" as const, text: contextText + continuationPrompt(goal.parentIssueNumber), synthetic: true }],
-      ...(goal.sessionProfile ? { agent: goal.sessionProfile.agent, model: goal.sessionProfile.model } : {}),
+      if (goal.continuationCount > 0 && goal.continuationCount % COMPACTION_THRESHOLD === 0) {
+        try {
+          await client.session.promptAsync({
+            sessionID,
+            parts: [{ type: "text" as const, text: "[compact] The session history is growing long. Summarize completed work and continue.", synthetic: true }],
+          })
+        } catch (err) {
+          console.warn("[cabbage] compaction prompt failed:", err)
+        }
+      }
+
+      const contextBlock = projectDir ? await getContextBlock(projectDir) : null
+      const contextText = contextBlock ? `${formatContextBlock(contextBlock)}\n\n` : ""
+
+      // abort 二次检查：idle 与 abort 事件并发时，避免对已 abort 的会话发出续接
+      if (abortedSessions.has(sessionID)) {
+        abortedSessions.delete(sessionID)
+        goal.status = "paused"
+        return { goal, value: null }
+      }
+
+      // 先发续接 prompt，成功后递增计数（失败不消耗配额）
+      await client.session.promptAsync({
+        sessionID,
+        parts: [{ type: "text" as const, text: contextText + continuationPrompt(goal.parentIssueNumber), synthetic: true }],
+        ...(goal.sessionProfile ? { agent: goal.sessionProfile.agent, model: goal.sessionProfile.model } : {}),
+      })
+
+      goal.continuationCount++
+      if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { continuationCount: goal.continuationCount })
+      return { goal, value: null }
     })
-
-    goal.continuationCount++
-    await writeGoal(client, sessionID, goal)
-    if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { continuationCount: goal.continuationCount })
   } catch (err) {
     console.error("[cabbage] continuation failed:", err)
   } finally {
@@ -321,19 +318,19 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
           const sessionID: string | undefined = evt.properties.sessionID
           if (sessionID && !continuationInFlight.has(sessionID)) {
             abortedSessions.delete(sessionID)
-            const { goal, session } = await readGoal(goalClient, sessionID)
-            if (goal) {
+            const info = evt.properties.info as { agent?: string; model?: { providerID: string; modelID: string } }
+            await mutateGoal(goalClient, sessionID, async (goal) => {
+              if (!goal) return { goal, value: undefined }
               goal.continuationCount = 0
               // 刷新用户最后使用的 agent/模型快照（用户在 TUI 切换 agent/模型后发消息）
-              const info = evt.properties.info as { agent?: string; model?: { providerID: string; modelID: string } }
               if (info?.agent) {
                 goal.sessionProfile = {
                   agent: info.agent,
                   model: info.model?.providerID ? { providerID: info.model.providerID, modelID: info.model.modelID } : goal.sessionProfile?.model,
                 }
               }
-              await writeGoal(goalClient, sessionID, goal, session ?? undefined)
-            }
+              return { goal, value: undefined }
+            })
           }
         }
 

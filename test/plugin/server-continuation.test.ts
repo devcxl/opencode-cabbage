@@ -249,27 +249,41 @@ describe("autoResume — 重启双发防护", () => {
     return tmpDir
   }
 
-  it("30s 内刚更新过的 flow 跳过恢复（可能刚续接过，重启会双发）", async () => {
+  it("最近实际续接过（30s 内 lastContinuedAt）的 flow 跳过恢复", async () => {
     const dir = await makeIndexDir()
     const { client } = makeClient({
       goal: activeGoal({ continuationCount: 5 }),
       messages: [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "完成。" }] }],
     })
     await writeIndex(dir, {
-      flows: { "42": { sessionID: "sess-main", status: "active", continuationCount: 5, updatedAt: Date.now() - 1000 } },
+      flows: { "42": { sessionID: "sess-main", status: "active", continuationCount: 5, lastContinuedAt: Date.now() - 1000, updatedAt: Date.now() - 1000 } },
     })
     await autoResume(client as never, dir)
     expect(client.session.promptAsync).not.toHaveBeenCalled()
   })
 
-  it("超过 30s 未更新的 active flow 正常恢复", async () => {
+  it("updatedAt 新但从未实际续接过（无 lastContinuedAt）的 flow 正常恢复", async () => {
+    const dir = await makeIndexDir()
+    const { client } = makeClient({
+      goal: activeGoal({ continuationCount: 5 }),
+      messages: [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "完成。" }] }],
+    })
+    // 心跳刷新了 updatedAt 但没发过续接（如 tick 被 children/尾部检查跳过）——不应被窗口误伤
+    await writeIndex(dir, {
+      flows: { "42": { sessionID: "sess-main", status: "active", continuationCount: 5, updatedAt: Date.now() - 1000 } },
+    })
+    await autoResume(client as never, dir)
+    expect(client.session.promptAsync).toHaveBeenCalledTimes(1)
+  })
+
+  it("超过 30s 未续接的 active flow 正常恢复", async () => {
     const dir = await makeIndexDir()
     const { client } = makeClient({
       goal: activeGoal({ continuationCount: 5 }),
       messages: [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "完成。" }] }],
     })
     await writeIndex(dir, {
-      flows: { "42": { sessionID: "sess-main", status: "active", continuationCount: 5, updatedAt: Date.now() - 60_000 } },
+      flows: { "42": { sessionID: "sess-main", status: "active", continuationCount: 5, lastContinuedAt: Date.now() - 60_000, updatedAt: Date.now() - 60_000 } },
     })
     await autoResume(client as never, dir)
     expect(client.session.promptAsync).toHaveBeenCalledTimes(1)
@@ -287,6 +301,27 @@ describe("autoResume — 重启双发防护", () => {
       path.join(dir, ".opencode", "opencode-cabbage", "session-index.json"), "utf8",
     )) as { flows: Record<string, { status: string }> }
     expect(index.flows["42"]?.status).toBe("paused")
+  })
+
+  it("索引指向的 goal 已是别的 Flow（edit 残留）时清理陈旧 entry 不续接", async () => {
+    const dir = await makeIndexDir()
+    const { client } = makeClient({
+      goal: activeGoal({ parentIssueNumber: 99 }),
+      messages: [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "完成。" }] }],
+    })
+    await writeIndex(dir, {
+      flows: {
+        "42": { sessionID: "sess-main", status: "active", continuationCount: 5, updatedAt: Date.now() - 60_000 },
+        "99": { sessionID: "sess-main", status: "active", continuationCount: 0, updatedAt: Date.now() - 60_000 },
+      },
+    })
+    await autoResume(client as never, dir)
+    expect(client.session.promptAsync).toHaveBeenCalledTimes(1) // 仅 #99 恢复，#42 被自愈清理
+    const index = JSON.parse(await readFile(
+      path.join(dir, ".opencode", "opencode-cabbage", "session-index.json"), "utf8",
+    )) as { flows: Record<string, unknown> }
+    expect(index.flows["42"]).toBeUndefined()
+    expect(index.flows["99"]).toBeDefined()
   })
 })
 
@@ -329,6 +364,23 @@ describe("queueContinuation — token 记账与预算护栏", () => {
     await queueContinuation(client as never, "sess-main")
     const update = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { tokensUsed: number } } }
     expect(update.metadata.goal.tokensUsed).toBe(5000)
+  })
+
+  it("edit 换 Flow 后首次 tick 不计入旧 Flow 消耗（createdAt 已重置）", async () => {
+    const now = Date.now()
+    const { client } = makeClient({
+      // edit 换 Flow 后：createdAt 重置为 edit 时刻，tokensUsed/baseline 已清零
+      goal: activeGoal({ createdAt: now - 5_000, tokensUsed: 0 }),
+      messages: [{
+        // 旧 Flow 期间的消息（completed 早于 edit 时刻）：作为 baseline 候选，不应产生 usage
+        info: { id: "msg-old", role: "assistant", time: { completed: now - 10_000 }, tokens: { input: 500, output: 100, cache: { read: 900 } } },
+      }],
+    })
+    await queueContinuation(client as never, "sess-main")
+    const update = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { tokensBaseline: number; tokensUsed: number } } }
+    // baseline = 最新完成轮快照(1500)，tokensUsed = 1500 − 1500 = 0（旧消耗不计入新预算）
+    expect(update.metadata.goal.tokensBaseline).toBe(1500)
+    expect(update.metadata.goal.tokensUsed).toBe(0)
   })
 })
 

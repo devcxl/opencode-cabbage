@@ -19,6 +19,8 @@ export interface FlowSessionEntry {
   continuationCount: number
   /** goal-verify 已完成验证（goal complete）——flow 级持久化，不依赖会话一致性 */
   goalComplete?: boolean
+  /** 最近一次实际发送续接的时刻（autoResume 重启双发防护用；区别于 updatedAt 心跳） */
+  lastContinuedAt?: number
   updatedAt: number
 }
 
@@ -83,7 +85,7 @@ export async function bindSession(
 export async function updateFlowSession(
   projectDir: string,
   parentIssueNumber: number,
-  patch: Partial<Pick<FlowSessionEntry, "status" | "continuationCount" | "goalComplete">>,
+  patch: Partial<Pick<FlowSessionEntry, "status" | "continuationCount" | "goalComplete" | "lastContinuedAt">>,
 ): Promise<FlowSessionEntry | null> {
   if (patch.status !== undefined && !VALID_STATUSES.includes(patch.status)) {
     return null

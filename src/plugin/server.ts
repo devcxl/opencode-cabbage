@@ -8,7 +8,7 @@ import { setupSkillsDir } from "./skills.js"
 import { loadAgents } from "./agents.js"
 import { createAgentShellEnv } from "./shell.js"
 import { createGoalClient, createGoalTool, readGoal, mutateGoal, MAX_CONTINUATIONS, continuationPrompt, formatGoal, isBlockedReport, isDoneReport, snapshotTokenTotal, budgetReached } from "./goal.js"
-import { readIndex, updateFlowSession } from "../kernel/session-index.js"
+import { readIndex, updateFlowSession, removeFlowSession } from "../kernel/session-index.js"
 import { getContextBlock, formatContextBlock, CONTEXT_MARKER } from "../kernel/context.js"
 import type { ContextBlock } from "../kernel/context.js"
 import { readProjectProfile } from "../kernel/profile.js"
@@ -216,7 +216,10 @@ export async function queueContinuation(
       // 先写计数后发 prompt：崩溃窗口只会"少发一次续接"（等下次 idle 重试），
       // 不会"prompt 已发但计数未落盘"导致重启 autoResume 双发。
       goal.continuationCount++
-      if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { continuationCount: goal.continuationCount })
+      if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, {
+        continuationCount: goal.continuationCount,
+        lastContinuedAt: Date.now(),
+      })
       return { goal, value: { proceed: true, goal } }
     })
 
@@ -279,11 +282,23 @@ export async function autoResume(client: ReturnType<typeof import("@opencode-ai/
   for (const [parentIssueNumber, entry] of Object.entries(index.flows)) {
     if (entry.status !== "active") continue
 
-    // 重启双发防护：30s 内刚更新过的 flow 跳过（续接先写后发，崩溃前计数刚落盘 → 恢复会双发）。
-    // 该 flow 会在下一次 idle 事件由常规循环重新续接。
-    if (Date.now() - entry.updatedAt < AUTO_RESUME_SKIP_WINDOW_MS) continue
+    // 重启双发防护：仅跳过"最近实际续接过"的 flow（lastContinuedAt 在发送续接时写入）。
+    // 不用 updatedAt——它被 queueContinuation 开头的索引心跳无条件刷新，反映"最近 idle"，
+    // 崩溃前频繁 idle 的 flow 会被误跳过且无再武装（静默卡住）。
+    // 无 lastContinuedAt 的旧 entry 不跳过（兼容升级前索引）。跳过时告警保证可观测。
+    if (entry.lastContinuedAt && Date.now() - entry.lastContinuedAt < AUTO_RESUME_SKIP_WINDOW_MS) {
+      console.warn(`[cabbage] auto-resume: skip #${parentIssueNumber} (continued ${Math.round((Date.now() - entry.lastContinuedAt) / 1000)}s ago; next idle event re-arms)`)
+      continue
+    }
 
     const { goal } = await readGoal(client, entry.sessionID)
+    // 索引一致性自愈：entry 指向的 goal 已是别的 Flow（edit 换 Flow 后旧 entry 残留/rebind 失败）→
+    // 删除陈旧 entry，防止每次重启对同一会话重复续接
+    if (goal && goal.parentIssueNumber !== Number(parentIssueNumber)) {
+      console.warn(`[cabbage] auto-resume: index #${parentIssueNumber} points to goal of Flow #${goal.parentIssueNumber}; removing stale entry`)
+      await removeFlowSession(projectDir, Number(parentIssueNumber))
+      continue
+    }
     if (!goal || goal.status !== "active") {
       await updateFlowSession(projectDir, Number(parentIssueNumber), { status: "paused" })
       continue

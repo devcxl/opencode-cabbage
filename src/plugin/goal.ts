@@ -368,14 +368,23 @@ Use a single op field:
             if (nextParent !== null && nextParent !== goal.parentIssueNumber) {
               const oldParent = goal.parentIssueNumber
               goal.parentIssueNumber = nextParent
-              // 换 Flow：旧目标的记账无意义，重置（新目标从当前起算）；续接计数保留（用户主动继续）
+              // 换 Flow：旧目标的记账/基线/创建时刻全部重置（新目标从 edit 时点起算）。
+              // createdAt 必须更新——否则下一 tick 用旧 createdAt 重新初始化 baseline 时，
+              // 会把旧 Flow 期间的消息（completed > 旧 createdAt）计入新 Flow 预算。
               goal.tokensUsed = 0
               delete goal.tokensBaseline
+              goal.createdAt = Date.now()
               try {
                 await bindSession(sessionProjectDir(ctx.directory), goal.parentIssueNumber, sessionID)
+              } catch (error) {
+                // 新 Flow 索引绑定失败：新 entry 缺失，重启 autoResume 无法恢复新 goal
+                console.warn(`[cabbage] goal edit: bindSession #${goal.parentIssueNumber} failed:`, (error as Error | null)?.message ?? error)
+              }
+              try {
                 await removeFlowSession(sessionProjectDir(ctx.directory), oldParent)
-              } catch {
-                // 索引更新失败不阻塞 edit（goal 本身已持久化在 session metadata）
+              } catch (error) {
+                // 旧 entry 清理失败：残留 active entry 会在重启时被 autoResume 一致性自愈清理
+                console.warn(`[cabbage] goal edit: removeFlowSession #${oldParent} failed:`, (error as Error | null)?.message ?? error)
               }
             }
             return { goal, value: `Goal updated: Flow #${goal.parentIssueNumber}\nStatus: ${goal.status}` }

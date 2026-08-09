@@ -360,6 +360,17 @@ describe("goal 工具 — edit", () => {
     expect(index.flows["42"]).toBeUndefined()
   })
 
+  it("索引 rebind 失败不阻塞 edit（goal 本身已持久化）", async () => {
+    const { client } = makeClient({
+      "sess-main": { goal: { parentIssueNumber: 42, status: "active" as const, continuationCount: 0 } },
+    })
+    const tool = createGoalTool(client as unknown as ReturnType<typeof createOpencodeClient>)
+    const out = await tool.execute({ op: "edit", parent_issue_number: 99 }, makeCtx({ directory: "/nonexistent-dir" }))
+    expect(String(out)).toContain("Goal updated")
+    const updated = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { parentIssueNumber: number } } }
+    expect(updated.metadata.goal.parentIssueNumber).toBe(99)
+  })
+
   it("complete 状态只读，拒绝 edit（幂等写回，goal 未被修改）", async () => {
     const { client } = makeClient({
       "sess-main": { goal: { parentIssueNumber: 42, status: "complete" as const, continuationCount: 0 } },

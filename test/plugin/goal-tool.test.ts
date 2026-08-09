@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { mkdtemp, rm, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { createGoalTool, mutateGoal, isBlockedReport, snapshotTokenTotal, budgetReached } from "../../src/plugin/goal.js"
+import { createGoalTool, mutateGoal, isBlockedReport, isDoneReport, snapshotTokenTotal, budgetReached } from "../../src/plugin/goal.js"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { sessionIndexPath } from "../../src/kernel/session-index.js"
 
@@ -285,10 +285,23 @@ describe("isBlockedReport — 阻塞报告检测", () => {
   })
 })
 
+describe("isDoneReport — 完成报告检测", () => {
+  it("识别标准 [DONE: 报告", () => {
+    expect(isDoneReport("[DONE: all tests pass]")).toBe(true)
+    expect(isDoneReport("summary\n[DONE: 全部完成]")).toBe(true)
+  })
+
+  it("普通回复不误判", () => {
+    expect(isDoneReport("继续工作中")).toBe(false)
+    expect(isDoneReport("done 出现在正文里")).toBe(false)
+    expect(isDoneReport("")).toBe(false)
+  })
+})
+
 describe("token 记账辅助", () => {
-  it("snapshotTokenTotal = input + cache.read + output", () => {
+  it("snapshotTokenTotal = input + reasoning + cache.read + output", () => {
     expect(snapshotTokenTotal({ input: 1, output: 3, cache: { read: 2 } })).toBe(6)
-    expect(snapshotTokenTotal({ input: 1, output: 3, cache: { read: 2 } })).toBe(6)
+    expect(snapshotTokenTotal({ input: 1, output: 3, cache: { read: 2 }, reasoning: 4 })).toBe(10)
   })
 
   it("异常输入返回 0（防御）", () => {
@@ -301,6 +314,76 @@ describe("token 记账辅助", () => {
     expect(budgetReached({ parentIssueNumber: 1, status: "active", continuationCount: 0, tokenBudget: 100, tokensUsed: 100 })).toBe(true)
     expect(budgetReached({ parentIssueNumber: 1, status: "active", continuationCount: 0, tokenBudget: 100, tokensUsed: 99 })).toBe(false)
     expect(budgetReached({ parentIssueNumber: 1, status: "active", continuationCount: 0 })).toBe(false)
+  })
+})
+
+describe("goal 工具 — edit", () => {
+  it("edit 更新 tokenBudget，保留计数与记账", async () => {
+    const { client } = makeClient({
+      "sess-main": { goal: { parentIssueNumber: 42, status: "paused" as const, continuationCount: 7, tokensUsed: 100, tokenBudget: 100 } },
+    })
+    const tool = createGoalTool(client as unknown as ReturnType<typeof createOpencodeClient>)
+    const out = await tool.execute({ op: "edit", token_budget: 500 }, makeCtx())
+    expect(String(out)).toContain("Goal updated")
+    const updated = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { tokenBudget: number; continuationCount: number; tokensUsed: number; status: string } } }
+    expect(updated.metadata.goal.tokenBudget).toBe(500)
+    expect(updated.metadata.goal.continuationCount).toBe(7)
+    expect(updated.metadata.goal.tokensUsed).toBe(100)
+    expect(updated.metadata.goal.status).toBe("paused")
+  })
+
+  it("token_budget 传 0 表示移除预算", async () => {
+    const { client } = makeClient({
+      "sess-main": { goal: { parentIssueNumber: 42, status: "active" as const, continuationCount: 0, tokenBudget: 100 } },
+    })
+    const tool = createGoalTool(client as unknown as ReturnType<typeof createOpencodeClient>)
+    await tool.execute({ op: "edit", token_budget: 0 }, makeCtx())
+    const updated = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { tokenBudget?: number } } }
+    expect(updated.metadata.goal.tokenBudget).toBeUndefined()
+  })
+
+  it("edit 更换 parentIssueNumber（换 Flow）：重置记账并 rebind 索引", async () => {
+    const dir = await makeProjectDir()
+    const { client } = makeClient({
+      "sess-main": { goal: { parentIssueNumber: 42, status: "active" as const, continuationCount: 3, tokensUsed: 500, tokensBaseline: 100 } },
+    })
+    const tool = createGoalTool(client as unknown as ReturnType<typeof createOpencodeClient>)
+    await tool.execute({ op: "edit", parent_issue_number: 99 }, makeCtx({ directory: dir }))
+    const updated = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { parentIssueNumber: number; tokensUsed: number; tokensBaseline: number; continuationCount: number } } }
+    expect(updated.metadata.goal.parentIssueNumber).toBe(99)
+    expect(updated.metadata.goal.tokensUsed).toBe(0)
+    expect(updated.metadata.goal.tokensBaseline).toBeUndefined()
+    expect(updated.metadata.goal.continuationCount).toBe(3)
+    // 索引 rebind：新 Flow 绑定本会话，旧 Flow 解除
+    const index = JSON.parse(await readFile(sessionIndexPath(dir), "utf8")) as { flows: Record<string, { sessionID: string }> }
+    expect(index.flows["99"]?.sessionID).toBe("sess-main")
+    expect(index.flows["42"]).toBeUndefined()
+  })
+
+  it("complete 状态只读，拒绝 edit（幂等写回，goal 未被修改）", async () => {
+    const { client } = makeClient({
+      "sess-main": { goal: { parentIssueNumber: 42, status: "complete" as const, continuationCount: 0 } },
+    })
+    const tool = createGoalTool(client as unknown as ReturnType<typeof createOpencodeClient>)
+    const out = await tool.execute({ op: "edit", token_budget: 500 }, makeCtx())
+    expect(String(out)).toContain("read-only")
+    const updated = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { status: string; tokenBudget?: number } } }
+    expect(updated.metadata.goal.status).toBe("complete")
+    expect(updated.metadata.goal.tokenBudget).toBeUndefined()
+  })
+
+  it("无 goal 时拒绝 edit", async () => {
+    const { client } = makeClient()
+    const tool = createGoalTool(client as unknown as ReturnType<typeof createOpencodeClient>)
+    const out = await tool.execute({ op: "edit", token_budget: 500 }, makeCtx())
+    expect(String(out)).toContain("No goal")
+  })
+
+  it("子 agent 不能 edit", async () => {
+    const { client } = makeClient({ "sess-child": { parentID: "sess-parent" } })
+    const tool = createGoalTool(client as unknown as ReturnType<typeof createOpencodeClient>)
+    const out = await tool.execute({ op: "edit", token_budget: 500 }, makeCtx({ sessionID: "sess-child" }))
+    expect(String(out)).toContain("sub-agents cannot call goal")
   })
 })
 

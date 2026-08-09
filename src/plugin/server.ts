@@ -7,7 +7,7 @@ import { loadCommands } from "./commands.js"
 import { setupSkillsDir } from "./skills.js"
 import { loadAgents } from "./agents.js"
 import { createAgentShellEnv } from "./shell.js"
-import { createGoalClient, createGoalTool, readGoal, mutateGoal, MAX_CONTINUATIONS, continuationPrompt, formatGoal, isBlockedReport, snapshotTokenTotal, budgetReached } from "./goal.js"
+import { createGoalClient, createGoalTool, readGoal, mutateGoal, MAX_CONTINUATIONS, continuationPrompt, formatGoal, isBlockedReport, isDoneReport, snapshotTokenTotal, budgetReached } from "./goal.js"
 import { readIndex, updateFlowSession } from "../kernel/session-index.js"
 import { getContextBlock, formatContextBlock, CONTEXT_MARKER } from "../kernel/context.js"
 import type { ContextBlock } from "../kernel/context.js"
@@ -16,6 +16,8 @@ import { readProjectProfile } from "../kernel/profile.js"
 const abortedSessions = new Set<string>()
 const continuationInFlight = new Set<string>()
 const COMPACTION_THRESHOLD = 20
+/** autoResume 跳过窗口：索引 30s 内更新过的 flow 不恢复（可能刚续接过，立即恢复会双发） */
+const AUTO_RESUME_SKIP_WINDOW_MS = 30_000
 
 export interface FirstUserInjectionInput {
   hasGoal: boolean
@@ -158,25 +160,27 @@ export async function queueContinuation(
       if (!assistantCompleted && !lastAssistantInfo.error) return { goal, value: null }
       if (!lastAssistantInfo.id) return { goal, value: null }
 
-      // [BLOCKED:] 阻塞报告：agent 明确无法推进 → 暂停 goal（防空转烧 token）。
+      // [BLOCKED:] 阻塞报告 / [DONE:] 完成报告：agent 明确信号 → 暂停 goal 请用户/验证介入
+      // （防空转烧 token；完成报告后应由 dev-lifecycle 派 goal-verify 做最终独立验证）。
       // resume 后首次 tick 豁免（statusReason='resumed' 被消费清除），
       // 否则 resume 会立即被上一轮旧报告再次暂停成死路。
       const assistantText = (lastAssistantMessage?.parts ?? [])
         .filter((part) => part?.type === "text" && typeof part.text === "string")
         .map((part) => part.text!)
         .join("\n")
-      if (isBlockedReport(assistantText)) {
+      const agentSignaled = isBlockedReport(assistantText) || isDoneReport(assistantText)
+      if (agentSignaled) {
         if (goal.statusReason === "resumed") {
           goal.statusReason = ""
         } else {
           goal.status = "paused"
-          goal.statusReason = "blocked report"
+          goal.statusReason = isBlockedReport(assistantText) ? "blocked report" : "done report"
           if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
           return { goal, value: null }
         }
       } else if (goal.statusReason === "resumed") {
-        // 豁免消费：resume 后的首次 tick 无论是否命中 blocked 都清除 kickoff 信号。
-        // 若不消费，首 tick 正常推进后 statusReason 残留，后续真实 blocked 会被误豁免一次。
+        // 豁免消费：resume 后的首次 tick 无论是否命中信号都清除 kickoff 标记。
+        // 若不消费，首 tick 正常推进后 statusReason 残留，后续真实信号会被误豁免一次。
         goal.statusReason = ""
       }
 
@@ -269,11 +273,15 @@ export async function queueContinuation(
   }
 }
 
-async function autoResume(client: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient>, projectDir: string) {
+export async function autoResume(client: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient>, projectDir: string) {
   const index = await readIndex(projectDir)
 
   for (const [parentIssueNumber, entry] of Object.entries(index.flows)) {
     if (entry.status !== "active") continue
+
+    // 重启双发防护：30s 内刚更新过的 flow 跳过（续接先写后发，崩溃前计数刚落盘 → 恢复会双发）。
+    // 该 flow 会在下一次 idle 事件由常规循环重新续接。
+    if (Date.now() - entry.updatedAt < AUTO_RESUME_SKIP_WINDOW_MS) continue
 
     const { goal } = await readGoal(client, entry.sessionID)
     if (!goal || goal.status !== "active") {

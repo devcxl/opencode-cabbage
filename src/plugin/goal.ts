@@ -78,17 +78,18 @@ export function formatGoal(goal: GoalData): string {
 export const MAX_CONTINUATIONS = 50
 
 /**
- * 单条消息的 token 快照 = input + cache.read + output。
+ * 单条消息的 token 快照 = input + reasoning + cache.read + output。
  * 与 OpenChamber 记账同源：OpenCode 每轮的 cache.read 已含此前所有轮次付费 token，
- * 最新完成轮的快照即整段成本，无需跨消息求和。
+ * 最新完成轮的快照即整段成本，无需跨消息求和。reasoning 也计费，护栏方向偏严。
  */
 export function snapshotTokenTotal(tokens: unknown): number {
   if (!tokens || typeof tokens !== "object") return 0
-  const t = tokens as { input?: unknown; output?: unknown; cache?: { read?: unknown } }
+  const t = tokens as { input?: unknown; output?: unknown; reasoning?: unknown; cache?: { read?: unknown } }
   const input = typeof t.input === "number" && Number.isFinite(t.input) ? Math.max(0, t.input) : 0
   const output = typeof t.output === "number" && Number.isFinite(t.output) ? Math.max(0, t.output) : 0
+  const reasoning = typeof t.reasoning === "number" && Number.isFinite(t.reasoning) ? Math.max(0, t.reasoning) : 0
   const cacheRead = typeof t.cache?.read === "number" && Number.isFinite(t.cache.read) ? Math.max(0, t.cache.read) : 0
-  return input + cacheRead + output
+  return input + reasoning + cacheRead + output
 }
 
 /** token 预算护栏：达到或超过预算即应暂停（null 表示未设预算） */
@@ -104,6 +105,16 @@ export const BLOCKED_REPORT_RE = /\[BLOCKED\s*:\s*\S/i
 
 export function isBlockedReport(text: string): boolean {
   return BLOCKED_REPORT_RE.test(String(text ?? ""))
+}
+
+/**
+ * 识别 agent 的显式完成报告（continuationPrompt 要求格式：[DONE: <摘要>]）。
+ * 命中 → goal 暂停并提示用户派 goal-verify 做最终独立验证（与 [BLOCKED:] 对称）。
+ */
+export const DONE_REPORT_RE = /\[DONE\s*:\s*\S/i
+
+export function isDoneReport(text: string): boolean {
+  return DONE_REPORT_RE.test(String(text ?? ""))
 }
 
 export function continuationPrompt(parentIssueNumber: number): string {
@@ -122,7 +133,14 @@ Blocking protocol: if you genuinely cannot make further progress without the use
 (missing credentials, a missing decision, or a hard external failure), start your
 reply with the exact marker [BLOCKED: reason] and state the blocking condition.
 Do not use the marker merely because the work is hard, slow, or uncertain —
-only for real blockers that need the user.`
+only for real blockers that need the user.
+
+Completion protocol: when you believe every acceptance criterion of the Flow
+Record is verifiably met, run the relevant verification (tests, build, checks)
+instead of claiming it. If verification passes, end your reply with the exact
+marker [DONE: short summary of what was verified]. Do not use the marker unless
+you actually ran the verification and it passed — the goal will pause for an
+independent goal-verify pass.`
 }
 
 export function createGoalClient(serverUrl: URL, v1Client: any) {
@@ -205,9 +223,9 @@ Use a single op field:
 - pause: pauses the active goal.
 - complete: marks the goal as completed. Follow the returned instructions.`,
     args: {
-      op: tool.schema.enum(["create", "get", "complete", "resume", "cancel", "pause"]).describe("Goal operation"),
-      parent_issue_number: tool.schema.number().optional().describe("Parent GitHub Issue number of the Flow Record (required for create)"),
-      token_budget: tool.schema.number().optional().describe("Optional token budget guardrail; goal auto-pauses when tokensUsed reaches it"),
+      op: tool.schema.enum(["create", "get", "complete", "resume", "cancel", "pause", "edit"]).describe("Goal operation"),
+      parent_issue_number: tool.schema.number().optional().describe("Parent GitHub Issue number of the Flow Record (required for create; editable via edit)"),
+      token_budget: tool.schema.number().optional().describe("Optional token budget guardrail; goal auto-pauses when tokensUsed reaches it. Pass 0 via edit to remove the budget"),
     },
     async execute(args: Record<string, any>, ctx: ToolContext): Promise<ToolResult> {
       const sessionID = (ctx as any).sessionID as string
@@ -216,7 +234,7 @@ Use a single op field:
       const isSubAgent = !!session?.parentID
       const targetSessionID = session?.parentID ?? sessionID
 
-      if (isSubAgent && ["create", "pause", "resume", "cancel"].includes(args.op)) {
+      if (isSubAgent && ["create", "pause", "resume", "cancel", "edit"].includes(args.op)) {
         return `Error: sub-agents cannot call goal({op:"${args.op}"}). Goal lifecycle operations are restricted to the main session.`
       }
 
@@ -325,6 +343,42 @@ Use a single op field:
               // 索引清理失败不阻塞取消（goal 本身已移除）
             }
             return { goal: null, value: `Goal cancelled: Flow #${goal.parentIssueNumber}` }
+          })
+
+        case "edit":
+          return mutateGoal(client, sessionID, async (goal) => {
+            if (!goal) return { goal, value: "No goal to edit." }
+            if (goal.status === "complete") {
+              return { goal, value: "Error: completed goals are read-only. Remove the goal and create a new one." }
+            }
+            const budgetGiven = typeof args.token_budget === "number"
+              && Number.isFinite(args.token_budget)
+              && args.token_budget > 0
+            const budgetRemoved = args.token_budget === 0
+            const nextParent = typeof args.parent_issue_number === "number"
+              && Number.isFinite(args.parent_issue_number)
+              && args.parent_issue_number > 0
+              ? Math.floor(args.parent_issue_number)
+              : null
+            if (!budgetGiven && !budgetRemoved && nextParent === null) {
+              return { goal, value: "Error: nothing to edit — pass parent_issue_number and/or token_budget" }
+            }
+            if (budgetGiven) goal.tokenBudget = Math.floor(args.token_budget as number)
+            if (budgetRemoved) delete goal.tokenBudget
+            if (nextParent !== null && nextParent !== goal.parentIssueNumber) {
+              const oldParent = goal.parentIssueNumber
+              goal.parentIssueNumber = nextParent
+              // 换 Flow：旧目标的记账无意义，重置（新目标从当前起算）；续接计数保留（用户主动继续）
+              goal.tokensUsed = 0
+              delete goal.tokensBaseline
+              try {
+                await bindSession(sessionProjectDir(ctx.directory), goal.parentIssueNumber, sessionID)
+                await removeFlowSession(sessionProjectDir(ctx.directory), oldParent)
+              } catch {
+                // 索引更新失败不阻塞 edit（goal 本身已持久化在 session metadata）
+              }
+            }
+            return { goal, value: `Goal updated: Flow #${goal.parentIssueNumber}\nStatus: ${goal.status}` }
           })
 
         default:

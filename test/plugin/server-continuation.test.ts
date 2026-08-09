@@ -1,5 +1,9 @@
-import { describe, it, expect, vi } from "vitest"
-import { queueContinuation } from "../../src/plugin/server.js"
+import { describe, it, expect, vi, afterEach } from "vitest"
+import { mkdtemp, rm, readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { queueContinuation, autoResume } from "../../src/plugin/server.js"
+import { writeIndex } from "../../src/kernel/session-index.js"
 
 /**
  * queueContinuation 的 client mock：
@@ -204,6 +208,85 @@ describe("queueContinuation — [BLOCKED:] 阻塞报告", () => {
     expect(client.session.promptAsync).toHaveBeenCalledTimes(1) // 未再发送
     const lastUpdate = client.session.update.mock.calls.at(-1)![0] as unknown as { metadata: { goal: { status: string } } }
     expect(lastUpdate.metadata.goal.status).toBe("paused")
+  })
+})
+
+describe("queueContinuation — [DONE:] 完成报告", () => {
+  it("agent 报告完成时暂停 goal 且不续接（等待 goal-verify 验证）", async () => {
+    const { client } = makeClient({
+      goal: activeGoal(),
+      messages: [{
+        info: ASSISTANT_INFO,
+        parts: [{ type: "text", text: "全部验收项通过。\n[DONE: tests pass, build green]" }],
+      }],
+    })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    const update = client.session.update.mock.calls[0][0] as unknown as { metadata: { goal: { status: string; statusReason: string } } }
+    expect(update.metadata.goal.status).toBe("paused")
+    expect(update.metadata.goal.statusReason).toBe("done report")
+  })
+
+  it("普通推进回复不触发完成暂停", async () => {
+    const { client } = makeClient({
+      goal: activeGoal(),
+      messages: [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "还剩最后一步。" }] }],
+    })
+    await queueContinuation(client as never, "sess-main")
+    expect(client.session.promptAsync).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("autoResume — 重启双发防护", () => {
+  let tmpDir: string
+
+  afterEach(async () => {
+    if (tmpDir) await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  const makeIndexDir = async () => {
+    tmpDir = await mkdtemp(path.join(os.tmpdir(), "cabbage-autoresume-"))
+    return tmpDir
+  }
+
+  it("30s 内刚更新过的 flow 跳过恢复（可能刚续接过，重启会双发）", async () => {
+    const dir = await makeIndexDir()
+    const { client } = makeClient({
+      goal: activeGoal({ continuationCount: 5 }),
+      messages: [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "完成。" }] }],
+    })
+    await writeIndex(dir, {
+      flows: { "42": { sessionID: "sess-main", status: "active", continuationCount: 5, updatedAt: Date.now() - 1000 } },
+    })
+    await autoResume(client as never, dir)
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+  })
+
+  it("超过 30s 未更新的 active flow 正常恢复", async () => {
+    const dir = await makeIndexDir()
+    const { client } = makeClient({
+      goal: activeGoal({ continuationCount: 5 }),
+      messages: [{ info: ASSISTANT_INFO, parts: [{ type: "text", text: "完成。" }] }],
+    })
+    await writeIndex(dir, {
+      flows: { "42": { sessionID: "sess-main", status: "active", continuationCount: 5, updatedAt: Date.now() - 60_000 } },
+    })
+    await autoResume(client as never, dir)
+    expect(client.session.promptAsync).toHaveBeenCalledTimes(1)
+  })
+
+  it("索引中 active 但会话 goal 已不 active 的 flow 置 paused 不恢复", async () => {
+    const dir = await makeIndexDir()
+    const { client } = makeClient({ goal: null })
+    await writeIndex(dir, {
+      flows: { "42": { sessionID: "sess-main", status: "active", continuationCount: 5, updatedAt: Date.now() - 60_000 } },
+    })
+    await autoResume(client as never, dir)
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    const index = JSON.parse(await readFile(
+      path.join(dir, ".opencode", "opencode-cabbage", "session-index.json"), "utf8",
+    )) as { flows: Record<string, { status: string }> }
+    expect(index.flows["42"]?.status).toBe("paused")
   })
 })
 

@@ -72,9 +72,10 @@
 - 一个 **Flow** = 一个 GitHub Parent Issue，包含目标、验收标准与阶段 checklist（权威源）
 - **goal 工具** 在每个会话存储 `{ parentIssueNumber, status, continuationCount, sessionProfile, tokenBudget, tokensUsed, tokensBaseline, createdAt, statusReason }`
 - 目标/验收 **不** 存在 goal 里，从 Parent Issue body 读取（单一事实源）
-- 状态机：`create → active ⇄ paused → complete（仅 goal-verify）`；paused 还有两个自动入口：`[BLOCKED:]` 报告、token 预算达限
+- 状态机：`create → active ⇄ paused → complete（仅 goal-verify）`；paused 还有三个自动入口：`[BLOCKED:]` 报告、`[DONE:]` 完成报告、token 预算达限
 - 进度从 GitHub 实时推导，不持久化 JSON 状态
-- create 支持可选 `token_budget`：达限自动 pause（预算护栏，防长跑成本失控）；记账用快照法（最新完成 assistant 轮的 input+cache.read+output − 创建时基线，单调不减）
+- create 支持可选 `token_budget`：达限自动 pause（预算护栏，防长跑成本失控）；记账用快照法（最新完成 assistant 轮的 input+reasoning+cache.read+output − 创建时基线，单调不减）
+- `edit` op：修改 tokenBudget（传 0 移除）或更换 parentIssueNumber（换 Flow，重置记账 + 索引 rebind）；active/paused 可编辑，complete 只读；budget 达限 paused 后可先 edit 提预算再 resume
 
 ### 阶段（Stage）
 
@@ -127,9 +128,9 @@ setup → requirements → design → tasks → code → review → release（�
 状态转移约束：
 - `create`：同一会话已有 active goal 时拒绝；`token_budget` 为正整数
 - `pause`：仅 active → paused；`resume`：仅 paused → active（并重置续接计数，`statusReason='resumed'` 作为 kickoff 信号）
-- `cancel`：任意状态移除 goal
+- `cancel`：任意状态移除 goal；`edit`：active/paused 可编辑，complete 只读，子 agent 禁编辑
 - `complete`：仅 `goal-verify` 子 agent 可调用（goal.ts 内置授权），且父会话 goal 必须 active
-- 自动暂停（非用户触发）：`[BLOCKED:]` 报告（agent 明确无法推进）→ paused；token 预算达限 → paused
+- 自动暂停（非用户触发）：`[BLOCKED:]` 报告（agent 无法推进）→ paused；`[DONE:]` 完成报告（agent 验证通过，等待独立 goal-verify）→ paused；token 预算达限 → paused
 
 ### 用户主流程（7 个阶段）
 
@@ -211,17 +212,18 @@ Read the Flow Record (Parent Issue #<n>) for the objective and completion criter
 ```
 
 续接前五道闸（queueContinuation，对齐 OpenChamber 的 tick 防护）：
-1. **子会话活动闸**：直接子会话（后台 subagent）busy/retry 时跳过——父会话 idle 不代表任务静默，续接会压过子代理结果注入；查询失败保守跳过
+1. **子会话活动闸**：直接子会话（后台 subagent）busy/retry 时跳过——父会话 idle 不代表任务静默，续接会压过子代理结果注入；查询失败保守跳过（含 warn）
 2. **尾部静默检查**：最后一条是 user 消息或 assistant 未完成 → 跳过（等下一次 idle）
-3. **`[BLOCKED:]` 阻塞报告**：agent 明确无法推进 → 置 paused 并通知用户（防空转烧 token）；resume 后首次 tick 豁免（防 resume 死路）
-4. **token 预算护栏**：`tokensUsed >= tokenBudget` → 置 paused（用户需提高预算后 resume）
+3. **`[BLOCKED:]`/`[DONE:]` 信号报告**：agent 明确无法推进 → 置 paused；agent 完成验证并报告 → 置 paused 等待 goal-verify 独立验证（防空转烧 token 与漏验）；resume 后首次 tick 豁免（防 resume 死路）
+4. **token 预算护栏**：`tokensUsed >= tokenBudget` → 置 paused（用户可 edit 提预算后 resume）
 5. **续接上限**：`continuationCount` 达 50 → 置 paused，请求用户介入
 
 - `continuationCount` 达上限（50）→ 自动 pause，请求用户介入
 - 每 20 次 continuation 自动 compact 会话历史
 - 用户消息重置计数
 - **先写后发**：计数先于 prompt 落盘（崩溃窗口只会少发一次续接，不会因重启 autoResume 双发）；prompt 发送失败回滚计数
-- **token 记账（快照法）**：最新完成 assistant 轮的 `input + cache.read + output` 即整段成本（OpenCode 每轮 cache.read 已含此前付费 token）；goal 相对化（创建时基线排除历史）；单调不减（context 收缩不回退）
+- **重启双发防护**：autoResume 跳过 30s 内更新过的 flow（可能刚续接过），等下一次 idle 事件常规续接
+- **token 记账（快照法）**：最新完成 assistant 轮的 `input + reasoning + cache.read + output` 即整段成本（OpenCode 每轮 cache.read 已含此前付费 token）；goal 相对化（创建时基线排除历史）；单调不减（context 收缩不回退）
 
 ### 上下文管理（内化 handoff）
 

@@ -126,11 +126,13 @@ OpenChamber 的审计器只看"目标 + 最后回复文本"(无历史、无类�
 
 代价:完成判定不是每轮自动做的(需要 dev-lifecycle 派发或 agent 自觉),存在"目标实际已完成但无人验证 → 继续续接"的窗口。建议(中等价值):在续接循环里每 N 次(如 5 次)自动派一次 goal-verify 检查可完成性,与 2.2 的无进展检测配合,形成"过程防空转 + 终点防漏判"。
 
+> **实现注(2026-08-09)**:验证 SDK 后确认插件无"创建子 agent 会话"的 API(fork+promptAsync 可建子会话,但结果不会自动注入父会话,需自建轮询/解析/判定循环,且与「仅 goal-verify 可 complete」授权模型冲突)。故 P2 采用对称轻量方案:**[DONE:] 完成报告协议**——continuationPrompt 要求 agent 在验证(测试/构建)通过时输出 `[DONE: 摘要]`,插件检测到即置 paused,由 dev-lifecycle/用户派 goal-verify 做最终独立验证(complete 授权不变)。完成侧空转窗口由「agent 主动报告 + 暂停提示」覆盖,代价是依赖 agent 自觉(与 blocked 机制同一信任模型)。若实测发现 agent 频繁漏报,再评估重型自动验证循环。
+
 ---
 
 ## 4. 可执行改进清单(按优先级)
 
-> 更新(2026-08-09):P0/P1 六项已实现并测试通过(TDD 9 cycles,211 tests 全绿),见 commit 86edf08。剩余 P2/P3 未实施。
+> 更新(2026-08-09):P0/P1 六项已实现并测试通过(TDD 9 cycles,211 tests 全绿),见 commit 86edf08。P3(edit op)与 P2 轻量替代([DONE:] 完成报告协议)已实现,见 commit `<待填>`。
 
 | # | 改进 | 对齐对象 | 成本 | 风险 | 状态 |
 |---|---|---|---|---|---|
@@ -139,9 +141,10 @@ OpenChamber 的审计器只看"目标 + 最后回复文本"(无历史、无类�
 | P1 | 续接顺序改为先计数后 prompt(或 autoResume 去重) | OpenChamber 先写后跑 | ~3 行 | 低 | ✅ 已实现(两阶段 + 失败回滚) |
 | P1 | 尾部 quiescence 检查(最后消息 user/未完成 → 跳过) | OpenChamber tick | ~10 行 | 低 | ✅ 已实现 |
 | P1 | turn error(非 abort)事件 → pause | OpenChamber blocked | ~5 行 | 低 | ✅ 已实现([BLOCKED:] 报告覆盖卡点检测) |
-| P2 | 每 N 次续接自动派 goal-verify 检查可完成性 | 无对应(反超方向) | 中 | 中(子代理成本) | ⬜ 未实施 |
-| P2 | tokenBudget/tokensUsed 快照记账(可选) | OpenChamber 记账 | 1-2 天 | 中 | ✅ 已实现(create baseline + tick 记账 + 预算 pause) |
-| P3 | goal edit op | OpenChamber | 半小时 | 低 | ⬜ 未实施 |
+| P2 | 完成侧闭环:[DONE:] 完成报告协议(agent 验证通过 → pause 等待 goal-verify) | 无对应(反超方向) | ~20 行 | 低 | ✅ 已实现(轻量替代"自动派发",见 §3.2 注) |
+| P2 | tokenBudget/tokensUsed 快照记账(可选) | OpenChamber 记账 | 1-2 天 | 中 | ✅ 已实现(create baseline + tick 记账 + 预算 pause + reasoning 计入) |
+| P3 | goal edit op | OpenChamber | 半小时 | 低 | ✅ 已实现(改预算/传 0 移除/换 Flow 重置记账+rebind;complete 只读) |
+| P4 | autoResume 重启双发防护(30s 窗口跳过) | 自研 | ~3 行 | 低 | ✅ 已实现 |
 
 **不建议照搬**:小模型每轮审计(成本高、凭文本、与 goal-verify 证据验证重复)、15s 静默定时器(OpenCode idle 语义足够稳,加尾部检查即可)、通知体系(插件无 push 通道)、stale-write by goal id(单 goal 场景 + KeyedMutex 已够)。
 

@@ -24,14 +24,31 @@ export interface GoalData {
   continuationCount: number
   /** 用户最后使用的 agent/模型（create 或用户消息时快照） */
   sessionProfile?: GoalSessionProfile
+  /** 可选 token 预算（护栏）：tokensUsed 达限后自动 pause，防止长跑成本失控 */
+  tokenBudget?: number
+  /** 已用 token（快照法：最新完成 assistant 轮 input+cache.read+output − baseline，单调不减） */
+  tokensUsed?: number
+  /** 记账基线：create 时点最新完成 assistant 轮的快照（compaction 不做分段，护栏非账单） */
+  tokensBaseline?: number
+  /** goal 创建时刻（ms）：记账基线初始化与诊断用 */
+  createdAt?: number
+  /** 状态原因：'resumed' 是 UI/resume 的 kickoff 信号（首次 tick 豁免 blocked 检测后消费清除） */
+  statusReason?: string
 }
 
-export function createGoal(parentIssueNumber: number, sessionProfile?: GoalSessionProfile): GoalData {
+export function createGoal(
+  parentIssueNumber: number,
+  sessionProfile?: GoalSessionProfile,
+  tokenBudget?: number,
+): GoalData {
   return {
     parentIssueNumber,
     status: "active",
     continuationCount: 0,
     ...(sessionProfile ? { sessionProfile } : {}),
+    ...(tokenBudget ? { tokenBudget } : {}),
+    tokensUsed: 0,
+    createdAt: Date.now(),
   }
 }
 
@@ -45,16 +62,60 @@ export function canTransitionTo(goal: GoalData, target: GoalStatus): boolean {
 }
 
 export function formatGoal(goal: GoalData): string {
+  const budgetLine = typeof goal.tokenBudget === "number"
+    ? `Tokens: ${goal.tokensUsed ?? 0}/${goal.tokenBudget}`
+    : ""
   return [
     `Flow: #${goal.parentIssueNumber}`,
     `Status: ${goal.status}`,
     `Continuations: ${goal.continuationCount}`,
     goal.sessionProfile ? `Agent: ${goal.sessionProfile.agent}` : "",
+    budgetLine,
     `Objective/acceptance: read from Flow Record (Parent Issue #${goal.parentIssueNumber})`,
   ].filter(Boolean).join("\n")
 }
 
 export const MAX_CONTINUATIONS = 50
+
+/**
+ * 单条消息的 token 快照 = input + reasoning + cache.read + output。
+ * 与 OpenChamber 记账同源：OpenCode 每轮的 cache.read 已含此前所有轮次付费 token，
+ * 最新完成轮的快照即整段成本，无需跨消息求和。reasoning 也计费，护栏方向偏严。
+ */
+export function snapshotTokenTotal(tokens: unknown): number {
+  if (!tokens || typeof tokens !== "object") return 0
+  const t = tokens as { input?: unknown; output?: unknown; reasoning?: unknown; cache?: { read?: unknown } }
+  const input = typeof t.input === "number" && Number.isFinite(t.input) ? Math.max(0, t.input) : 0
+  const output = typeof t.output === "number" && Number.isFinite(t.output) ? Math.max(0, t.output) : 0
+  const reasoning = typeof t.reasoning === "number" && Number.isFinite(t.reasoning) ? Math.max(0, t.reasoning) : 0
+  const cacheRead = typeof t.cache?.read === "number" && Number.isFinite(t.cache.read) ? Math.max(0, t.cache.read) : 0
+  return input + reasoning + cacheRead + output
+}
+
+/** token 预算护栏：达到或超过预算即应暂停（null 表示未设预算） */
+export function budgetReached(goal: GoalData): boolean {
+  return typeof goal.tokenBudget === "number" && (goal.tokensUsed ?? 0) >= goal.tokenBudget
+}
+
+/**
+ * 识别 agent 在续接回复中输出的显式阻塞报告（continuationPrompt 要求格式：
+ * 无法推进时必须输出 [BLOCKED: <原因>]）。大小写与空白容错。
+ */
+export const BLOCKED_REPORT_RE = /\[BLOCKED\s*:\s*\S/i
+
+export function isBlockedReport(text: string): boolean {
+  return BLOCKED_REPORT_RE.test(String(text ?? ""))
+}
+
+/**
+ * 识别 agent 的显式完成报告（continuationPrompt 要求格式：[DONE: <摘要>]）。
+ * 命中 → goal 暂停并提示用户派 goal-verify 做最终独立验证（与 [BLOCKED:] 对称）。
+ */
+export const DONE_REPORT_RE = /\[DONE\s*:\s*\S/i
+
+export function isDoneReport(text: string): boolean {
+  return DONE_REPORT_RE.test(String(text ?? ""))
+}
 
 export function continuationPrompt(parentIssueNumber: number): string {
   return `Continue working toward the active goal.
@@ -66,7 +127,20 @@ Read the Flow Record (Parent Issue #${parentIssueNumber}) for the objective and 
 </flow_issue>
 
 Work from evidence — inspect the current state before relying on anything.
-If the work is not done, just keep working. Do not narrate that you are continuing — execute.`
+If the work is not done, just keep working. Do not narrate that you are continuing — execute.
+
+Blocking protocol: if you genuinely cannot make further progress without the user
+(missing credentials, a missing decision, or a hard external failure), start your
+reply with the exact marker [BLOCKED: reason] and state the blocking condition.
+Do not use the marker merely because the work is hard, slow, or uncertain —
+only for real blockers that need the user.
+
+Completion protocol: when you believe every acceptance criterion of the Flow
+Record is verifiably met, run the relevant verification (tests, build, checks)
+instead of claiming it. If verification passes, end your reply with the exact
+marker [DONE: short summary of what was verified]. Do not use the marker unless
+you actually ran the verification and it passed — the goal will pause for an
+independent goal-verify pass.`
 }
 
 export function createGoalClient(serverUrl: URL, v1Client: any) {
@@ -149,8 +223,9 @@ Use a single op field:
 - pause: pauses the active goal.
 - complete: marks the goal as completed. Follow the returned instructions.`,
     args: {
-      op: tool.schema.enum(["create", "get", "complete", "resume", "cancel", "pause"]).describe("Goal operation"),
-      parent_issue_number: tool.schema.number().optional().describe("Parent GitHub Issue number of the Flow Record (required for create)"),
+      op: tool.schema.enum(["create", "get", "complete", "resume", "cancel", "pause", "edit"]).describe("Goal operation"),
+      parent_issue_number: tool.schema.number().optional().describe("Parent GitHub Issue number of the Flow Record (required for create; editable via edit)"),
+      token_budget: tool.schema.number().optional().describe("Optional token budget guardrail; goal auto-pauses when tokensUsed reaches it. Pass 0 via edit to remove the budget"),
     },
     async execute(args: Record<string, any>, ctx: ToolContext): Promise<ToolResult> {
       const sessionID = (ctx as any).sessionID as string
@@ -159,7 +234,7 @@ Use a single op field:
       const isSubAgent = !!session?.parentID
       const targetSessionID = session?.parentID ?? sessionID
 
-      if (isSubAgent && ["create", "pause", "resume", "cancel"].includes(args.op)) {
+      if (isSubAgent && ["create", "pause", "resume", "cancel", "edit"].includes(args.op)) {
         return `Error: sub-agents cannot call goal({op:"${args.op}"}). Goal lifecycle operations are restricted to the main session.`
       }
 
@@ -187,14 +262,41 @@ Use a single op field:
       switch (args.op) {
         case "create":
           return mutateGoal(client, sessionID, async (goal) => {
-            if (!args.parent_issue_number) {
-              return { goal, value: "Error: parent_issue_number is required" }
-            }
             if (goal?.status === "active") {
+              // 必须返回原 goal（不能返回 null）：mutateGoal 在 next===null 且 current 非 null
+              // 时会删除现有 goal，错误分支返回 null 等于把活动 goal 取消了
               return { goal, value: `Error: an active goal already exists for Flow #${goal.parentIssueNumber}` }
             }
+            const parentIssue = Number(args.parent_issue_number)
+            if (!Number.isInteger(parentIssue) || parentIssue <= 0) {
+              const got = args.parent_issue_number === undefined ? "" : ` (got: ${args.parent_issue_number})`
+              return { goal, value: `Error: parent_issue_number is required (positive integer)${got}` }
+            }
             // 快照创建时的 agent（模型由 message.updated 用户消息事件补充）
-            const created = createGoal(Number(args.parent_issue_number), { agent: ctx.agent })
+            const created = createGoal(
+              parentIssue,
+              { agent: ctx.agent },
+              typeof args.token_budget === "number" && Number.isFinite(args.token_budget) && args.token_budget > 0
+                ? Math.floor(args.token_budget)
+                : undefined,
+            )
+            // 记账基线：create 时点的最新完成 assistant 轮快照（快照法排除 goal 前历史消耗）。
+            // 拉取失败/无历史 → baseline 0（护栏方向保守：把可见历史计入）。
+            try {
+              const result = await client.session.messages({ sessionID, limit: 40 }) as unknown as {
+                data?: Array<{ info?: { role?: string; time?: { completed?: number }; tokens?: unknown } }>
+              }
+              let baseline = 0
+              for (const message of result?.data ?? []) {
+                const info = message?.info
+                if (info?.role !== "assistant") continue
+                if (!(info.time?.completed && info.time.completed > 0) || info.time.completed > created.createdAt!) continue
+                baseline = Math.max(baseline, snapshotTokenTotal(info.tokens))
+              }
+              created.tokensBaseline = baseline
+            } catch {
+              created.tokensBaseline = 0
+            }
             // flow 级绑定：供插件重启后的 autoResume 恢复 active goal
             try {
               await bindSession(sessionProjectDir(ctx.directory), created.parentIssueNumber, sessionID)
@@ -222,6 +324,8 @@ Use a single op field:
             if (!canTransitionTo(goal, "active")) return { goal, value: `Goal cannot be resumed (status: ${goal.status}).` }
             goal.status = "active"
             goal.continuationCount = 0
+            // kickoff 信号：resume 后首次 tick 豁免 [BLOCKED:] 检测，防止被旧报告立即再次暂停
+            goal.statusReason = "resumed"
             return { goal, value: `Goal resumed: Flow #${goal.parentIssueNumber}\nStatus: active` }
           })
 
@@ -243,6 +347,51 @@ Use a single op field:
               // 索引清理失败不阻塞取消（goal 本身已移除）
             }
             return { goal: null, value: `Goal cancelled: Flow #${goal.parentIssueNumber}` }
+          })
+
+        case "edit":
+          return mutateGoal(client, sessionID, async (goal) => {
+            if (!goal) return { goal, value: "No goal to edit." }
+            if (goal.status === "complete") {
+              return { goal, value: "Error: completed goals are read-only. Remove the goal and create a new one." }
+            }
+            const budgetGiven = typeof args.token_budget === "number"
+              && Number.isFinite(args.token_budget)
+              && args.token_budget > 0
+            const budgetRemoved = args.token_budget === 0
+            const nextParent = typeof args.parent_issue_number === "number"
+              && Number.isFinite(args.parent_issue_number)
+              && args.parent_issue_number > 0
+              ? Math.floor(args.parent_issue_number)
+              : null
+            if (!budgetGiven && !budgetRemoved && nextParent === null) {
+              return { goal, value: "Error: nothing to edit — pass parent_issue_number and/or token_budget" }
+            }
+            if (budgetGiven) goal.tokenBudget = Math.floor(args.token_budget as number)
+            if (budgetRemoved) delete goal.tokenBudget
+            if (nextParent !== null && nextParent !== goal.parentIssueNumber) {
+              const oldParent = goal.parentIssueNumber
+              goal.parentIssueNumber = nextParent
+              // 换 Flow：旧目标的记账/基线/创建时刻全部重置（新目标从 edit 时点起算）。
+              // createdAt 必须更新——否则下一 tick 用旧 createdAt 重新初始化 baseline 时，
+              // 会把旧 Flow 期间的消息（completed > 旧 createdAt）计入新 Flow 预算。
+              goal.tokensUsed = 0
+              delete goal.tokensBaseline
+              goal.createdAt = Date.now()
+              try {
+                await bindSession(sessionProjectDir(ctx.directory), goal.parentIssueNumber, sessionID)
+              } catch (error) {
+                // 新 Flow 索引绑定失败：新 entry 缺失，重启 autoResume 无法恢复新 goal
+                console.warn(`[cabbage] goal edit: bindSession #${goal.parentIssueNumber} failed:`, (error as Error | null)?.message ?? error)
+              }
+              try {
+                await removeFlowSession(sessionProjectDir(ctx.directory), oldParent)
+              } catch (error) {
+                // 旧 entry 清理失败：残留 active entry 会在重启时被 autoResume 一致性自愈清理
+                console.warn(`[cabbage] goal edit: removeFlowSession #${oldParent} failed:`, (error as Error | null)?.message ?? error)
+              }
+            }
+            return { goal, value: `Goal updated: Flow #${goal.parentIssueNumber}\nStatus: ${goal.status}` }
           })
 
         default:

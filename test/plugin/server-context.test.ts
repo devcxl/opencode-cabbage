@@ -6,6 +6,23 @@ import { fileURLToPath } from "node:url"
 
 const mockSessionGet = vi.fn()
 const mockPromptAsync = vi.fn()
+const mockSessionChildren = vi.fn()
+const mockSessionStatus = vi.fn()
+const mockSessionMessages = vi.fn()
+const mockSessionUpdate = vi.fn()
+
+/** 完成态的 assistant 消息：queueContinuation 的尾部检查/记账/续接依赖 */
+const COMPLETED_ASSISTANT = {
+  info: {
+    id: "msg-1",
+    role: "assistant",
+    time: { completed: 2 },
+    providerID: "provider",
+    modelID: "model",
+    tokens: { input: 1, output: 1, cache: { read: 0 } },
+  },
+  parts: [{ type: "text", text: "工作完成。" }],
+}
 
 vi.mock("../../src/plugin/goal.js", async () => {
   const actual = await vi.importActual("../../src/plugin/goal.js")
@@ -18,8 +35,12 @@ vi.mock("../../src/plugin/goal.js", async () => {
           const r = await mockSessionGet(...args)
           return JSON.parse(JSON.stringify(r))
         },
-        update: vi.fn(),
+        update: (...args: unknown[]) => mockSessionUpdate(...args),
         promptAsync: (...args: unknown[]) => mockPromptAsync(...args),
+        // queueContinuation 新增检查依赖：子会话活动闸 + 尾部静默/记账
+        children: (...args: unknown[]) => mockSessionChildren(...args),
+        status: (...args: unknown[]) => mockSessionStatus(...args),
+        messages: (...args: unknown[]) => mockSessionMessages(...args),
       },
     }),
   }
@@ -82,6 +103,14 @@ beforeEach(async () => {
   process.env.CABBAGE_SKILLS_DIR = path.join(tmpDir, "skills")
   mockSessionGet.mockReset()
   mockPromptAsync.mockReset()
+  mockSessionChildren.mockReset()
+  mockSessionStatus.mockReset()
+  mockSessionMessages.mockReset()
+  mockSessionUpdate.mockReset()
+  // 默认：无子会话、全部空闲、尾部为完成态 assistant（续接可正常通过全部新检查）
+  mockSessionChildren.mockResolvedValue({ data: [] })
+  mockSessionStatus.mockResolvedValue({ data: {} })
+  mockSessionMessages.mockResolvedValue({ data: [JSON.parse(JSON.stringify(COMPLETED_ASSISTANT))] })
 
   const ctx = {
     worktree: tmpDir,
@@ -290,7 +319,7 @@ describe("event handler — message.updated 重置计数", () => {
 })
 
 describe("event handler — session.error abort 标记", () => {
-  it("MessageAbortedError → 记录 abort，下次 idle 置 paused 不续接", async () => {
+  it("MessageAbortedError → 立即持久化 paused（不依赖后续 idle/内存标记），idle 不续接", async () => {
     mockSessionGet.mockResolvedValue(ACTIVE_GOAL)
     await event({
       event: {
@@ -298,6 +327,17 @@ describe("event handler — session.error abort 标记", () => {
         properties: { sessionID: "sess-abort-1", error: { name: "MessageAbortedError" } },
       },
     })
+    // 等 fire-and-forget 的 abort pause 完成
+    await new Promise(r => setTimeout(r, 50))
+    // abort 事件本身即把 goal 置 paused 并持久化（插件重启/标记清理后不丢失）
+    const abortUpdate = mockSessionUpdate.mock.calls.at(-1)?.[0] as {
+      sessionID: string
+      metadata: { goal: { status: string; statusReason: string } }
+    }
+    expect(abortUpdate?.sessionID).toBe("sess-abort-1")
+    expect(abortUpdate.metadata.goal.status).toBe("paused")
+    expect(abortUpdate.metadata.goal.statusReason).toBe("aborted by user")
+
     await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-abort-1" } } })
     // 等 fire-and-forget 的 queueContinuation 完全结束（含 abort 分支），避免异步泄漏到下一测试
     await new Promise(r => setTimeout(r, 50))

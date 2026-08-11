@@ -17,6 +17,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run prompt-lint
       - run: npm run build
       - run: npm test
       - name: Create draft Release

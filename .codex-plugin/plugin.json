@@ -1,6 +1,6 @@
 {
   "name": "opencode-cabbage",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "全流程开发编排插件 — 需求→设计→任务→编码→测试→审查→自动合并，支持 OpenCode 与 Codex 双平台",
   "author": {
     "name": "devcxl",

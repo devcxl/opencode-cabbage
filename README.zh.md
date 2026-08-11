@@ -2,8 +2,11 @@
   <h1>@devcxl/opencode-cabbage</h1>
   <p>全流程开发 OpenCode 插件 — 覆盖需求、设计、任务、编码、测试、审查和发布完整开发生命周期，支持自动编排与并行 Subagent。</p>
   <p>
-    <a href="https://www.npmjs.com/package/@devcxl/opencode-cabbage"><img src="https://img.shields.io/npm/v/@devcxl/opencode-cabbage" alt="npm version"></a>
     <a href="https://github.com/devcxl/opencode-cabbage/actions/workflows/ci.yml"><img src="https://github.com/devcxl/opencode-cabbage/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+    <a href="https://github.com/devcxl/opencode-cabbage/actions/workflows/release-draft.yml"><img src="https://github.com/devcxl/opencode-cabbage/actions/workflows/release-draft.yml/badge.svg" alt="Release"></a>
+    <a href="https://github.com/devcxl/opencode-cabbage/actions/workflows/release-publish.yml"><img src="https://github.com/devcxl/opencode-cabbage/actions/workflows/release-publish.yml/badge.svg" alt="Publish to npm"></a>
+    <a href="https://www.npmjs.com/package/@devcxl/opencode-cabbage"><img src="https://img.shields.io/npm/v/@devcxl/opencode-cabbage" alt="npm version"></a>
+    <a href="https://www.npmjs.com/package/@devcxl/opencode-cabbage"><img src="https://img.shields.io/npm/dm/@devcxl/opencode-cabbage" alt="npm downloads"></a>
     <a href="https://devcxl.github.io/opencode-cabbage"><img src="https://github.com/devcxl/opencode-cabbage/actions/workflows/pages.yml/badge.svg?branch=main" alt="GitHub Pages"></a>
   </p>
   <p><a href="README.md">English</a> | 简体中文</p>
@@ -20,7 +23,7 @@
 }
 ```
 
-插件启动后自动注入 7 个 slash command、8 个 flow skill、5 个 agent 与 1 个 goal 工具。
+插件启动后自动注入 7 个 slash command、9 个 flow skill、6 个 agent 与 1 个 goal 工具。
 
 ## 命令一览
 
@@ -77,8 +80,8 @@ src/                          # TypeScript 薄层
 
 assets/                       # 运行时资源（纯 Prompt 流程）
 ├── commands/                 # 7 个 slash command
-├── skills/                   # 8 个 flow-* skill（Prompt 驱动，直接 git/gh）
-├── agents/                   # 5 个 agent 定义
+├── skills/                   # 9 个 flow-* skill（Prompt 驱动，直接 git/gh）
+├── agents/                   # 6 个 agent 定义
 └── prompts/                  # 引导提示词 + 模板
 ```
 

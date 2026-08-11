@@ -31,9 +31,10 @@ jobs:
         env:
           # 经 env 传递，避免 tag 名注入 shell（CWE-78）
           REF_NAME: ${{ github.ref_name }}
+      - run: npm run prompt-lint
       - run: npm test
       - run: npm run typecheck
       - run: npm run build
-      - run: npm publish
+      - run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

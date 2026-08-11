@@ -114,11 +114,25 @@ describe("goal 工具 — create", () => {
     expect(client.session.update).not.toHaveBeenCalled()
   })
 
+  it("parent_issue_number 非正整数时拒绝（负数/小数/非数字）", async () => {
+    const { client } = makeClient()
+    const tool = createGoalTool(client as unknown as ReturnType<typeof createOpencodeClient>)
+    for (const bad of [-5, 1.5, "abc", 0]) {
+      const out = await tool.execute({ op: "create", parent_issue_number: bad }, makeCtx())
+      expect(String(out)).toContain("parent_issue_number")
+      expect(client.session.update).not.toHaveBeenCalled()
+    }
+  })
+
   it("已存在 active goal 时拒绝重复创建", async () => {
-    const { client } = makeClient({ "sess-main": activeGoalMeta() })
+    const { client, sessions } = makeClient({ "sess-main": activeGoalMeta() })
     const tool = createGoalTool(client as unknown as ReturnType<typeof createOpencodeClient>)
     const out = await tool.execute({ op: "create", parent_issue_number: 99 }, makeCtx())
     expect(String(out)).toContain("active goal already exists")
+    // 现有 goal 必须保留：错误分支返回 null 会触发 mutateGoal 删除现有 goal
+    const goal = sessions.get("sess-main")!.metadata.goal as { parentIssueNumber: number; status: string }
+    expect(goal.parentIssueNumber).toBe(42)
+    expect(goal.status).toBe("active")
   })
 
   it("子 agent 不能 create", async () => {

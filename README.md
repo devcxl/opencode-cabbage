@@ -23,7 +23,7 @@
 }
 ```
 
-Once started, the plugin automatically injects 7 slash commands, 8 flow skills, 5 agents, and 1 goal tool.
+Once started, the plugin automatically injects 7 slash commands, 9 flow skills, 6 agents, and 1 goal tool.
 
 ## Command Overview
 
@@ -80,8 +80,8 @@ src/                          # Thin TypeScript layer
 
 assets/                       # Runtime assets (pure Prompt flows)
 ├── commands/                 # 7 slash commands
-├── skills/                   # 8 flow-* skills (Prompt-driven, direct git/gh)
-├── agents/                   # 5 agent definitions
+├── skills/                   # 9 flow-* skills (Prompt-driven, direct git/gh)
+├── agents/                   # 6 agent definitions
 └── prompts/                  # Guidance prompts and templates
 ```
 

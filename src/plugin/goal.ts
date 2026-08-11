@@ -262,15 +262,19 @@ Use a single op field:
       switch (args.op) {
         case "create":
           return mutateGoal(client, sessionID, async (goal) => {
-            if (!args.parent_issue_number) {
-              return { goal, value: "Error: parent_issue_number is required" }
-            }
             if (goal?.status === "active") {
+              // 必须返回原 goal（不能返回 null）：mutateGoal 在 next===null 且 current 非 null
+              // 时会删除现有 goal，错误分支返回 null 等于把活动 goal 取消了
               return { goal, value: `Error: an active goal already exists for Flow #${goal.parentIssueNumber}` }
+            }
+            const parentIssue = Number(args.parent_issue_number)
+            if (!Number.isInteger(parentIssue) || parentIssue <= 0) {
+              const got = args.parent_issue_number === undefined ? "" : ` (got: ${args.parent_issue_number})`
+              return { goal, value: `Error: parent_issue_number is required (positive integer)${got}` }
             }
             // 快照创建时的 agent（模型由 message.updated 用户消息事件补充）
             const created = createGoal(
-              Number(args.parent_issue_number),
+              parentIssue,
               { agent: ctx.agent },
               typeof args.token_budget === "number" && Number.isFinite(args.token_budget) && args.token_budget > 0
                 ? Math.floor(args.token_budget)

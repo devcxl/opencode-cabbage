@@ -23,7 +23,7 @@
 }
 ```
 
-插件启动后自动注入 7 个 slash command、8 个 flow skill、5 个 agent 与 1 个 goal 工具。
+插件启动后自动注入 7 个 slash command、9 个 flow skill、6 个 agent 与 1 个 goal 工具。
 
 ## 命令一览
 
@@ -80,8 +80,8 @@ src/                          # TypeScript 薄层
 
 assets/                       # 运行时资源（纯 Prompt 流程）
 ├── commands/                 # 7 个 slash command
-├── skills/                   # 8 个 flow-* skill（Prompt 驱动，直接 git/gh）
-├── agents/                   # 5 个 agent 定义
+├── skills/                   # 9 个 flow-* skill（Prompt 驱动，直接 git/gh）
+├── agents/                   # 6 个 agent 定义
 └── prompts/                  # 引导提示词 + 模板
 ```
 

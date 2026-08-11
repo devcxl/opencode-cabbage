@@ -70,6 +70,28 @@ describe("setupSkillsDir", () => {
     const entries = fs.readdirSync(result)
     expect(entries.length).toBe(0)
   })
+
+  it("插件版本变化时重建 skills（升级后内容更新生效）", async () => {
+    const srcDir = path.join(tmpDir, "skills-src")
+    fs.mkdirSync(srcDir, { recursive: true })
+    createSkill(srcDir, "test", "# v1")
+
+    const result = await setupSkillsDir(srcDir, undefined, "1.0.0")
+    expect(fs.readFileSync(path.join(result, "flow-test", "SKILL.md"), "utf8")).toContain("# v1")
+
+    // 同版本内容变更：不重建（已安装副本保持，目录按版本隔离不受影响）
+    createSkill(srcDir, "test", "# v1 updated")
+    const same = await setupSkillsDir(srcDir, undefined, "1.0.0")
+    expect(same).toBe(result)
+    expect(fs.readFileSync(path.join(result, "flow-test", "SKILL.md"), "utf8")).toContain("# v1")
+
+    // 版本升级：重建，新内容生效（且与旧版本目录互不覆盖）
+    const upgraded = await setupSkillsDir(srcDir, undefined, "1.1.0")
+    expect(upgraded).not.toBe(result)
+    expect(fs.readFileSync(path.join(upgraded, "flow-test", "SKILL.md"), "utf8")).toContain("# v1 updated")
+    // 旧版本目录保留（多版本共存不踩踏）
+    expect(fs.readFileSync(path.join(result, "flow-test", "SKILL.md"), "utf8")).toContain("# v1")
+  })
 })
 
 describe("flow-tdd Advisory Skill", () => {
@@ -161,7 +183,7 @@ describe("skills convergence (R12, §6.2)", () => {
       .map(d => d.name)
   }
 
-  it("exactly 8 skills exist, no flow-handoff / flow-test", () => {
+  it("exactly 9 skills exist, no flow-handoff / flow-test", () => {
     const dirs = listSkillDirs()
     expect(dirs.sort()).toEqual([...EXPECTED_SKILLS].sort())
   })

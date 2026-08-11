@@ -1,5 +1,6 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import path from "node:path"
+import { readFileSync } from "node:fs"
 
 import { initPrompts } from "./prompts.js"
 import { initBootstrap, getBootstrapContent } from "./bootstrap.js"
@@ -18,6 +19,16 @@ const continuationInFlight = new Set<string>()
 const COMPACTION_THRESHOLD = 20
 /** autoResume 跳过窗口：索引 30s 内更新过的 flow 不恢复（可能刚续接过，立即恢复会双发） */
 const AUTO_RESUME_SKIP_WINDOW_MS = 30_000
+
+/** 从插件包根读取版本号（skills 安装目录按版本隔离） */
+function readPluginVersion(packageRoot: string): string {
+  try {
+    const pkg = JSON.parse(readFileSync(path.join(packageRoot, "package.json"), "utf8")) as { version?: string }
+    return typeof pkg.version === "string" && pkg.version !== "" ? pkg.version : "0.0.0"
+  } catch {
+    return "0.0.0"
+  }
+}
 
 export interface FirstUserInjectionInput {
   hasGoal: boolean
@@ -336,7 +347,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
     const sourceSkillsDir = path.join(packageRoot, "assets", "skills")
     const promptsDir = path.join(packageRoot, "assets", "prompts")
     const commandsDir = path.join(packageRoot, "assets", "commands")
-    const skillsDir = await setupSkillsDir(sourceSkillsDir, promptsDir)
+    const skillsDir = await setupSkillsDir(sourceSkillsDir, promptsDir, readPluginVersion(packageRoot))
 
     const projectDir = ctx.worktree || ctx.directory
     const v1Client = (ctx.client as unknown as V1ClientContainer)._client
@@ -452,6 +463,18 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
           const sessionID: string | undefined = evt.properties.sessionID
           if (errorName === "MessageAbortedError" && sessionID) {
             abortedSessions.add(sessionID)
+            // abort 立即持久化 pause：不依赖内存标记。
+            // 否则 30 分钟清理窗口内无 idle 事件、或插件重启时标记丢失，
+            // 用户主动中断的 goal 会被下次 idle/autoResume 自动续接（继续烧 token）。
+            void mutateGoal(goalClient, sessionID, async (goal) => {
+              if (!goal || goal.status !== "active") return { goal, value: undefined }
+              goal.status = "paused"
+              goal.statusReason = "aborted by user"
+              if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
+              return { goal, value: undefined }
+            }).catch((err) => {
+              console.warn("[cabbage] abort pause failed:", (err as Error | null)?.message ?? err)
+            })
           }
         }
 

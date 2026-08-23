@@ -25,6 +25,27 @@
 
 Once started, the plugin automatically injects 7 slash commands, 9 flow skills, 6 agents, and 1 goal tool.
 
+## Codex Installation (Compatibility Layer)
+
+This package also ships a Codex plugin compatibility layer (`codex-skills/` + `hooks/` + `.codex-plugin/`) so the flow skills and agent prompts work in Codex as well.
+
+```bash
+# 1. Install the package (npm registry or git)
+npm install @devcxl/opencode-cabbage
+
+# 2. Build first — the SessionStart hook runs from dist/
+npm run build
+
+# 3. Install the plugin into Codex
+codex plugins install @devcxl/opencode-cabbage
+```
+
+Notes:
+
+- **Build before use**: the SessionStart hook executes `dist/hooks/session-start.js`, which only exists after `npm run build`.
+- **Hook trust review**: Codex requires interactive trust approval for hooks (`/hooks` command) on first run — approve the `SessionStart` hook to enable context injection.
+- **Platform differences**: the Codex layer is a pure-Prompt downgrade — no `goal` tool, no slash commands, no automatic continuation. Agents are plain skills (referenced as `@agent-*`), and flow state is tracked via GitHub Issue checklists. See `codex-skills/agent-dev-lifecycle/SKILL.md` for details.
+
 ## Command Overview
 
 | Command | Stage | Output |
@@ -83,6 +104,10 @@ assets/                       # Runtime assets (pure Prompt flows)
 ├── skills/                   # 9 flow-* skills (Prompt-driven, direct git/gh)
 ├── agents/                   # 6 agent definitions
 └── prompts/                  # Guidance prompts and templates
+
+codex-skills/                 # Codex compatibility layer (mirrors assets/, agent-* prefixed)
+hooks/                        # Codex SessionStart hook (hooks.json + compiled dist/hooks/)
+.codex-plugin/                # Codex plugin manifest (plugin.json)
 ```
 
 ## Documentation

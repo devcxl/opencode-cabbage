@@ -29,21 +29,24 @@ Once started, the plugin automatically injects 7 slash commands, 9 flow skills, 
 
 This package also ships a Codex plugin compatibility layer (`codex-skills/` + `hooks/` + `.codex-plugin/`) so the flow skills and agent prompts work in Codex as well.
 
+The repository is a Codex marketplace: add it as a marketplace source, then install the plugin from it.
+
 ```bash
-# 1. Install the package (npm registry or git)
-npm install @devcxl/opencode-cabbage
+# 1. Add this repository as a Codex marketplace
+codex plugin marketplace add devcxl/opencode-cabbage
 
-# 2. Build first — the SessionStart hook runs from dist/
-npm run build
+# 2. Confirm the plugin is available
+codex plugin list --available
 
-# 3. Install the plugin into Codex
-codex plugins install @devcxl/opencode-cabbage
+# 3. Install the plugin (pulled from the npm package, which bundles all Codex files)
+codex plugin add opencode-cabbage@cabbage
 ```
 
 Notes:
 
-- **Build before use**: the SessionStart hook executes `dist/hooks/session-start.js`, which only exists after `npm run build`.
+- **Build artifact included**: the SessionStart hook (`dist/hooks/session-start.js`) ships inside the published npm package — no local build required.
 - **Hook trust review**: Codex requires interactive trust approval for hooks (`/hooks` command) on first run — approve the `SessionStart` hook to enable context injection.
+- **Marketplace name**: the marketplace is named `cabbage` (see `.agents/plugins/marketplace.json`); use `opencode-cabbage@cabbage` as the plugin selector.
 - **Platform differences**: the Codex layer is a pure-Prompt downgrade — no `goal` tool, no slash commands, no automatic continuation. Agents are plain skills (referenced as `@agent-*`), and flow state is tracked via GitHub Issue checklists. See `codex-skills/agent-dev-lifecycle/SKILL.md` for details.
 
 ## Command Overview

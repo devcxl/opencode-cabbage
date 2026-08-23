@@ -163,7 +163,6 @@ describe("codex marketplace (.agents/plugins/marketplace.json)", () => {
     interface: Record<string, unknown>
     plugins: Array<Record<string, unknown>>
   }
-  const pkg = readJson("package.json")
   const entry = marketplace.plugins[0]
 
   it("is valid JSON with name, interface and plugins entries", () => {
@@ -180,12 +179,13 @@ describe("codex marketplace (.agents/plugins/marketplace.json)", () => {
     expect(policy.authentication).toBe("ON_INSTALL")
   })
 
-  it("source points to this npm package with a valid version range", () => {
+  it("source resolves to this repo (local plugin root with manifest)", () => {
     const source = entry.source as Record<string, unknown>
-    expect(source.source).toBe("npm")
-    expect(source.package).toBe(pkg.name)
-    expect(String(source.version)).toMatch(/^\^\d+\.\d+\.\d+$/)
-    expect(pkg.version).toMatch(new RegExp(`^${String(source.version).replace("^", "").replace(/(\d+)\.(\d+)\.\d+/, "$1.$2.")}`))
+    expect(source.source).toBe("local")
+    const pluginRoot = path.join(PROJECT_ROOT, String(source.path).replace(/^\.\//, ""))
+    expect(fs.existsSync(path.join(pluginRoot, ".codex-plugin", "plugin.json"))).toBe(true)
+    expect(fs.existsSync(path.join(pluginRoot, "codex-skills"))).toBe(true)
+    expect(fs.existsSync(path.join(pluginRoot, "hooks", "hooks.json"))).toBe(true)
   })
 
   it("uses a valid category from the official enum", () => {

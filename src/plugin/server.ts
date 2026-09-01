@@ -8,7 +8,8 @@ import { loadCommands } from "./commands.js"
 import { setupSkillsDir } from "./skills.js"
 import { loadAgents } from "./agents.js"
 import { createAgentShellEnv } from "./shell.js"
-import { createGoalClient, createGoalTool, readGoal, mutateGoal, MAX_CONTINUATIONS, continuationPrompt, formatGoal, isBlockedReport, isDoneReport, snapshotTokenTotal, budgetReached } from "./goal.js"
+import { createGoalTool, mutateGoal, MAX_CONTINUATIONS, continuationPrompt, formatGoal, isBlockedReport, isDoneReport, snapshotTokenTotal, budgetReached } from "./goal.js"
+import { createGoalClient, createMetadataGoalStore, type GoalMessage, type GoalStore } from "./goal-store.js"
 import { readIndex, updateFlowSession, removeFlowSession } from "../kernel/session-index.js"
 import { getContextBlock, formatContextBlock, CONTEXT_MARKER } from "../kernel/context.js"
 import type { ContextBlock } from "../kernel/context.js"
@@ -54,10 +55,6 @@ export function buildFirstUserInjection(input: FirstUserInjectionInput): string 
 
 interface V1ClientContainer {
   _client?: { getConfig?: () => Record<string, unknown> }
-}
-
-interface SessionGetResponse {
-  data?: { parentID?: string | null; metadata?: Record<string, unknown> }
 }
 
 interface AgentToolConfig {
@@ -108,6 +105,7 @@ async function hasWorkingChildren(
 
 export async function queueContinuation(
   client: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient>,
+  store: GoalStore,
   sessionID: string,
   projectDir?: string
 ) {
@@ -115,7 +113,7 @@ export async function queueContinuation(
   continuationInFlight.add(sessionID)
 
   try {
-    const decision = await mutateGoal(client, sessionID, async (goal): Promise<{
+    const decision = await mutateGoal(store, sessionID, async (goal): Promise<{
       goal: typeof goal
       value: { proceed: boolean; goal: typeof goal } | null
     }> => {
@@ -147,14 +145,11 @@ export async function queueContinuation(
       // 尾部静默检查：idle 事件可能竞态了后续消息/未落盘的回复。
       // 最后一条是 user 消息、或最后 assistant 未完成（无 completed 时间）→
       // 会话正在或即将忙碌，等下一次 idle 事件重新触发；无 assistant 消息则无 provider/model 可续。
-      const messagesResult = await client.session.messages({ sessionID, limit: 40 }) as unknown as {
-        data?: Array<{ info?: Record<string, unknown> }>
-      }
-      const messages = Array.isArray(messagesResult?.data) ? messagesResult.data : null
+      const messages = await store.messages(sessionID, 40)
       if (!messages) return { goal, value: null }
       const lastMessageInfo = messages.length > 0 ? messages[messages.length - 1]?.info : null
       if (lastMessageInfo?.role === "user") return { goal, value: null }
-      let lastAssistantMessage: { info?: Record<string, unknown>; parts?: Array<{ type?: string; text?: string }> } | null = null
+      let lastAssistantMessage: GoalMessage | null = null
       for (let i = messages.length - 1; i >= 0; i -= 1) {
         const message = messages[i]
         if (message?.info?.role === "assistant") {
@@ -239,7 +234,7 @@ export async function queueContinuation(
     // abort 二次检查：idle 与 abort 事件并发时，避免对已 abort 的会话发出续接
     if (abortedSessions.has(sessionID)) {
       abortedSessions.delete(sessionID)
-      await mutateGoal(client, sessionID, async (goal) => {
+      await mutateGoal(store, sessionID, async (goal) => {
         if (!goal) return { goal, value: null }
         goal.status = "paused"
         goal.continuationCount = Math.max(0, goal.continuationCount - 1)
@@ -273,7 +268,7 @@ export async function queueContinuation(
     } catch (err) {
       // 发送失败 → 回滚计数（尽力；回滚失败只会少一次续接，方向安全）
       console.error("[cabbage] continuation prompt failed, rolling back counter:", err)
-      await mutateGoal(client, sessionID, async (goal) => {
+      await mutateGoal(store, sessionID, async (goal) => {
         if (!goal) return { goal, value: null }
         goal.continuationCount = Math.max(0, goal.continuationCount - 1)
         if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { continuationCount: goal.continuationCount })
@@ -287,7 +282,11 @@ export async function queueContinuation(
   }
 }
 
-export async function autoResume(client: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient>, projectDir: string) {
+export async function autoResume(
+  client: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient>,
+  store: GoalStore,
+  projectDir: string,
+) {
   const index = await readIndex(projectDir)
 
   for (const [parentIssueNumber, entry] of Object.entries(index.flows)) {
@@ -302,7 +301,7 @@ export async function autoResume(client: ReturnType<typeof import("@opencode-ai/
       continue
     }
 
-    const { goal } = await readGoal(client, entry.sessionID)
+    const { goal } = await store.read(entry.sessionID)
     // 索引一致性自愈：entry 指向的 goal 已是别的 Flow（edit 换 Flow 后旧 entry 残留/rebind 失败）→
     // 删除陈旧 entry，防止每次重启对同一会话重复续接
     if (goal && goal.parentIssueNumber !== Number(parentIssueNumber)) {
@@ -352,7 +351,8 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
     const projectDir = ctx.worktree || ctx.directory
     const v1Client = (ctx.client as unknown as V1ClientContainer)._client
     const goalClient = createGoalClient(ctx.serverUrl, v1Client)
-    const goalTool = createGoalTool(goalClient, projectDir)
+    const goalStore = createMetadataGoalStore(goalClient)
+    const goalTool = createGoalTool(goalStore, projectDir)
 
     const agentsDir = path.join(packageRoot, "assets", "agents")
 
@@ -360,7 +360,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
     await initBootstrap()
     startPeriodicCleanup()
 
-    void autoResume(goalClient, projectDir).catch(err => {
+    void autoResume(goalClient, goalStore, projectDir).catch(err => {
       console.error("[cabbage] auto-resume failed:", err)
     })
 
@@ -441,7 +441,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
         if (firstUser.parts.some(p => p.type === "text" && (p.text.includes("EXTREMELY_IMPORTANT") || p.text.includes(CONTEXT_MARKER)))) return
 
         const sessionID = output.messages[0].info.sessionID as string
-        const { goal, session } = await readGoal(goalClient, sessionID)
+        const { goal, session } = await goalStore.read(sessionID)
         const contextBlock = await getContextBlock(projectDir)
 
         const injection = buildFirstUserInjection({
@@ -466,7 +466,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
             // abort 立即持久化 pause：不依赖内存标记。
             // 否则 30 分钟清理窗口内无 idle 事件、或插件重启时标记丢失，
             // 用户主动中断的 goal 会被下次 idle/autoResume 自动续接（继续烧 token）。
-            void mutateGoal(goalClient, sessionID, async (goal) => {
+            void mutateGoal(goalStore, sessionID, async (goal) => {
               if (!goal || goal.status !== "active") return { goal, value: undefined }
               goal.status = "paused"
               goal.statusReason = "aborted by user"
@@ -482,13 +482,13 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
           const sessionID: string | undefined = evt.properties.sessionID
           if (sessionID) {
             try {
-              const result = await goalClient.session.get({ sessionID }) as unknown as SessionGetResponse
-              if (result?.data?.parentID) return
+              const { session } = await goalStore.read(sessionID)
+              if (session?.parentID) return
             } catch (err) {
               console.error("[cabbage] session lookup failed:", err)
               return
             }
-            await queueContinuation(goalClient, sessionID, projectDir).catch(err => {
+            await queueContinuation(goalClient, goalStore, sessionID, projectDir).catch(err => {
               console.error("[cabbage] continuation failed:", err)
             })
           }
@@ -499,7 +499,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
           if (sessionID && !continuationInFlight.has(sessionID)) {
             abortedSessions.delete(sessionID)
             const info = evt.properties.info as { agent?: string; model?: { providerID: string; modelID: string } }
-            await mutateGoal(goalClient, sessionID, async (goal) => {
+            await mutateGoal(goalStore, sessionID, async (goal) => {
               if (!goal) return { goal, value: undefined }
               goal.continuationCount = 0
               // 刷新用户最后使用的 agent/模型快照（用户在 TUI 切换 agent/模型后发消息）
@@ -517,7 +517,7 @@ export function createOpencodeCabbage(packageRoot: string): Plugin {
         if (evt.type === "session.updated") {
           const sessionID: string | undefined = evt.properties?.sessionID
           if (sessionID) {
-            const { goal } = await readGoal(goalClient, sessionID)
+            const { goal } = await goalStore.read(sessionID)
             if (goal?.status === "complete") {
               await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "completed" })
             }

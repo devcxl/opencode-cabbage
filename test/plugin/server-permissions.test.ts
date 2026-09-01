@@ -9,8 +9,8 @@ import type { AgentEntry } from "../../src/plugin/agents.js"
 const mockSessionGet = vi.fn()
 const mockPromptAsync = vi.fn()
 
-vi.mock("../../src/plugin/goal.js", async () => {
-  const actual = await vi.importActual("../../src/plugin/goal.js")
+vi.mock("../../src/plugin/goal-store.js", async () => {
+  const actual = await vi.importActual("../../src/plugin/goal-store.js")
   return {
     ...actual,
     createGoalClient: () => ({

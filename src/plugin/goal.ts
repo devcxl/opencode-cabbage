@@ -1,7 +1,6 @@
 import type { ToolContext, ToolResult } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin/tool"
-import { createOpencodeClient } from "@opencode-ai/sdk/v2"
-import type { Session } from "@opencode-ai/sdk/v2"
+import type { GoalSession, GoalStore } from "./goal-store.js"
 import { bindSession, updateFlowSession, removeFlowSession } from "../kernel/session-index.js"
 import { KeyedMutex } from "../kernel/mutex.js"
 import { resolveProjectDir } from "../util/paths.js"
@@ -143,71 +142,28 @@ you actually ran the verification and it passed — the goal will pause for an
 independent goal-verify pass.`
 }
 
-export function createGoalClient(serverUrl: URL, v1Client: any) {
-  const v1Config = v1Client?.getConfig?.() ?? {}
-  return createOpencodeClient({
-    baseUrl: serverUrl.origin,
-    headers: v1Config.headers,
-    fetch: v1Config.fetch,
-    // SDK v2 默认 ThrowOnError=false（4xx/5xx 静默 resolve 为 {error}），
-    // 必须显式开启，否则 readGoal/writeGoal 的 try/catch 与错误传播全部失效
-    throwOnError: true,
-  })
-}
-
-export async function readGoal(
-  client: ReturnType<typeof createOpencodeClient>,
-  sessionID: string,
-): Promise<{ goal: GoalData | null; session: Session | null }> {
-  try {
-    const result = await client.session.get({ sessionID })
-    const session = (result as { data?: Session | null })?.data ?? null
-    if (!session?.metadata?.goal) return { goal: null, session }
-    return { goal: session.metadata.goal as GoalData, session }
-  } catch {
-    return { goal: null, session: null }
-  }
-}
-
-export async function writeGoal(
-  client: ReturnType<typeof createOpencodeClient>,
-  sessionID: string,
-  goal: GoalData | null,
-  existingSession?: Session | null,
-): Promise<void> {
-  const session = existingSession ?? (await readGoal(client, sessionID)).session
-  if (!session) throw new Error("Failed to get session")
-
-  const existing: Record<string, unknown> = session.metadata ?? {}
-  const metadata = goal === null
-    ? Object.fromEntries(Object.entries(existing).filter(([k]) => k !== "goal"))
-    : { ...existing, goal }
-
-  await client.session.update({ sessionID, metadata })
-}
-
 /**
  * 带锁的 goal 读-改-写单一入口：同一 sessionID 的操作串行，杜绝并发丢失更新。
- * fn 接收当前 goal 与 session，返回写回的 goal（null 表示删除）与调用方结果 value。
+ * fn 接收当前 goal 与宿主会话，返回写回的 goal（null 表示删除）与调用方结果 value。
  * 当前无 goal 且 fn 也返回 null 时跳过写回（避免对不存在 goal 的无谓删除/写入）。
  */
 export async function mutateGoal<T>(
-  client: ReturnType<typeof createOpencodeClient>,
+  store: GoalStore,
   sessionID: string,
-  fn: (goal: GoalData | null, session: Session | null) => Promise<{ goal: GoalData | null; value: T }>,
+  fn: (goal: GoalData | null, session: GoalSession | null) => Promise<{ goal: GoalData | null; value: T }>,
 ): Promise<T> {
   return goalMutex.runExclusive(sessionID, async () => {
-    const current = await readGoal(client, sessionID)
+    const current = await store.read(sessionID)
     const { goal: next, value } = await fn(current.goal, current.session)
     if (next !== null || current.goal !== null) {
-      await writeGoal(client, sessionID, next, current.session)
+      await store.write(sessionID, next, current.session)
     }
     return value
   })
 }
 
 export function createGoalTool(
-  client: ReturnType<typeof createOpencodeClient>,
+  store: GoalStore,
   projectDirFallback?: string,
 ) {
   /** 会话级项目目录：优先 ToolContext.directory，退化到插件级 projectDir（异常会话下避免写入根目录） */
@@ -230,7 +186,7 @@ Use a single op field:
     async execute(args: Record<string, any>, ctx: ToolContext): Promise<ToolResult> {
       const sessionID = (ctx as any).sessionID as string
       // 只读判断：当前会话是否为子 agent、目标会话（父会话）ID
-      const { session } = await readGoal(client, sessionID)
+      const { session } = await store.read(sessionID)
       const isSubAgent = !!session?.parentID
       const targetSessionID = session?.parentID ?? sessionID
 
@@ -243,7 +199,7 @@ Use a single op field:
         if (agentName !== "goal-verify") {
           return `Error: only the goal-verify agent can complete the goal. Agent "${agentName}" is not authorized.`
         }
-        return mutateGoal(client, targetSessionID, async (goal) => {
+        return mutateGoal(store, targetSessionID, async (goal) => {
           if (!goal) return { goal, value: "No goal to complete in the parent session." }
           if (goal.status !== "active") {
             return { goal, value: `Parent session goal is not active (status: ${goal.status}).` }
@@ -261,7 +217,7 @@ Use a single op field:
 
       switch (args.op) {
         case "create":
-          return mutateGoal(client, sessionID, async (goal) => {
+          return mutateGoal(store, sessionID, async (goal) => {
             if (goal?.status === "active") {
               // 必须返回原 goal（不能返回 null）：mutateGoal 在 next===null 且 current 非 null
               // 时会删除现有 goal，错误分支返回 null 等于把活动 goal 取消了
@@ -283,11 +239,9 @@ Use a single op field:
             // 记账基线：create 时点的最新完成 assistant 轮快照（快照法排除 goal 前历史消耗）。
             // 拉取失败/无历史 → baseline 0（护栏方向保守：把可见历史计入）。
             try {
-              const result = await client.session.messages({ sessionID, limit: 40 }) as unknown as {
-                data?: Array<{ info?: { role?: string; time?: { completed?: number }; tokens?: unknown } }>
-              }
+              const messages = await store.messages(sessionID, 40)
               let baseline = 0
-              for (const message of result?.data ?? []) {
+              for (const message of messages ?? []) {
                 const info = message?.info
                 if (info?.role !== "assistant") continue
                 if (!(info.time?.completed && info.time.completed > 0) || info.time.completed > created.createdAt!) continue
@@ -307,19 +261,19 @@ Use a single op field:
           })
 
         case "get": {
-          const { goal } = await readGoal(client, targetSessionID)
+          const { goal } = await store.read(targetSessionID)
           return goal ? formatGoal(goal) : "No active goal."
         }
 
         case "complete": {
-          const { goal } = await readGoal(client, sessionID)
+          const { goal } = await store.read(sessionID)
           if (!goal) return "No active goal."
           if (goal.status !== "active") return `Goal is not active (status: ${goal.status}).`
           return `BLOCKED: Call the goal-verify sub-agent via the Task tool. Only the sub-agent can complete verification.`
         }
 
         case "resume":
-          return mutateGoal(client, sessionID, async (goal) => {
+          return mutateGoal(store, sessionID, async (goal) => {
             if (!goal) return { goal, value: "No goal to resume." }
             if (!canTransitionTo(goal, "active")) return { goal, value: `Goal cannot be resumed (status: ${goal.status}).` }
             goal.status = "active"
@@ -330,7 +284,7 @@ Use a single op field:
           })
 
         case "pause":
-          return mutateGoal(client, sessionID, async (goal) => {
+          return mutateGoal(store, sessionID, async (goal) => {
             if (!goal) return { goal, value: "No goal to pause." }
             if (!canTransitionTo(goal, "paused")) return { goal, value: `Goal cannot be paused (status: ${goal.status}).` }
             goal.status = "paused"
@@ -338,7 +292,7 @@ Use a single op field:
           })
 
         case "cancel":
-          return mutateGoal(client, sessionID, async (goal) => {
+          return mutateGoal(store, sessionID, async (goal) => {
             if (!goal) return { goal, value: "No goal to cancel." }
             // 同步清除 session-index entry，避免重启 autoResume 恢复已取消 goal
             try {
@@ -350,7 +304,7 @@ Use a single op field:
           })
 
         case "edit":
-          return mutateGoal(client, sessionID, async (goal) => {
+          return mutateGoal(store, sessionID, async (goal) => {
             if (!goal) return { goal, value: "No goal to edit." }
             if (goal.status === "complete") {
               return { goal, value: "Error: completed goals are read-only. Remove the goal and create a new one." }

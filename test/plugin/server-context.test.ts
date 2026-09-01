@@ -24,8 +24,8 @@ const COMPLETED_ASSISTANT = {
   parts: [{ type: "text", text: "工作完成。" }],
 }
 
-vi.mock("../../src/plugin/goal.js", async () => {
-  const actual = await vi.importActual("../../src/plugin/goal.js")
+vi.mock("../../src/plugin/goal-store.js", async () => {
+  const actual = await vi.importActual("../../src/plugin/goal-store.js")
   return {
     ...actual,
     createGoalClient: () => ({

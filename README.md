@@ -25,6 +25,8 @@
 
 Once started, the plugin automatically injects 7 slash commands, 9 flow skills, 6 agents, and 1 goal tool.
 
+> **⚠️ Plugin conflict — do not combine with other goal plugins.** cabbage ships its own `goal` tool with an idle-driven auto-continuation loop. Installing it together with another goal / auto-continue plugin (e.g. `@prevalentware/opencode-goal-plugin`, `opencode-goal-mode`) risks both loops listening for session idle events and injecting continuation prompts: work gets continued twice, continuation counts and token budgets drift out of sync, and abort handling interferes across plugins. Use exactly one goal engine per session — if you rely on an external goal plugin, do not trigger cabbage's goal tool (it is restricted to the `dev-lifecycle` / `goal-verify` agents).
+
 ## Codex Installation (Compatibility Layer)
 
 This package also ships a Codex plugin compatibility layer (`codex-skills/` + `hooks/` + `.codex-plugin/`) so the flow skills and agent prompts work in Codex as well.

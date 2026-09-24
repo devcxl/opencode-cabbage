@@ -14,6 +14,10 @@
 
 ---
 
+## OpenCode 兼容性
+
+> **目前暂不支持 OpenCode v2。** 本插件当前仍使用 OpenCode v1 插件 API（`@opencode-ai/plugin` 1.x）。OpenCode v2 的插件 API 和 SDK 存在不兼容变更，本插件尚未完成迁移，也未通过 v2 端到端验证。依赖本插件时请暂时继续使用 OpenCode v1；在正式公布支持前，请勿升级到 OpenCode v2。
+
 ## 安装
 
 ```json

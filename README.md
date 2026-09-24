@@ -14,6 +14,10 @@
 
 ---
 
+## OpenCode Compatibility
+
+> **OpenCode v2 is not currently supported.** This plugin still uses the OpenCode v1 plugin API (`@opencode-ai/plugin` 1.x). OpenCode v2 introduces breaking changes to its plugin API and SDK, and this plugin has not yet been migrated or end-to-end tested on v2. If you rely on cabbage, stay on OpenCode v1 for now; do not upgrade to OpenCode v2 until support is announced.
+
 ## Installation
 
 ```json

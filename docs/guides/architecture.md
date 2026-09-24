@@ -2,6 +2,8 @@
 
 本文档介绍 opencode-cabbage 的核心架构设计。
 
+> **兼容性：**当前插件入口使用 `@opencode-ai/plugin` 1.x（OpenCode v1 插件 API）。代码中的 `@opencode-ai/sdk/v2` 是 Session API 客户端子路径，不代表已兼容 OpenCode v2 插件运行时；v2 的插件 API/SDK 变更尚未迁移适配。
+
 ---
 
 ## 整体架构
@@ -254,7 +256,7 @@ Continue working.
 ```
 @devcxl/opencode-cabbage
 ├── @opencode-ai/plugin    # 插件框架
-├── @opencode-ai/sdk       # SDK v2 client
+├── @opencode-ai/sdk       # Session API 客户端（使用 /v2 子路径）
 └── yaml                   # YAML frontmatter 解析
 ```
 

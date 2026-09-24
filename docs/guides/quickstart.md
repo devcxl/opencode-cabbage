@@ -9,6 +9,8 @@
 - [gh CLI](https://cli.github.com/) 已安装并登录 GitHub
 - Git 仓库已创建（本地或远程）
 
+> **兼容性提示：**当前插件使用 OpenCode v1 插件 API，暂不支持 OpenCode v2。由于 v2 的插件 API 和 SDK 存在不兼容变更，依赖本插件时请暂缓升级到 OpenCode v2。
+
 ## 第一步：安装插件
 
 ```json

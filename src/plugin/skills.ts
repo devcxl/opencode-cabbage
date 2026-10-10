@@ -2,6 +2,52 @@ import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
 
+import { extractAndStripFrontmatter } from "./commands.js"
+
+/** V2 skill 注册条目（ctx.skill.transform add 用） */
+export interface SkillEntry {
+  id: string
+  name: string
+  description?: string
+  /** skill 目录绝对路径（references 等文件按此解析） */
+  path: string
+  /** SKILL.md 全文（模型加载时读取） */
+  content: string
+}
+
+/**
+ * 读取已安装 skills 目录，产出 V2 注册条目。
+ * 跳过 `_prompts` 等以下划线开头的辅助目录；无 SKILL.md 的目录忽略。
+ */
+export async function loadSkillEntries(skillsDir: string): Promise<SkillEntry[]> {
+  const entries: SkillEntry[] = []
+  let dirs
+  try {
+    dirs = await readdir(skillsDir, { withFileTypes: true })
+  } catch {
+    return entries
+  }
+  for (const entry of dirs) {
+    if (!entry.isDirectory() || entry.name.startsWith("_")) continue
+    const dirPath = path.join(skillsDir, entry.name)
+    let content: string
+    try {
+      content = await readFile(path.join(dirPath, "SKILL.md"), "utf8")
+    } catch {
+      continue
+    }
+    const { frontmatter } = extractAndStripFrontmatter(content)
+    entries.push({
+      id: entry.name,
+      name: frontmatter.name || entry.name,
+      ...(frontmatter.description ? { description: frontmatter.description } : {}),
+      path: dirPath,
+      content,
+    })
+  }
+  return entries
+}
+
 /**
  * skills 固定安装路径（按插件版本隔离，skills@<version>）。
  * 用 env CABBAGE_SKILLS_DIR 可覆盖，方便测试。

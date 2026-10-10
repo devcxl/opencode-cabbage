@@ -1,25 +1,29 @@
-import type { Plugin } from "@opencode-ai/plugin"
+import type { Plugin } from "@opencode/plugin"
 import path from "node:path"
 import { readFileSync } from "node:fs"
 
 import { initPrompts } from "./prompts.js"
 import { initBootstrap, getBootstrapContent } from "./bootstrap.js"
 import { loadCommands } from "./commands.js"
-import { setupSkillsDir } from "./skills.js"
-import { loadAgents } from "./agents.js"
+import { setupSkillsDir, loadSkillEntries } from "./skills.js"
+import { buildAgentPayloads } from "./agents.js"
 import { createAgentShellEnv } from "./shell.js"
-import { createGoalTool, mutateGoal, MAX_CONTINUATIONS, continuationPrompt, formatGoal, isBlockedReport, isDoneReport, snapshotTokenTotal, budgetReached } from "./goal.js"
-import { createGoalClient, createMetadataGoalStore, type GoalMessage, type GoalStore } from "./goal-store.js"
-import { readIndex, updateFlowSession, removeFlowSession } from "../kernel/session-index.js"
-import { getContextBlock, formatContextBlock, CONTEXT_MARKER } from "../kernel/context.js"
+import { buildGoalTool } from "./goal.js"
+import { mutateGoal } from "./goal.js"
+import { createSessionGoalStore } from "./goal-store.js"
+import { queueContinuation, autoResume, SessionActivityTracker } from "./continuation.js"
+import { markAborted, clearAborted, clearAllAborted } from "./session-abort.js"
+import { readIndex, updateFlowSession } from "../kernel/session-index.js"
+import { getContextBlock, CONTEXT_MARKER } from "../kernel/context.js"
 import type { ContextBlock } from "../kernel/context.js"
 import { readProjectProfile } from "../kernel/profile.js"
 
-const abortedSessions = new Set<string>()
-const continuationInFlight = new Set<string>()
-const COMPACTION_THRESHOLD = 20
-/** autoResume 跳过窗口：索引 30s 内更新过的 flow 不恢复（可能刚续接过，立即恢复会双发） */
-const AUTO_RESUME_SKIP_WINDOW_MS = 30_000
+type Context = Plugin.Context
+
+/** bootstrap 注入标记（重复注入检测用） */
+const BOOTSTRAP_MARKER = "EXTREMELY_IMPORTANT"
+
+const ABORTED_SESSION_CLEANUP_INTERVAL = 1000 * 60 * 30
 
 /** 从插件包根读取版本号（skills 安装目录按版本隔离） */
 function readPluginVersion(packageRoot: string): string {
@@ -39,7 +43,7 @@ export interface FirstUserInjectionInput {
 }
 
 /**
- * 决定首条 user 消息注入内容：
+ * 决定系统上下文注入内容：
  * - Primary（goal 激活）→ bootstrap + Project Context 块
  * - 子 agent → 仅 Project Context 块
  * - 其他 → 不注入
@@ -53,477 +57,276 @@ export function buildFirstUserInjection(input: FirstUserInjectionInput): string 
   return parts.length > 0 ? parts.join("\n\n") : null
 }
 
-interface V1ClientContainer {
-  _client?: { getConfig?: () => Record<string, unknown> }
-}
-
-interface AgentToolConfig {
-  tools?: Record<string, boolean>
-}
-
-interface GoalToolConfig extends AgentToolConfig {
-  agent?: Record<string, unknown>
-}
-
-export function configureGoalTools(config: GoalToolConfig): void {
-  config.tools = { ...config.tools, goal: false }
-
-  for (const [agentName, agent] of Object.entries(config.agent ?? {})) {
-    if (!agent || typeof agent !== "object" || Array.isArray(agent)) continue
-    const agentConfig = agent as AgentToolConfig
-    const canUseGoal = agentName === "dev-lifecycle" || agentName === "goal-verify"
-    agentConfig.tools = { ...agentConfig.tools, goal: canUseGoal }
-  }
+interface V2EventLike {
+  type?: string
+  data?: Record<string, unknown>
 }
 
 /**
- * 子会话活动闸：后台 subagent 运行时父会话保持 idle（结果稍后注入父会话）。
- * 此时续接会压过子代理结果注入，必须跳过本次续接，等子代理结束后父会话的
- * 下一次 busy→idle 循环再触发。查询失败视为 unknown → 保守跳过（不续接）。
+ * 刷新 goal 的会话配置快照（用户切换 agent/模型、或用户新输入时调用）。
+ * 数据源为 SessionInfo.agent/model（当前会话选择），V2 形状 {providerID, id, variant?}。
  */
-async function hasWorkingChildren(
-  client: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient>,
+async function refreshSessionProfile(
+  store: ReturnType<typeof createSessionGoalStore>,
   sessionID: string,
-): Promise<boolean> {
-  try {
-    const childrenResult = await client.session.children({ sessionID }) as unknown as { data?: Array<{ id?: string }> }
-    const children = Array.isArray(childrenResult?.data) ? childrenResult.data : []
-    if (children.length === 0) return false
-    const statusResult = await client.session.status() as unknown as { data?: Record<string, { type?: string }> }
-    const statuses = statusResult?.data
-    if (!statuses || typeof statuses !== "object") return true
-    return children.some((child) => {
-      const status = child?.id ? statuses[child.id] : null
-      return status?.type === "busy" || status?.type === "retry"
-    })
-  } catch (error) {
-    // 查询失败 → 保守跳过（fail-closed）；告警使长期故障可观测（否则续接会静默永久停止）
-    console.warn(`[cabbage] child-session check failed for ${sessionID}:`, (error as Error | null)?.message ?? error)
-    return true
-  }
+): Promise<void> {
+  await mutateGoal(store, sessionID, async (goal, session) => {
+    if (!goal) return { goal, value: undefined }
+    const agent = session?.agent ?? goal.sessionProfile?.agent
+    if (!agent) return { goal, value: undefined }
+    const sessionModel = session?.model
+    const model = sessionModel && sessionModel.providerID && sessionModel.id
+      ? { providerID: sessionModel.providerID, id: sessionModel.id, ...(sessionModel.variant ? { variant: sessionModel.variant } : {}) }
+      : goal.sessionProfile?.model
+    goal.sessionProfile = { agent, ...(model ? { model } : {}) }
+    return { goal, value: undefined }
+  }).catch((err) => {
+    console.warn("[cabbage] session profile refresh failed:", (err as Error | null)?.message ?? err)
+  })
 }
 
-export async function queueContinuation(
-  client: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient>,
-  store: GoalStore,
-  sessionID: string,
-  projectDir?: string
-) {
-  if (continuationInFlight.has(sessionID)) return
-  continuationInFlight.add(sessionID)
+/**
+ * 事件分发（V2 事件词汇）：
+ * - execution.* → 子会话活动跟踪 + 轮次结束驱动续接
+ * - execution.interrupted(reason=user) → 中断即持久化暂停（不依赖内存标记）
+ * - inbox.enqueued(user) → 重置计数 + 刷新 profile + 清除中断标记
+ * - session.created → 父子关系跟踪
+ */
+async function dispatchEvent(
+  ctx: Context,
+  store: ReturnType<typeof createSessionGoalStore>,
+  tracker: SessionActivityTracker,
+  projectDir: string,
+  evt: V2EventLike,
+): Promise<void> {
+  const data = evt.data ?? {}
+  const sessionID = typeof data.sessionID === "string" ? data.sessionID : undefined
 
-  try {
-    const decision = await mutateGoal(store, sessionID, async (goal): Promise<{
-      goal: typeof goal
-      value: { proceed: boolean; goal: typeof goal } | null
-    }> => {
-      // 读改写与 message.updated 同锁串行，杜绝续接计数/状态被并发覆盖
-      if (!goal || goal.status !== "active") return { goal, value: null }
-
-      if (projectDir) {
-        await updateFlowSession(projectDir, goal.parentIssueNumber, { status: goal.status, continuationCount: goal.continuationCount })
-      }
-
-      if (abortedSessions.has(sessionID)) {
-        abortedSessions.delete(sessionID)
-        goal.status = "paused"
-        if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
-        return { goal, value: null }
-      }
-
-      if (goal.continuationCount >= MAX_CONTINUATIONS) {
-        goal.status = "paused"
-        if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
-        return { goal, value: null }
-      }
-
-      // 子会话活动闸：后台 subagent 仍 busy/retry 时跳过续接（父会话 idle 不代表任务静默）
-      if (await hasWorkingChildren(client, sessionID)) {
-        return { goal, value: null }
-      }
-
-      // 尾部静默检查：idle 事件可能竞态了后续消息/未落盘的回复。
-      // 最后一条是 user 消息、或最后 assistant 未完成（无 completed 时间）→
-      // 会话正在或即将忙碌，等下一次 idle 事件重新触发；无 assistant 消息则无 provider/model 可续。
-      const messages = await store.messages(sessionID, 40)
-      if (!messages) return { goal, value: null }
-      const lastMessageInfo = messages.length > 0 ? messages[messages.length - 1]?.info : null
-      if (lastMessageInfo?.role === "user") return { goal, value: null }
-      let lastAssistantMessage: GoalMessage | null = null
-      for (let i = messages.length - 1; i >= 0; i -= 1) {
-        const message = messages[i]
-        if (message?.info?.role === "assistant") {
-          lastAssistantMessage = message
-          break
-        }
-      }
-      const lastAssistantInfo = lastAssistantMessage?.info ?? null
-      const assistantCompleted = typeof lastAssistantInfo?.time === "object"
-        && lastAssistantInfo.time !== null
-        && (lastAssistantInfo.time as { completed?: number }).completed
-        && (lastAssistantInfo.time as { completed?: number }).completed! > 0
-      if (!lastAssistantInfo) return { goal, value: null }
-      if (!assistantCompleted && !lastAssistantInfo.error) return { goal, value: null }
-      if (!lastAssistantInfo.id) return { goal, value: null }
-
-      // [BLOCKED:] 阻塞报告 / [DONE:] 完成报告：agent 明确信号 → 暂停 goal 请用户/验证介入
-      // （防空转烧 token；完成报告后应由 dev-lifecycle 派 goal-verify 做最终独立验证）。
-      // resume 后首次 tick 豁免（statusReason='resumed' 被消费清除），
-      // 否则 resume 会立即被上一轮旧报告再次暂停成死路。
-      const assistantText = (lastAssistantMessage?.parts ?? [])
-        .filter((part) => part?.type === "text" && typeof part.text === "string")
-        .map((part) => part.text!)
-        .join("\n")
-      const agentSignaled = isBlockedReport(assistantText) || isDoneReport(assistantText)
-      if (agentSignaled) {
-        if (goal.statusReason === "resumed") {
-          goal.statusReason = ""
-        } else {
-          goal.status = "paused"
-          goal.statusReason = isBlockedReport(assistantText) ? "blocked report" : "done report"
-          if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
-          return { goal, value: null }
-        }
-      } else if (goal.statusReason === "resumed") {
-        // 豁免消费：resume 后的首次 tick 无论是否命中信号都清除 kickoff 标记。
-        // 若不消费，首 tick 正常推进后 statusReason 残留，后续真实信号会被误豁免一次。
-        goal.statusReason = ""
-      }
-
-      // Token 记账（快照法）：最新完成 assistant 轮的 input+cache.read+output 即整段成本
-      // （OpenCode 每轮 cache.read 已含此前所有付费 token）。goal 相对化：首次 tick
-      // 用创建时刻前最后完成的 assistant 轮初始化 baseline；单调不减，context 收缩不回退。
-      // compaction 不做分段（预算为护栏非账单）。
-      let tokensBaseline = goal.tokensBaseline ?? 0
-      if (!(tokensBaseline > 0) && typeof goal.createdAt === "number") {
-        for (const message of messages) {
-          const info = message?.info
-          if (info?.role !== "assistant") continue
-          const completed = (info.time as { completed?: number } | undefined)?.completed
-          if (!(completed && completed > 0) || completed > goal.createdAt) continue
-          tokensBaseline = Math.max(tokensBaseline, snapshotTokenTotal(info.tokens))
-        }
-      }
-      const tokensUsed = Math.max(
-        goal.tokensUsed ?? 0,
-        Math.max(0, snapshotTokenTotal(lastAssistantInfo.tokens) - tokensBaseline),
-      )
-      goal.tokensBaseline = tokensBaseline
-      goal.tokensUsed = tokensUsed
-
-      // token 预算护栏：达限即暂停（用户需提高预算后 resume，护栏优先）
-      if (budgetReached(goal)) {
-        goal.status = "paused"
-        goal.statusReason = "token budget reached"
-        if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
-        return { goal, value: null }
-      }
-
-      // 先写计数后发 prompt：崩溃窗口只会"少发一次续接"（等下次 idle 重试），
-      // 不会"prompt 已发但计数未落盘"导致重启 autoResume 双发。
-      goal.continuationCount++
-      if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, {
-        continuationCount: goal.continuationCount,
-        lastContinuedAt: Date.now(),
-      })
-      return { goal, value: { proceed: true, goal } }
-    })
-
-    if (!decision?.proceed || !decision.goal) return
-
-    // abort 二次检查：idle 与 abort 事件并发时，避免对已 abort 的会话发出续接
-    if (abortedSessions.has(sessionID)) {
-      abortedSessions.delete(sessionID)
-      await mutateGoal(store, sessionID, async (goal) => {
-        if (!goal) return { goal, value: null }
-        goal.status = "paused"
-        goal.continuationCount = Math.max(0, goal.continuationCount - 1)
-        if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
-        return { goal, value: null }
-      }).catch(() => undefined)
+  switch (evt.type) {
+    case "session.created": {
+      if (sessionID) tracker.onCreated(sessionID, typeof data.parentID === "string" ? data.parentID : undefined)
       return
     }
 
-    // 每 20 次续接主动 compact 会话历史（压缩失败不阻塞续接）
-    if (decision.goal.continuationCount > 0 && decision.goal.continuationCount % COMPACTION_THRESHOLD === 0) {
-      try {
-        await client.session.promptAsync({
-          sessionID,
-          parts: [{ type: "text" as const, text: "[compact] The session history is growing long. Summarize completed work and continue.", synthetic: true }],
+    case "session.execution.started":
+    case "session.retry.scheduled": {
+      if (sessionID) tracker.onBusy(sessionID)
+      return
+    }
+
+    case "session.execution.succeeded": {
+      if (!sessionID) return
+      tracker.onIdle(sessionID)
+      const { session, goal } = await store.read(sessionID)
+      if (!session || session.parentID) return
+      if (!goal || goal.status !== "active") return
+      await queueContinuation(ctx, store, sessionID, projectDir, tracker)
+      return
+    }
+
+    case "session.execution.failed": {
+      // 普通轮次错误不自动续接（与 V1 口径一致：[BLOCKED:] 协议覆盖卡点检测，
+      // 错误可能自愈，空转续接反而烧 token；若实测发现卡死再补 error 暂停）
+      if (sessionID) tracker.onIdle(sessionID)
+      return
+    }
+
+    case "session.execution.interrupted": {
+      if (!sessionID) return
+      tracker.onIdle(sessionID)
+      if (data.reason !== "user") return
+      markAborted(sessionID)
+      // abort 立即持久化 pause：不依赖内存标记。
+      // 否则 30 分钟清理窗口内无轮次结束事件、或插件重启时标记丢失，
+      // 用户主动中断的 goal 会被下次轮次/autoResume 自动续接（继续烧 token）。
+      void mutateGoal(store, sessionID, async (goal) => {
+        if (!goal || goal.status !== "active") return { goal, value: undefined }
+        goal.status = "paused"
+        goal.statusReason = "aborted by user"
+        await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" }).catch(() => undefined)
+        return { goal, value: undefined }
+      }).catch((err) => {
+        console.warn("[cabbage] abort pause failed:", (err as Error | null)?.message ?? err)
+      })
+      return
+    }
+
+    case "session.inbox.enqueued": {
+      if (!sessionID) return
+      const item = data.item as { type?: string } | undefined
+      if (item?.type !== "user") return
+      clearAborted(sessionID)
+      await mutateGoal(store, sessionID, async (goal) => {
+        if (!goal) return { goal, value: undefined }
+        goal.continuationCount = 0
+        return { goal, value: undefined }
+      }).catch(() => undefined)
+      await refreshSessionProfile(store, sessionID)
+      return
+    }
+
+    case "session.agent.selected":
+    case "session.model.selected": {
+      if (sessionID) await refreshSessionProfile(store, sessionID)
+      return
+    }
+
+    default:
+      return
+  }
+}
+
+export async function setupCabbage(ctx: Context, packageRoot: string): Promise<() => void> {
+  const sourceSkillsDir = path.join(packageRoot, "assets", "skills")
+  const promptsDir = path.join(packageRoot, "assets", "prompts")
+  const commandsDir = path.join(packageRoot, "assets", "commands")
+  const agentsDir = path.join(packageRoot, "assets", "agents")
+  const projectDir = ctx.location.directory
+
+  const skillsDir = await setupSkillsDir(sourceSkillsDir, promptsDir, readPluginVersion(packageRoot))
+
+  // 预读磁盘内容：transform 回调是同步的，所有 IO 必须先完成
+  const skillEntries = await loadSkillEntries(skillsDir)
+  const commands = loadCommands(commandsDir, skillsDir)
+  const profile = await readProjectProfile(projectDir)
+  const testCommandToken = profile.testCommand?.split(" ")[0] ?? ""
+  const agentPayloads = buildAgentPayloads(agentsDir, testCommandToken)
+
+  initPrompts(packageRoot, projectDir)
+  await initBootstrap()
+
+  const store = createSessionGoalStore(ctx.session)
+  const tracker = new SessionActivityTracker()
+
+  // ── skills：注册为原生 skill（内容指向按版本隔离的安装目录，references 可解析） ──
+  await ctx.skill.transform((editor) => {
+    for (const skill of skillEntries) {
+      editor.add({
+        id: skill.id,
+        name: skill.name,
+        ...(skill.description ? { description: skill.description } : {}),
+        path: skill.path,
+        content: skill.content,
+      } as never)
+    }
+  })
+
+  // ── commands：execute 式注册（模板文本作为 user prompt 投递，保留 delivery） ──
+  await ctx.command.transform((editor) => {
+    for (const cmd of commands) {
+      editor.add({
+        name: cmd.name,
+        ...(cmd.description ? { description: cmd.description } : {}),
+        execute: async ({ sessionID, prompt, delivery }) => {
+          if (cmd.agent) {
+            await ctx.session.switchAgent({ sessionID, agent: cmd.agent }).catch((err) => {
+              console.warn(`[cabbage] command /${cmd.name}: switchAgent failed:`, (err as Error | null)?.message ?? err)
+            })
+          }
+          if (cmd.model || cmd.subtask) {
+            console.warn(`[cabbage] command /${cmd.name}: model/subtask frontmatter is not supported on OpenCode V2; ignoring`)
+          }
+          const args = (prompt?.text ?? "").trim()
+          const text = args ? `${cmd.template}\n\n${args}` : cmd.template
+          await ctx.session.prompt({ sessionID, text, delivery })
+        },
+      })
+    }
+  })
+
+  // ── agents：缺失则新增（保留用户已存在的同名 agent），并为所有 agent 装配 goal 权限规则 ──
+  await ctx.agent.transform((editor) => {
+    for (const payload of agentPayloads) {
+      if (editor.get(payload.key)) continue
+      editor.update(payload.key, (agent) => {
+        Object.assign(agent, payload.fields)
+      })
+    }
+    const ids = new Set<string>([
+      ...editor.list().map((a) => String(a.id)),
+      ...agentPayloads.map((p) => p.key),
+    ])
+    for (const id of ids) {
+      const effect = id === "dev-lifecycle" || id === "goal-verify" ? "allow" : "deny"
+      editor.update(id, (agent) => {
+        const permissions = Array.isArray(agent.permissions) ? agent.permissions : []
+        if (permissions.some((rule) => rule?.action === "goal")) return
+        permissions.push({ action: "goal", resource: "*", effect })
+        agent.permissions = permissions
+      })
+    }
+  })
+
+  // ── goal 工具：JSON Schema 输入 + permission gating + 工具内授权自检 ──
+  await ctx.tool.transform((editor) => {
+    editor.add(buildGoalTool(store, projectDir) as never)
+  })
+
+  // ── shell 环境：非交互 git、禁用凭据提示（V2 的 shell hook 为全局作用域） ──
+  await ctx.shell.hook("create.before", (event) => {
+    Object.assign(event.env, createAgentShellEnv())
+  })
+
+  // ── 系统上下文注入：goal 会话注入 bootstrap；goal/子 agent 注入 Project Context 块 ──
+  await ctx.session.hook("context", async (event) => {
+    let hasGoal = false
+    let isSubAgent = false
+    try {
+      const { goal, session } = await store.read(event.sessionID)
+      hasGoal = goal?.status === "active"
+      isSubAgent = !!session?.parentID
+    } catch {
+      return
+    }
+    const contextBlock = await getContextBlock(projectDir)
+    const injection = buildFirstUserInjection({
+      hasGoal,
+      isSubAgent,
+      contextBlock,
+      bootstrap: getBootstrapContent(),
+    })
+    if (!injection) return
+    // 幂等：每个模型请求重建 system 数组时，已含标记则跳过（防重复膨胀）
+    const alreadyInjected = event.system.some((part) =>
+      typeof part.text === "string" && (part.text.includes(BOOTSTRAP_MARKER) || part.text.includes(CONTEXT_MARKER)))
+    if (alreadyInjected) return
+    event.system.push({ type: "text", text: injection })
+  })
+
+  // ── 事件订阅：单一流驱动子会话跟踪与自动续接 ──
+  const controller = new AbortController()
+  void (async () => {
+    try {
+      for await (const evt of ctx.event.subscribe({ signal: controller.signal })) {
+        await dispatchEvent(ctx, store, tracker, projectDir, evt as V2EventLike).catch((err) => {
+          console.error("[cabbage] event dispatch failed:", err)
         })
-      } catch (err) {
-        console.warn("[cabbage] compaction prompt failed:", err)
+      }
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        console.error("[cabbage] event stream ended:", err)
       }
     }
+  })()
 
-    const contextBlock = projectDir ? await getContextBlock(projectDir) : null
-    const contextText = contextBlock ? `${formatContextBlock(contextBlock)}\n\n` : ""
-
+  // ── 启动恢复：扫描索引，续接插件重启前处于 active 的 goal ──
+  void (async () => {
     try {
-      await client.session.promptAsync({
-        sessionID,
-        parts: [{ type: "text" as const, text: contextText + continuationPrompt(decision.goal.parentIssueNumber), synthetic: true }],
-        ...(decision.goal.sessionProfile ? { agent: decision.goal.sessionProfile.agent, model: decision.goal.sessionProfile.model } : {}),
-      })
-    } catch (err) {
-      // 发送失败 → 回滚计数（尽力；回滚失败只会少一次续接，方向安全）
-      console.error("[cabbage] continuation prompt failed, rolling back counter:", err)
-      await mutateGoal(store, sessionID, async (goal) => {
-        if (!goal) return { goal, value: null }
-        goal.continuationCount = Math.max(0, goal.continuationCount - 1)
-        if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { continuationCount: goal.continuationCount })
-        return { goal, value: null }
-      }).catch(() => undefined)
-    }
-  } catch (err) {
-    console.error("[cabbage] continuation failed:", err)
-  } finally {
-    continuationInFlight.delete(sessionID)
-  }
-}
-
-export async function autoResume(
-  client: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient>,
-  store: GoalStore,
-  projectDir: string,
-) {
-  const index = await readIndex(projectDir)
-
-  for (const [parentIssueNumber, entry] of Object.entries(index.flows)) {
-    if (entry.status !== "active") continue
-
-    // 重启双发防护：仅跳过"最近实际续接过"的 flow（lastContinuedAt 在发送续接时写入）。
-    // 不用 updatedAt——它被 queueContinuation 开头的索引心跳无条件刷新，反映"最近 idle"，
-    // 崩溃前频繁 idle 的 flow 会被误跳过且无再武装（静默卡住）。
-    // 无 lastContinuedAt 的旧 entry 不跳过（兼容升级前索引）。跳过时告警保证可观测。
-    if (entry.lastContinuedAt && Date.now() - entry.lastContinuedAt < AUTO_RESUME_SKIP_WINDOW_MS) {
-      console.warn(`[cabbage] auto-resume: skip #${parentIssueNumber} (continued ${Math.round((Date.now() - entry.lastContinuedAt) / 1000)}s ago; next idle event re-arms)`)
-      continue
-    }
-
-    const { goal } = await store.read(entry.sessionID)
-    // 索引一致性自愈：entry 指向的 goal 已是别的 Flow（edit 换 Flow 后旧 entry 残留/rebind 失败）→
-    // 删除陈旧 entry，防止每次重启对同一会话重复续接
-    if (goal && goal.parentIssueNumber !== Number(parentIssueNumber)) {
-      console.warn(`[cabbage] auto-resume: index #${parentIssueNumber} points to goal of Flow #${goal.parentIssueNumber}; removing stale entry`)
-      await removeFlowSession(projectDir, Number(parentIssueNumber))
-      continue
-    }
-    if (!goal || goal.status !== "active") {
-      await updateFlowSession(projectDir, Number(parentIssueNumber), { status: "paused" })
-      continue
-    }
-
-    try {
-      await client.session.promptAsync({
-        sessionID: entry.sessionID,
-        parts: [{
-          type: "text" as const,
-          text: `[auto-resume] Plugin restarted. Resuming previous goal:\n\n${formatGoal(goal)}\n\nContinue working.`,
-          synthetic: true,
-        }],
-        ...(goal.sessionProfile ? { agent: goal.sessionProfile.agent, model: goal.sessionProfile.model } : {}),
-      })
+      // 校验索引可读（损坏时 readIndex 返回空索引，不阻塞启动）
+      await readIndex(projectDir)
+      await autoResume(ctx, store, projectDir)
     } catch (err) {
       console.error("[cabbage] auto-resume failed:", err)
     }
-  }
-}
+  })()
 
-const ABORTED_SESSION_CLEANUP_INTERVAL = 1000 * 60 * 30
-let abortedCleanupTimer: ReturnType<typeof setInterval> | null = null
-
-function startPeriodicCleanup() {
-  if (abortedCleanupTimer) clearInterval(abortedCleanupTimer)
-  abortedCleanupTimer = setInterval(() => {
-    abortedSessions.clear()
+  // 中断标记定期清理（防长生命周期进程内存泄漏）
+  const abortedCleanupTimer = setInterval(() => {
+    clearAllAborted()
   }, ABORTED_SESSION_CLEANUP_INTERVAL)
-}
 
-
-export function createOpencodeCabbage(packageRoot: string): Plugin {
-  return async (ctx, _options) => {
-    const sourceSkillsDir = path.join(packageRoot, "assets", "skills")
-    const promptsDir = path.join(packageRoot, "assets", "prompts")
-    const commandsDir = path.join(packageRoot, "assets", "commands")
-    const skillsDir = await setupSkillsDir(sourceSkillsDir, promptsDir, readPluginVersion(packageRoot))
-
-    const projectDir = ctx.worktree || ctx.directory
-    const v1Client = (ctx.client as unknown as V1ClientContainer)._client
-    const goalClient = createGoalClient(ctx.serverUrl, v1Client)
-    const goalStore = createMetadataGoalStore(goalClient)
-    const goalTool = createGoalTool(goalStore, projectDir)
-
-    const agentsDir = path.join(packageRoot, "assets", "agents")
-
-    await initPrompts(packageRoot, projectDir)
-    await initBootstrap()
-    startPeriodicCleanup()
-
-    void autoResume(goalClient, goalStore, projectDir).catch(err => {
-      console.error("[cabbage] auto-resume failed:", err)
-    })
-
-    return {
-      tool: {
-        goal: goalTool,
-      },
-
-      config: async (rawConfig) => {
-        const config = rawConfig as Record<string, any>
-
-        config.skills = config.skills || {}
-        config.skills.paths = config.skills.paths || []
-        if (!config.skills.paths.includes(skillsDir)) {
-          config.skills.paths.push(skillsDir)
-        }
-
-        config.command = config.command || {}
-        for (const cmd of loadCommands(commandsDir, skillsDir)) {
-          if (config.command[cmd.name]) continue
-          config.command[cmd.name] = {
-            template: cmd.template,
-            description: cmd.description,
-            agent: cmd.agent,
-            model: cmd.model,
-            subtask: cmd.subtask,
-          }
-        }
-
-        config.agent = config.agent || {}
-        // 渲染 permission 占位符：`<profile-test-command>` → Profile.testCommand 首 token（§9.1）
-        const profile = await readProjectProfile(projectDir)
-        const testCommandToken = profile.testCommand?.split(" ")[0] ?? ""
-        const renderPermission = (perm: Record<string, any> | undefined): Record<string, any> | undefined => {
-          if (!perm) return perm
-          const renderRules = (rules: Record<string, string> | undefined): Record<string, string> | undefined => {
-            if (!rules) return rules
-            const out: Record<string, string> = {}
-            for (const [pattern, action] of Object.entries(rules)) {
-              if (pattern.includes("<profile-test-command>") && testCommandToken === "") {
-                // Profile 未配置测试命令 → 删除占位规则，避免渲染成 "*" 覆盖兜底 deny
-                continue
-              }
-              out[pattern.replaceAll("<profile-test-command>", testCommandToken)] = action
-            }
-            return out
-          }
-          const out: Record<string, any> = { ...perm }
-          if (perm.bash && typeof perm.bash === "object" && !Array.isArray(perm.bash)) {
-            out.bash = renderRules(perm.bash as Record<string, string>)
-          }
-          return out
-        }
-
-        for (const agent of loadAgents(agentsDir)) {
-          if (config.agent[agent.key]) continue
-          config.agent[agent.key] = {
-            description: agent.description,
-            mode: agent.mode,
-            color: agent.color,
-            prompt: agent.prompt,
-            permission: renderPermission(agent.permission),
-            shell: {
-              env: createAgentShellEnv(),
-            },
-          }
-        }
-
-        configureGoalTools(config)
-      },
-
-      "experimental.chat.messages.transform": async (_input, output) => {
-        if (!output.messages.length) return
-
-        const firstUser = output.messages.find(m => m.info.role === "user")
-        if (!firstUser || !firstUser.parts.length) return
-
-        if (firstUser.parts.some(p => p.type === "text" && (p.text.includes("EXTREMELY_IMPORTANT") || p.text.includes(CONTEXT_MARKER)))) return
-
-        const sessionID = output.messages[0].info.sessionID as string
-        const { goal, session } = await goalStore.read(sessionID)
-        const contextBlock = await getContextBlock(projectDir)
-
-        const injection = buildFirstUserInjection({
-          hasGoal: goal?.status === "active",
-          isSubAgent: !!session?.parentID,
-          contextBlock,
-          bootstrap: getBootstrapContent(),
-        })
-        if (injection) {
-          firstUser.parts.unshift({ type: "text", text: injection } as typeof firstUser.parts[number])
-        }
-      },
-
-      async event({ event }) {
-        const evt = event as { type: string; properties: Record<string, any> }
-
-        if (evt.type === "session.error") {
-          const errorName = evt.properties?.error?.name
-          const sessionID: string | undefined = evt.properties.sessionID
-          if (errorName === "MessageAbortedError" && sessionID) {
-            abortedSessions.add(sessionID)
-            // abort 立即持久化 pause：不依赖内存标记。
-            // 否则 30 分钟清理窗口内无 idle 事件、或插件重启时标记丢失，
-            // 用户主动中断的 goal 会被下次 idle/autoResume 自动续接（继续烧 token）。
-            void mutateGoal(goalStore, sessionID, async (goal) => {
-              if (!goal || goal.status !== "active") return { goal, value: undefined }
-              goal.status = "paused"
-              goal.statusReason = "aborted by user"
-              if (projectDir) await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" })
-              return { goal, value: undefined }
-            }).catch((err) => {
-              console.warn("[cabbage] abort pause failed:", (err as Error | null)?.message ?? err)
-            })
-          }
-        }
-
-        if (evt.type === "session.status" && evt.properties?.status?.type === "idle") {
-          const sessionID: string | undefined = evt.properties.sessionID
-          if (sessionID) {
-            try {
-              const { session } = await goalStore.read(sessionID)
-              if (session?.parentID) return
-            } catch (err) {
-              console.error("[cabbage] session lookup failed:", err)
-              return
-            }
-            await queueContinuation(goalClient, goalStore, sessionID, projectDir).catch(err => {
-              console.error("[cabbage] continuation failed:", err)
-            })
-          }
-        }
-
-        if (evt.type === "message.updated" && evt.properties?.info?.role === "user") {
-          const sessionID: string | undefined = evt.properties.sessionID
-          if (sessionID && !continuationInFlight.has(sessionID)) {
-            abortedSessions.delete(sessionID)
-            const info = evt.properties.info as { agent?: string; model?: { providerID: string; modelID: string } }
-            await mutateGoal(goalStore, sessionID, async (goal) => {
-              if (!goal) return { goal, value: undefined }
-              goal.continuationCount = 0
-              // 刷新用户最后使用的 agent/模型快照（用户在 TUI 切换 agent/模型后发消息）
-              if (info?.agent) {
-                goal.sessionProfile = {
-                  agent: info.agent,
-                  model: info.model?.providerID ? { providerID: info.model.providerID, modelID: info.model.modelID } : goal.sessionProfile?.model,
-                }
-              }
-              return { goal, value: undefined }
-            })
-          }
-        }
-
-        if (evt.type === "session.updated") {
-          const sessionID: string | undefined = evt.properties?.sessionID
-          if (sessionID) {
-            const { goal } = await goalStore.read(sessionID)
-            if (goal?.status === "complete") {
-              await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "completed" })
-            }
-          }
-        }
-      },
-    }
+  return () => {
+    controller.abort()
+    clearInterval(abortedCleanupTimer)
   }
 }

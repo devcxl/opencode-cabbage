@@ -37,18 +37,22 @@
 
 - **流程编排交给模型**：阶段顺序、任务拆解、TDD、审查、合并决策由 agent + skill（Prompt）驱动
 - **质量验证交给 CI**：测试通过与否由仓库 GitHub Actions workflow 判定
-- **确定性内核只做**：goal 状态跟踪、Parent Issue 绑定、自动续接、Context 注入、goal-verify 授权
+- **确定性内核只做**：goal 状态跟踪、Parent Issue 绑定、自动续接、Context 注入、goal-verify 授权、
+  内置 Cabbage 引擎的释放与变更记录工具（tasks/文档/门禁/归档）
 
 ## 两层架构
 
 ### 1. 加载器层 (`src/plugin/`)
 
-负责将 `assets/` 中的资源加载到 OpenCode 配置，并暴露 goal 工具：
+负责将 `assets/` 中的资源加载到 OpenCode 配置，并暴露 goal 与 cabbage 工具：
 
 | 加载器 | 职责 |
 |--------|------|
-| `server.ts` | 主工厂：注入 skills/commands/agents、注册 goal 工具、事件处理 |
+| `server.ts` | 主工厂：注入 skills/commands/agents、注册 goal 与 cabbage 工具、事件处理 |
 | `goal.ts` | goal 工具：状态机 + goal-verify 授权 |
+| `cabbage-cli.ts` | 释放捆绑的 Cabbage 引擎（按插件版本隔离）、python 探测与子进程执行 |
+| `cabbage-tool.ts` | `cabbage` 工具：变更记录 op 映射与 agent 门控（仅 dev-lifecycle） |
+| `install-dir.ts` | 版本化目录安装（锁 + 完整性校验），skills 与引擎共用 |
 | `commands.ts` | 解析 markdown frontmatter，注册 7 个 slash command |
 | `skills.ts` | 复制 skills 到固定目录 |
 | `agents.ts` | 解析 YAML frontmatter，注册 agent |

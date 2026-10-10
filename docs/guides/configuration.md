@@ -67,7 +67,7 @@
 | `@researcher` | subagent | 独立调研与事实核查（产出带引用的调研文档） |
 | `@goal-verify` | subagent | 独立验证 Flow 完成状态（唯一可 complete goal） |
 
-### 9 个 Flow Skills
+### 10 个 Flow Skills
 
 | Skill | 对应命令 | 用途 |
 |-------|---------|------|
@@ -80,12 +80,13 @@
 | `flow-review` | `/review` | 代码审查 |
 | `flow-release` | `/release` | 发布 |
 | `flow-research` | — | 调研与事实核查（由 @researcher 加载） |
+| `flow-change` | — | 变更记录：tasks + 专项文档 → 验证/门禁/归档（内置 Cabbage 引擎） |
 
 Skills 安装到固定目录（`~/.config/opencode/cabbage/skills@<version>/`，按插件版本隔离），并通过 V2 原生 skill 注册（references 相对路径随目录解析），不会污染项目目录。
 
-### 1 个工具：goal
+### 2 个工具：goal 与 cabbage
 
-插件只注册一个工具 `goal`，用于会话级 Flow 状态跟踪：
+插件注册两个工具。`goal` 用于会话级 Flow 状态跟踪：
 
 | op | 说明 |
 |----|------|
@@ -96,6 +97,21 @@ Skills 安装到固定目录（`~/.config/opencode/cabbage/skills@<version>/`，
 | `complete` | 标记完成（仅 `goal-verify` 可调用） |
 
 目标与验收标准从 Parent Issue body 读取，不存储在 goal 中。
+
+`cabbage` 用于变更记录（内置 Cabbage 引擎，需机器具备 Python 3.10+），仅 `dev-lifecycle` 可调用：
+
+| op | 说明 |
+|----|------|
+| `init` | 初始化 `.cabbage/`（工作流、CI 模板、vendored CLI） |
+| `new` | 创建记录（`type`: change / incident） |
+| `status` / `next` | 记录列表 / 阶段就绪与阻塞 |
+| `impact` | 声明风险标记（design/rfc/adr/api/database/security/deployment） |
+| `verify` / `gate` | 阶段验证 / 门禁（阶段 ID、merge、archive） |
+| `validate` | 结构校验 |
+| `sync` / `archive` | 同步当前文档 / 收尾归档 |
+| `tasks` / `discard` | 任务清单视图 / 废弃记录 |
+
+`archive` 不检查 Git 合并状态，须人工确认合并后执行；`change.yaml` 与 `state.json` 由 CLI 管理，不得手工编辑。
 
 ## 阶段契约
 

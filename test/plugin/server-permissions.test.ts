@@ -1,225 +1,186 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { mkdtemp, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { configureGoalTools } from "../../src/plugin/server.js"
+
+import { buildAgentRules, buildAgentPayloads } from "../../src/plugin/agents.js"
 import type { AgentEntry } from "../../src/plugin/agents.js"
+import { makeHarness } from "./harness.js"
+import type { Harness } from "./harness.js"
 
-const mockSessionGet = vi.fn()
-const mockPromptAsync = vi.fn()
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 
-vi.mock("../../src/plugin/goal-store.js", async () => {
-  const actual = await vi.importActual("../../src/plugin/goal-store.js")
-  return {
-    ...actual,
-    createGoalClient: () => ({
-      session: {
-        get: (...args: unknown[]) => mockSessionGet(...args),
-        update: vi.fn(),
-        promptAsync: (...args: unknown[]) => mockPromptAsync(...args),
-      },
-    }),
-  }
+const entry = (overrides: Partial<AgentEntry>): AgentEntry => ({
+  key: "test-agent",
+  prompt: "system prompt",
+  ...overrides,
 })
 
-interface TestConfig {
-  tools?: Record<string, boolean>
-  agent: Record<string, { tools?: Record<string, boolean> }>
-}
-
-describe("configureGoalTools", () => {
-  it("denies goal globally and allows only the lifecycle agents", () => {
-    const config: TestConfig = {
-      tools: { read: true, goal: true },
-      agent: {
-        "dev-lifecycle": { tools: { read: true } },
-        "goal-verify": { tools: { read: true, write: false } },
-        developer: { tools: { read: true, goal: true } },
+describe("buildAgentRules — V1 permission/tools → V2 规则数组", () => {
+  it("permission 映射保持声明序（V2 最后匹配优先）", () => {
+    const rules = buildAgentRules(entry({
+      permission: {
+        bash: { "*": "deny", "git status": "allow", "git push*": "deny" },
       },
-    }
-
-    configureGoalTools(config)
-
-    expect(config.tools).toEqual({ read: true, goal: false })
-    expect(config.agent["dev-lifecycle"].tools).toEqual({ read: true, goal: true })
-    expect(config.agent["goal-verify"].tools).toEqual({ read: true, write: false, goal: true })
-    expect(config.agent.developer.tools).toEqual({ read: true, goal: false })
+    }), "")
+    expect(rules).toEqual([
+      { action: "bash", resource: "*", effect: "deny" },
+      { action: "bash", resource: "git status", effect: "allow" },
+      { action: "bash", resource: "git push*", effect: "deny" },
+    ])
   })
 
-  it("configures agents that do not already declare tools", () => {
-    const config: TestConfig = {
-      agent: {
-        "dev-lifecycle": {},
-        "goal-verify": {},
-        reviewer: {},
-      },
-    }
-
-    configureGoalTools(config)
-
-    expect(config.tools).toEqual({ goal: false })
-    expect(config.agent["dev-lifecycle"].tools).toEqual({ goal: true })
-    expect(config.agent["goal-verify"].tools).toEqual({ goal: true })
-    expect(config.agent.reviewer.tools).toEqual({ goal: false })
+  it("skill 隔离规则原样转换", () => {
+    const rules = buildAgentRules(entry({
+      permission: { skill: { "*": "deny", "flow-design": "allow", "flow-tasks": "allow" } },
+    }), "")
+    expect(rules).toEqual([
+      { action: "skill", resource: "*", effect: "deny" },
+      { action: "skill", resource: "flow-design", effect: "allow" },
+      { action: "skill", resource: "flow-tasks", effect: "allow" },
+    ])
   })
 
-  it("denies goal when no agents are configured", () => {
-    const config: { tools?: Record<string, boolean> } = {}
-
-    configureGoalTools(config)
-
-    expect(config.tools).toEqual({ goal: false })
-  })
-})
-
-describe("reviewer permission enforcement", () => {
-  it("reviewer is denied goal tool access", () => {
-    const config: TestConfig = {
-      agent: {
-        reviewer: { tools: { read: true, bash: false, write: false, edit: false } },
-      },
-    }
-
-    configureGoalTools(config)
-
-    // Reviewer should never get goal: true
-    expect(config.agent.reviewer.tools).toEqual({
-      read: true,
-      bash: false,
-      write: false,
-      edit: false,
-      goal: false,
-    })
+  it("<profile-test-command> 占位符渲染为 Profile 测试命令首 token", () => {
+    const rules = buildAgentRules(entry({
+      permission: { bash: { "<profile-test-command> *": "allow" } },
+    }), "npm")
+    expect(rules).toEqual([{ action: "bash", resource: "npm *", effect: "allow" }])
   })
 
-  it("reviewer stays denied even if goal was previously set", () => {
-    const config: TestConfig = {
-      agent: {
-        reviewer: { tools: { read: true, goal: true } },
-      },
-    }
-
-    configureGoalTools(config)
-
-    // configureGoalTools should override any previous goal: true for reviewer
-    expect(config.agent.reviewer.tools?.goal).toBe(false)
+  it("Profile 未配置测试命令时删除占位规则（不渲染成 *）", () => {
+    const rules = buildAgentRules(entry({
+      permission: { bash: { "*": "deny", "<profile-test-command> *": "allow" } },
+    }), "")
+    expect(rules).toEqual([{ action: "bash", resource: "*", effect: "deny" }])
   })
 
-  it("only dev-lifecycle and goal-verify get goal access", () => {
-    const config: TestConfig = {
-      agent: {
-        "dev-lifecycle": {},
-        "goal-verify": {},
-        developer: {},
-        reviewer: {},
-        architect: {},
-      },
-    }
+  it("tools 禁用映射为 deny 规则并置于末尾；write 与 edit 共用 edit action", () => {
+    const rules = buildAgentRules(entry({
+      tools: { read: true, bash: true, write: false, edit: false },
+      permission: { bash: { "*": "deny", "npm test*": "allow" } },
+    }), "")
+    expect(rules).toEqual([
+      { action: "bash", resource: "*", effect: "deny" },
+      { action: "bash", resource: "npm test*", effect: "allow" },
+      { action: "edit", resource: "*", effect: "deny" },
+    ])
+  })
 
-    configureGoalTools(config)
-
-    // Only these two should have goal: true
-    expect(config.agent["dev-lifecycle"].tools?.goal).toBe(true)
-    expect(config.agent["goal-verify"].tools?.goal).toBe(true)
-
-    // All others should be denied
-    expect(config.agent.developer.tools?.goal).toBe(false)
-    expect(config.agent.reviewer.tools?.goal).toBe(false)
-    expect(config.agent.architect.tools?.goal).toBe(false)
+  it("bash:false 的 deny 追加在 permission 规则之后（工具整体禁用不可被白名单恢复）", () => {
+    const rules = buildAgentRules(entry({
+      tools: { read: true, bash: false, write: false, edit: false },
+      permission: { bash: { "gh pr view": "allow" } },
+    }), "")
+    expect(rules).toEqual([
+      { action: "bash", resource: "gh pr view", effect: "allow" },
+      { action: "bash", resource: "*", effect: "deny" },
+      { action: "edit", resource: "*", effect: "deny" },
+    ])
   })
 })
 
-describe("server config hook — agent 注入（permission 规则，无 tools 布尔）", () => {
-  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
+describe("buildAgentPayloads — 资产加载与字段装配", () => {
+  const payloads = buildAgentPayloads(path.join(projectRoot, "assets", "agents"), "npm")
 
+  it("加载全部 6 个流程 agent", () => {
+    expect(payloads.map((p) => p.key).sort()).toEqual(
+      ["architect", "dev-lifecycle", "developer", "goal-verify", "researcher", "reviewer"].sort(),
+    )
+  })
+
+  it("payload 含 system 与 V2 字段（无 V1 prompt/permission 结构）", () => {
+    const architect = payloads.find((p) => p.key === "architect")!
+    expect(typeof architect.fields.system).toBe("string")
+    expect((architect.fields.system as string).length).toBeGreaterThan(100)
+    expect(architect.fields.mode).toBe("subagent")
+    expect(architect.fields.color).toBe("#00bcd4")
+    expect(architect.fields.prompt).toBeUndefined()
+    expect(architect.fields.permission).toBeUndefined()
+    const rules = architect.fields.permissions as Array<{ action: string; resource: string; effect: string }>
+    expect(rules).toContainEqual({ action: "skill", resource: "flow-design", effect: "allow" })
+    expect(rules).toContainEqual({ action: "edit", resource: "docs/**", effect: "allow" })
+  })
+
+  it("goal-verify 的 tools 禁用转换为 edit deny", () => {
+    const goalVerify = payloads.find((p) => p.key === "goal-verify")!
+    const rules = goalVerify.fields.permissions as Array<{ action: string; resource: string; effect: string }>
+    expect(rules).toContainEqual({ action: "edit", resource: "*", effect: "deny" })
+  })
+})
+
+describe("server agent transform — goal 权限装配", () => {
   let tmpDir: string
-  let plugin: {
-    config: (config: unknown) => Promise<void>
-    tool: Record<string, unknown>
-  }
+  let harness: Harness
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(path.join(os.tmpdir(), "cabbage-server-perm-"))
     process.env.CABBAGE_SKILLS_DIR = path.join(tmpDir, "skills")
-    mockSessionGet.mockReset()
-    mockPromptAsync.mockReset()
-
-    const ctx = {
-      worktree: tmpDir,
-      directory: tmpDir,
-      client: { _client: { getConfig: () => ({}) } },
-      serverUrl: new URL("http://localhost:0"),
-    }
-    const hooks = await createOpencodeCabbage(projectRoot)(ctx as never, {})
-    plugin = hooks as unknown as { config: (config: unknown) => Promise<void>; tool: Record<string, unknown> }
+    harness = await makeHarness(tmpDir, projectRoot)
   })
 
   afterEach(async () => {
+    harness.cleanup()
     delete process.env.CABBAGE_SKILLS_DIR
     await rm(tmpDir, { recursive: true, force: true })
   })
 
-  it("只注册 goal 工具（生命周期工具已移除）", async () => {
-    const toolKeys = Object.keys(plugin.tool).sort()
-    expect(toolKeys).toEqual(["goal"])
-    // 旧 FlowRun 工具（run-* 版）已删除
-    expect(plugin.tool).not.toHaveProperty("flowrun")
+  it("注入缺失的流程 agent（system/mode/color/permissions 装配）", () => {
+    const architect = harness.agentEditor.get("architect")
+    expect(architect).toBeDefined()
+    expect(typeof architect!.system).toBe("string")
+    expect(architect!.mode).toBe("subagent")
+    const rules = architect!.permissions as Array<{ action: string; resource: string; effect: string }>
+    expect(rules).toContainEqual({ action: "skill", resource: "flow-design", effect: "allow" })
   })
 
-  it("注入的 agent 保留 permission 规则，不再注入 tools 布尔", async () => {
-    const config: Record<string, any> = { agent: {} }
-    await plugin.config(config)
-
-    const agent = config.agent["architect"]
-    expect(agent).toBeDefined()
-    expect(agent.permission).toBeDefined()
-    expect(agent.permission.bash).toBeDefined()
-    // 子 agent 技能隔离：默认 deny 全部 skill，仅放行各自归属 skill
-    expect(agent.permission.skill).toEqual({
-      "*": "deny",
-      "flow-design": "allow",
-      "flow-tasks": "allow",
-    })
-    const dev = config.agent.developer
-    expect(dev.permission.skill).toEqual({
-      "*": "deny",
-      "flow-code": "allow",
-      "flow-tdd": "allow",
-    })
-    // agent frontmatter 的 tools 布尔已废弃：不注入 read/bash/write/edit
-    // （goal 布尔由 configureGoalTools 作为 config 层工具开关注入，属预期）
-    expect(agent.tools?.read).toBeUndefined()
-    expect(agent.tools?.bash).toBeUndefined()
-    expect(agent.tools?.write).toBeUndefined()
-    expect(agent.tools?.edit).toBeUndefined()
-  })
-
-  it("注入的 agent shell env 使用 createAgentShellEnv（保留 GH 凭据、禁交互提示）", async () => {
-    const config: Record<string, any> = { agent: {} }
-    await plugin.config(config)
-
-    const agent = config.agent["dev-lifecycle"]
-    expect(agent.shell.env).toEqual({
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_TERMINAL_PROMPT: "0",
-    })
-  })
-
-  it("用户 config 已定义的 agent 不被覆盖", async () => {
-    const config: Record<string, any> = {
-      agent: {
-        "dev-lifecycle": { permission: { bash: { "*": "allow" } } },
-      },
+  it("goal 工具授权：仅 dev-lifecycle / goal-verify 得到 allow，其余一律 deny", () => {
+    const goalRule = (id: string) => {
+      const agent = harness.agentEditor.get(id)
+      const rules = (agent?.permissions ?? []) as Array<{ action: string; resource: string; effect: string }>
+      return rules.filter((r) => r.action === "goal")
     }
-    await plugin.config(config)
+    expect(goalRule("dev-lifecycle")).toEqual([{ action: "goal", resource: "*", effect: "allow" }])
+    expect(goalRule("goal-verify")).toEqual([{ action: "goal", resource: "*", effect: "allow" }])
+    expect(goalRule("architect")).toEqual([{ action: "goal", resource: "*", effect: "deny" }])
+    expect(goalRule("developer")).toEqual([{ action: "goal", resource: "*", effect: "deny" }])
+  })
 
-    expect(config.agent["dev-lifecycle"].permission).toEqual({ bash: { "*": "allow" } })
-    expect(config.agent["dev-lifecycle"].description).toBeUndefined()
+  it("用户已存在的 agent 不被覆盖字段，但补齐 goal deny 规则", () => {
+    // 通过 editor.update 直接模拟用户级 agent（在 transform 之前已存在）
+    const editor = harness.agentEditor
+    editor.update("existing-user-agent", (a) => {
+      a.name = "existing-user-agent"
+      a.system = "user prompt"
+      a.permissions = [{ action: "bash", resource: "*", effect: "allow" }]
+    })
+    // 再次触发 transform（重新应用 goal 规则）
+    const transformCb = (harness.ctx.agent as { transform: { mock: { calls: Array<[unknown]> } } }).transform.mock.calls[0]![0] as (e: unknown) => void
+    transformCb(editor)
+
+    const agent = editor.get("existing-user-agent")!
+    expect(agent.system).toBe("user prompt")
+    const rules = agent.permissions as Array<{ action: string; resource: string; effect: string }>
+    expect(rules).toContainEqual({ action: "bash", resource: "*", effect: "allow" })
+    expect(rules.filter((r) => r.action === "goal")).toEqual([{ action: "goal", resource: "*", effect: "deny" }])
+  })
+
+  it("重复应用 transform 不重复追加 goal 规则（幂等）", () => {
+    const editor = harness.agentEditor
+    const transformCb = (harness.ctx.agent as { transform: { mock: { calls: Array<[unknown]> } } }).transform.mock.calls[0]![0] as (e: unknown) => void
+    transformCb(editor)
+    transformCb(editor)
+
+    const rules = (editor.get("architect")!.permissions ?? []) as Array<{ action: string }>
+    expect(rules.filter((r) => r.action === "goal")).toHaveLength(1)
+  })
+
+  it("注册的 goal 工具带 permission 选项与 JSON Schema 输入", () => {
+    const goalTool = harness.toolAdds.find((t) => t.name === "goal")!
+    expect((goalTool.options as { permission?: string }).permission).toBe("goal")
+    const input = goalTool.input as { type?: string; required?: string[] }
+    expect(input.type).toBe("object")
+    expect(input.required).toEqual(["op"])
   })
 })
-
-// 由 createOpencodeCabbage 的返回类型推断（避免显式 import 插件类型）
-import { createOpencodeCabbage } from "../../src/plugin/server.js"
-
-export type { AgentEntry }

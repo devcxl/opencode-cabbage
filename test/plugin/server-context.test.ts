@@ -37,9 +37,12 @@ describe("setup — 资产注册", () => {
     expect(harness.commandAdds.map((c) => c.name).sort()).toEqual(
       ["code", "design", "release", "requirements", "review", "setup", "tasks"].sort(),
     )
-    expect(harness.toolAdds).toHaveLength(1)
-    expect(harness.toolAdds[0]!.name).toBe("goal")
-    expect((harness.toolAdds[0]!.options as { permission?: string })?.permission).toBe("goal")
+    const toolNames = harness.toolAdds.map((t) => t.name).sort()
+    expect(toolNames).toEqual(["cabbage", "goal"])
+    const goalTool = harness.toolAdds.find((t) => t.name === "goal")!
+    expect((goalTool.options as { permission?: string })?.permission).toBe("goal")
+    const cabbageTool = harness.toolAdds.find((t) => t.name === "cabbage")!
+    expect((cabbageTool.options as { permission?: string })?.permission).toBe("cabbage")
   })
 })
 

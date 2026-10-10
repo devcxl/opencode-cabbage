@@ -11,6 +11,8 @@ import { createAgentShellEnv } from "./shell.js"
 import { buildGoalTool } from "./goal.js"
 import { mutateGoal } from "./goal.js"
 import { createSessionGoalStore } from "./goal-store.js"
+import { setupCabbageCli } from "./cabbage-cli.js"
+import { buildCabbageTool } from "./cabbage-tool.js"
 import { queueContinuation, autoResume, SessionActivityTracker } from "./continuation.js"
 import { markAborted, clearAborted, clearAllAborted } from "./session-abort.js"
 import { readIndex, updateFlowSession } from "../kernel/session-index.js"
@@ -183,7 +185,8 @@ export async function setupCabbage(ctx: Context, packageRoot: string): Promise<(
   const agentsDir = path.join(packageRoot, "assets", "agents")
   const projectDir = ctx.location.directory
 
-  const skillsDir = await setupSkillsDir(sourceSkillsDir, promptsDir, readPluginVersion(packageRoot))
+  const pluginVersion = readPluginVersion(packageRoot)
+  const skillsDir = await setupSkillsDir(sourceSkillsDir, promptsDir, pluginVersion)
 
   // 预读磁盘内容：transform 回调是同步的，所有 IO 必须先完成
   const skillEntries = await loadSkillEntries(skillsDir)
@@ -197,6 +200,13 @@ export async function setupCabbage(ctx: Context, packageRoot: string): Promise<(
 
   const store = createSessionGoalStore(ctx.session)
   const tracker = new SessionActivityTracker()
+
+  // 内置 Cabbage 引擎（阶段二）：按插件版本释放捆绑的 Python 包；
+  // 缺 Python 时工具返回可读错误，其余功能不受影响。
+  const cabbage = await setupCabbageCli(packageRoot, pluginVersion)
+  if (!cabbage.available) {
+    console.warn(`[cabbage] built-in change records unavailable: ${cabbage.reason}`)
+  }
 
   // ── skills：注册为原生 skill（内容指向按版本隔离的安装目录，references 可解析） ──
   await ctx.skill.transform((editor) => {
@@ -246,20 +256,29 @@ export async function setupCabbage(ctx: Context, packageRoot: string): Promise<(
       ...editor.list().map((a) => String(a.id)),
       ...agentPayloads.map((p) => p.key),
     ])
+    // 工具门控双层策略的规则层：按 action 指定允许名单，其余 agent 显式 deny（后匹配优先）
+    const toolAccess: Array<{ action: string; allowed: Set<string> }> = [
+      { action: "goal", allowed: new Set(["dev-lifecycle", "goal-verify"]) },
+      { action: "cabbage", allowed: new Set(["dev-lifecycle"]) },
+    ]
     for (const id of ids) {
-      const effect = id === "dev-lifecycle" || id === "goal-verify" ? "allow" : "deny"
       editor.update(id, (agent) => {
         const permissions = Array.isArray(agent.permissions) ? agent.permissions : []
-        if (permissions.some((rule) => rule?.action === "goal")) return
-        permissions.push({ action: "goal", resource: "*", effect })
-        agent.permissions = permissions
+        let changed = false
+        for (const { action, allowed } of toolAccess) {
+          if (permissions.some((rule) => rule?.action === action)) continue
+          permissions.push({ action, resource: "*", effect: allowed.has(id) ? "allow" : "deny" })
+          changed = true
+        }
+        if (changed) agent.permissions = permissions
       })
     }
   })
 
-  // ── goal 工具：JSON Schema 输入 + permission gating + 工具内授权自检 ──
+  // ── goal 工具与内置 cabbage 引擎：JSON Schema 输入 + permission gating + 工具内授权自检 ──
   await ctx.tool.transform((editor) => {
     editor.add(buildGoalTool(store, projectDir) as never)
+    editor.add(buildCabbageTool(cabbage, projectDir) as never)
   })
 
   // ── shell 环境：非交互 git、禁用凭据提示（V2 的 shell hook 为全局作用域） ──

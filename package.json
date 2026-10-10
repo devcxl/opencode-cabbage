@@ -36,6 +36,7 @@
   "files": [
     "dist",
     "assets",
+    "vendor",
     "README.md",
     ".codex-plugin",
     "codex-skills",
@@ -51,7 +52,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "prompt-lint": "vitest run test/plugin/prompt-lint.test.ts",
-    "test:pack": "npm run build && pack_out=$(npm pack --dry-run 2>&1); echo \"$pack_out\" | grep -q 'dist/kernel/' || { echo 'FAIL: tarball 缺少 dist/kernel/'; exit 1; }; echo \"$pack_out\" | grep -q 'dist/flowrun/' && { echo 'FAIL: tarball 含过期 flowrun/ 残留'; exit 1; }; for f in '.codex-plugin/plugin.json' 'codex-skills/flow-setup/SKILL.md' 'codex-skills/agent-dev-lifecycle/SKILL.md' 'hooks/hooks.json' 'dist/hooks/session-start.js'; do echo \"$pack_out\" | grep -q \"$f\" || { echo \"FAIL: tarball 缺少 $f\"; exit 1; }; done; echo 'PASS: tarball 含 dist/kernel/ + Codex 插件文件（manifest/skills/hooks/dist-hooks），无 flowrun/ 残留'",
+    "test:pack": "npm run build && pack_out=$(npm pack --dry-run 2>&1); echo \"$pack_out\" | grep -q 'dist/kernel/' || { echo 'FAIL: tarball 缺少 dist/kernel/'; exit 1; }; echo \"$pack_out\" | grep -q 'dist/flowrun/' && { echo 'FAIL: tarball 含过期 flowrun/ 残留'; exit 1; }; for f in '.codex-plugin/plugin.json' 'codex-skills/flow-setup/SKILL.md' 'codex-skills/agent-dev-lifecycle/SKILL.md' 'hooks/hooks.json' 'dist/hooks/session-start.js' 'vendor/cabbage/MANIFEST.json' 'vendor/cabbage/cabbage_cli/cli.py' 'vendor/cabbage/cabbage_cli/assets/workflows/change.yaml'; do echo \"$pack_out\" | grep -q \"$f\" || { echo \"FAIL: tarball 缺少 $f\"; exit 1; }; done; echo 'PASS: tarball 含 dist/kernel/ + 内置 cabbage 引擎（vendor） + Codex 插件文件，无 flowrun/ 残留'",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"

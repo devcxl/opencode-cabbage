@@ -147,6 +147,18 @@ describe("server agent transform — goal 权限装配", () => {
     expect(goalRule("developer")).toEqual([{ action: "goal", resource: "*", effect: "deny" }])
   })
 
+  it("cabbage 工具授权：仅 dev-lifecycle 得到 allow，其余一律 deny", () => {
+    const cabbageRule = (id: string) => {
+      const agent = harness.agentEditor.get(id)
+      const rules = (agent?.permissions ?? []) as Array<{ action: string; resource: string; effect: string }>
+      return rules.filter((r) => r.action === "cabbage")
+    }
+    expect(cabbageRule("dev-lifecycle")).toEqual([{ action: "cabbage", resource: "*", effect: "allow" }])
+    expect(cabbageRule("goal-verify")).toEqual([{ action: "cabbage", resource: "*", effect: "deny" }])
+    expect(cabbageRule("architect")).toEqual([{ action: "cabbage", resource: "*", effect: "deny" }])
+    expect(cabbageRule("developer")).toEqual([{ action: "cabbage", resource: "*", effect: "deny" }])
+  })
+
   it("用户已存在的 agent 不被覆盖字段，但补齐 goal deny 规则", () => {
     // 通过 editor.update 直接模拟用户级 agent（在 transform 之前已存在）
     const editor = harness.agentEditor

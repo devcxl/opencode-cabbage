@@ -1,0 +1,127 @@
+# Generated template for cabbage projects. If this project does not publish a
+# documentation site, delete the `deploy-pages` job (and the documentation steps
+# of `validate-and-test`); CI stays green because those steps are conditional.
+# The test step below runs Python's unittest when tests/ exists; adapt it to your
+# project's test runner so a missing test run is surfaced instead of silent.
+name: CI & Docs Deployment
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-and-test:
+    name: Test & Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt
+          else
+            echo "No requirements.txt; skipping project dependencies."
+          fi
+          python -m pip install PyYAML
+
+      - name: Run Test Suite
+        run: |
+          if [ -d tests ]; then
+            python -m unittest discover tests
+          else
+            echo "::warning title=Test suite skipped::no tests/ directory found; adapt the Run Test Suite step to this project's test runner so the test stage actually runs."
+          fi
+
+      - name: Validate Cabbage Changes
+        run: |
+          if [ -d ".cabbage/tooling" ]; then
+            export PYTHONPATH=".cabbage/tooling${PYTHONPATH:+:$PYTHONPATH}"
+            python -m cabbage_cli validate --all
+          elif command -v cabbage >/dev/null 2>&1; then
+            cabbage validate --all
+          else
+            echo "Error: cabbage CLI not found. Expected a vendored .cabbage/tooling or an installed 'cabbage' command." >&2
+            exit 1
+          fi
+
+      - name: Validate PR Workflow & Doc Binding
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ -d ".cabbage/tooling" ]; then
+            export PYTHONPATH=".cabbage/tooling${PYTHONPATH:+:$PYTHONPATH}"
+            python -m cabbage_cli ci --base origin/${{ github.base_ref }}
+          elif command -v cabbage >/dev/null 2>&1; then
+            cabbage ci --base origin/${{ github.base_ref }}
+          else
+            echo "Error: cabbage CLI not found. Expected a vendored .cabbage/tooling or an installed 'cabbage' command." >&2
+            exit 1
+          fi
+
+      - name: Set up pnpm
+        if: ${{ hashFiles('docs/package.json') != '' }}
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        if: ${{ hashFiles('docs/package.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+          cache-dependency-path: 'docs/pnpm-lock.yaml'
+
+      - name: Install documentation dependencies
+        if: ${{ hashFiles('docs/package.json') != '' }}
+        working-directory: docs
+        run: pnpm install --frozen-lockfile
+
+      - name: Build documentation site
+        if: ${{ hashFiles('docs/package.json') != '' }}
+        working-directory: docs
+        run: pnpm run build
+
+      - name: Upload Pages artifact
+        if: ${{ hashFiles('docs/package.json') != '' && github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  deploy-pages:
+    name: Deploy to GitHub Pages
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    needs: validate-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

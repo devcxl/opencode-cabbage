@@ -1,4 +1,5 @@
 import { vi } from "vitest"
+import path from "node:path"
 
 import { setupCabbage } from "../../src/plugin/server.js"
 import { clearAllAborted } from "../../src/plugin/session-abort.js"
@@ -68,8 +69,9 @@ export interface Harness {
 
 /** 全量 ctx mock：驱动真实 setupCabbage，收集各域的注册产物 */
 export async function makeHarness(tmpDir: string, packageRoot: string): Promise<Harness> {
-  // 测试隔离：清空中断标记等模块级会话状态
+  // 测试隔离：清空中断标记等模块级会话状态；内置 cabbage CLI 释放到本测试的临时目录
   clearAllAborted()
+  process.env.CABBAGE_CLI_DIR = path.join(tmpDir, "cabbage-cli")
   const sessions = new Map<string, SessionState>()
   sessions.set("sess-1", { metadata: {}, messages: [structuredClone(COMPLETED_ASSISTANT)] })
 

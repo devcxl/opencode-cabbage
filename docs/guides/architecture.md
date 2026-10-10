@@ -2,7 +2,7 @@
 
 本文档介绍 opencode-cabbage 的核心架构设计。
 
-> **兼容性：**当前插件入口使用 `@opencode-ai/plugin` 1.x（OpenCode v1 插件 API）。代码中的 `@opencode-ai/sdk/v2` 是 Session API 客户端子路径，不代表已兼容 OpenCode v2 插件运行时；v2 的插件 API/SDK 变更尚未迁移适配。
+> **兼容性：**2.0.0 起插件入口使用 `@opencode/plugin` 2.x（OpenCode v2 插件 API），基于 `Plugin.define` setup、域 transform 与轮次结束事件驱动的自动续接，已在 OpenCode v2.0.26 端到端实测。OpenCode v1 使用 1.x 版本线。
 
 ---
 
@@ -110,7 +110,7 @@ setup → requirements → design → tasks → code → review → release（�
 ```
                 ┌─────────────────────┐
     create ────→│       active        │
-                │  (会话绑定 Parent    │ ← idle 自动续接，continuationCount++
+                │  (会话绑定 Parent    │ ← 每轮执行结束自动续接，continuationCount++
                 │   Issue，驱动流程)   │
                 └─────────┬───────────┘
           pause           │          cancel
@@ -176,7 +176,7 @@ setup → requirements → design → tasks → code → review → release（�
 ```
 
 关键机制：
-- 每次 idle 自动续接下一阶段（模型驱动，无内核门禁）
+- 每轮执行结束（`session.execution.succeeded`）自动续接下一阶段（模型驱动，无内核门禁）
 - 上下文压力大时自动写 `docs/dev/handoff-<date>.md`，恢复时先读它
 - 高风险写命令（push/PR/merge）全部由 primary 编排器执行；子 agent 只读/本地开发
 - 测试验证以 GitHub Actions workflow 结果为准（本地 TDD 仅 self-report）
@@ -194,38 +194,41 @@ setup → requirements → design → tasks → code → review → release（�
 
 ## 事件驱动
 
-插件通过 OpenCode 事件系统驱动自动工作流：
+插件通过 OpenCode v2 事件系统（`ctx.event.subscribe`）驱动自动工作流：
 
 | 事件 | 处理 |
 |------|------|
-| `session.status (idle)` | 自动 continuation（goal active 时注入续接 prompt；子会话 busy/retry、尾部非静默、`[BLOCKED:]` 报告、预算达限均跳过/暂停） |
-| `session.error` | 记录 abort session |
-| `message.updated (user)` | 重置 continuation 计数 + 刷新 agent/model 快照 |
+| `session.execution.succeeded` | 轮次结束 → 自动 continuation（goal active 时注入续接 prompt；子会话 busy、尾部非静默、`[BLOCKED:]` 报告、预算达限均跳过/暂停） |
+| `session.execution.interrupted` | `reason=user` → 记录中断并立即持久化 paused；其他原因仅更新活动跟踪 |
+| `session.execution.failed` / `session.retry.scheduled` | 活动跟踪（失败不自动续接，避免错误空转） |
+| `session.inbox.enqueued (item.type=user)` | 重置 continuation 计数 + 清除中断标记 + 刷新 agent/model 快照 |
+| `session.agent.selected` / `session.model.selected` | 刷新 goal 的会话配置快照 |
+| `session.created` | 记录父子会话关系（子会话活动闸的事件溯源） |
 
 ## 弹性设计
 
 ### 自动 continuation
 
-Plugin 在 AI idle 时自动注入 continuation prompt（含 Project Context 摘要）：
+Plugin 在每轮执行结束（`session.execution.succeeded`）时自动注入 continuation prompt（含 Project Context 摘要）：
 
 ```
 Continue working toward the active goal.
 Read the Flow Record (Parent Issue #<n>) for the objective and completion criteria.
 ```
 
-续接前五道闸（queueContinuation，对齐 OpenChamber 的 tick 防护）：
-1. **子会话活动闸**：直接子会话（后台 subagent）busy/retry 时跳过——父会话 idle 不代表任务静默，续接会压过子代理结果注入；查询失败保守跳过（含 warn）
-2. **尾部静默检查**：最后一条是 user 消息或 assistant 未完成 → 跳过（等下一次 idle）
+续接前五道闸（queueContinuation）：
+
+1. **子会话活动闸**：直接子会话（后台 subagent）busy/retry 时跳过——父会话轮次结束不代表任务静默，续接会压过子代理结果注入。V2 无 children 查询 API，改用事件溯源（`session.created` 建关系 + `execution.*` 更新 busy 状态）；重启后内存清空，短暂窗口内可能漏判（可接受降级）
+2. **尾部静默检查**：最后一条是 user/synthetic 消息或 assistant 未完成 → 跳过（等这些消息各自触发的新轮次结束事件）
 3. **`[BLOCKED:]`/`[DONE:]` 信号报告**：agent 明确无法推进 → 置 paused；agent 完成验证并报告 → 置 paused 等待 goal-verify 独立验证（防空转烧 token 与漏验）；resume 后首次 tick 豁免（防 resume 死路）
 4. **token 预算护栏**：`tokensUsed >= tokenBudget` → 置 paused（用户可 edit 提预算后 resume）
 5. **续接上限**：`continuationCount` 达 50 → 置 paused，请求用户介入
 
-- `continuationCount` 达上限（50）→ 自动 pause，请求用户介入
-- 每 20 次 continuation 自动 compact 会话历史
-- 用户消息重置计数
-- **先写后发**：计数先于 prompt 落盘（崩溃窗口只会少发一次续接，不会因重启 autoResume 双发）；prompt 发送失败回滚计数
-- **重启双发防护**：autoResume 跳过 30s 内更新过的 flow（可能刚续接过），等下一次 idle 事件常规续接
-- **token 记账（快照法）**：最新完成 assistant 轮的 `input + reasoning + cache.read + output` 即整段成本（OpenCode 每轮 cache.read 已含此前付费 token）；goal 相对化（创建时基线排除历史）；单调不减（context 收缩不回退）
+- 每 20 次 continuation 调用 `session.compact` 原生压缩会话历史
+- 用户消息重置计数；显式 `resume` 清除用户中断标记
+- **先写后发**：计数先于 synthetic 落盘（崩溃窗口只会少发一次续接，不会因重启 autoResume 双发）；发送失败回滚计数
+- **重启双发防护**：autoResume 跳过 30s 内更新过续接的 flow（可能刚续接过），等下一次轮次结束事件常规续接
+- **token 记账（会话累计快照）**：create 时记录会话累计 tokens 为基线，`tokensUsed = 当前累计 − 基线`，单调不减；预算为护栏而非账单
 
 ### 上下文管理（内化 handoff）
 
@@ -255,8 +258,7 @@ Continue working.
 
 ```
 @devcxl/opencode-cabbage
-├── @opencode-ai/plugin    # 插件框架
-├── @opencode-ai/sdk       # Session API 客户端（使用 /v2 子路径）
+├── @opencode/plugin       # OpenCode v2 插件框架（Plugin.define / 域 transform / 事件）
 └── yaml                   # YAML frontmatter 解析
 ```
 

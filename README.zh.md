@@ -16,14 +16,14 @@
 
 ## OpenCode 兼容性
 
-> **目前暂不支持 OpenCode v2。** 本插件当前仍使用 OpenCode v1 插件 API（`@opencode-ai/plugin` 1.x）。OpenCode v2 的插件 API 和 SDK 存在不兼容变更，本插件尚未完成迁移，也未通过 v2 端到端验证。依赖本插件时请暂时继续使用 OpenCode v1；在正式公布支持前，请勿升级到 OpenCode v2。
+> **要求 OpenCode v2（已在 v2.0.26 实测）。** 2.0.0 为 V2-only 版本线，基于 `@opencode/plugin` 2.x（`Plugin.define` 入口、域 transform、轮次结束事件驱动的自动续接）。OpenCode v1 用户请继续使用 `1.x` 版本线。
 
 ## 安装
 
 ```json
 // opencode.json
 {
-  "plugin": ["@devcxl/opencode-cabbage"]
+  "plugins": ["@devcxl/opencode-cabbage"]
 }
 ```
 
@@ -50,7 +50,7 @@
 npm install @devcxl/opencode-cabbage
 
 # 2. 在 opencode.json 中添加
-# { "plugin": ["@devcxl/opencode-cabbage"] }
+# { "plugins": ["@devcxl/opencode-cabbage"] }
 
 # 3. 在 OpenCode 中执行
 # /setup → /requirements → @dev-lifecycle

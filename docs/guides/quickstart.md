@@ -9,14 +9,14 @@
 - [gh CLI](https://cli.github.com/) 已安装并登录 GitHub
 - Git 仓库已创建（本地或远程）
 
-> **兼容性提示：**当前插件使用 OpenCode v1 插件 API，暂不支持 OpenCode v2。由于 v2 的插件 API 和 SDK 存在不兼容变更，依赖本插件时请暂缓升级到 OpenCode v2。
+> **兼容性提示：**本插件 2.0.0 起要求 OpenCode v2（基于 `@opencode/plugin` 2.x，已在 v2.0.26 实测）；OpenCode v1 用户请使用 1.x 版本线。
 
 ## 第一步：安装插件
 
 ```json
 // opencode.json
 {
-  "plugin": ["@devcxl/opencode-cabbage"]
+  "plugins": ["@devcxl/opencode-cabbage"]
 }
 ```
 

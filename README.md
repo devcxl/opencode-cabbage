@@ -16,20 +16,20 @@
 
 ## OpenCode Compatibility
 
-> **OpenCode v2 is not currently supported.** This plugin still uses the OpenCode v1 plugin API (`@opencode-ai/plugin` 1.x). OpenCode v2 introduces breaking changes to its plugin API and SDK, and this plugin has not yet been migrated or end-to-end tested on v2. If you rely on cabbage, stay on OpenCode v1 for now; do not upgrade to OpenCode v2 until support is announced.
+**Requires OpenCode v2 (tested on v2.0.26).** Version 2.0.0 is a V2-only line built on the `@opencode/plugin` 2.x API (`Plugin.define` setup, domain transforms, turn-end-event driven auto-continuation). OpenCode v1 users should stay on the `1.x` release line.
 
 ## Installation
 
 ```json
 // opencode.json
 {
-  "plugin": ["@devcxl/opencode-cabbage"]
+  "plugins": ["@devcxl/opencode-cabbage"]
 }
 ```
 
 Once started, the plugin automatically injects 7 slash commands, 9 flow skills, 6 agents, and 1 goal tool.
 
-> **⚠️ Plugin conflict — do not combine with other goal plugins.** cabbage ships its own `goal` tool with an idle-driven auto-continuation loop. Installing it together with another goal / auto-continue plugin (e.g. `@prevalentware/opencode-goal-plugin`, `opencode-goal-mode`) risks both loops listening for session idle events and injecting continuation prompts: work gets continued twice, continuation counts and token budgets drift out of sync, and abort handling interferes across plugins. Use exactly one goal engine per session — if you rely on an external goal plugin, do not trigger cabbage's goal tool (it is restricted to the `dev-lifecycle` / `goal-verify` agents).
+> **⚠️ Plugin conflict — do not combine with other goal plugins.** cabbage ships its own `goal` tool with an auto-continuation loop driven by turn-end events. Installing it together with another goal / auto-continue plugin (e.g. `@prevalentware/opencode-goal-plugin`, `opencode-goal-mode`) risks both loops reacting to the same session activity and injecting continuation prompts: work gets continued twice, continuation counts and token budgets drift out of sync, and abort handling interferes across plugins. Use exactly one goal engine per session — if you rely on an external goal plugin, do not trigger cabbage's goal tool (it is restricted to the `dev-lifecycle` / `goal-verify` agents).
 
 ## Codex Installation (Compatibility Layer)
 
@@ -74,7 +74,7 @@ Notes:
 npm install @devcxl/opencode-cabbage
 
 # 2. Add the plugin to opencode.json
-# { "plugin": ["@devcxl/opencode-cabbage"] }
+# { "plugins": ["@devcxl/opencode-cabbage"] }
 
 # 3. Run in OpenCode
 # /setup → /requirements → @dev-lifecycle
@@ -88,17 +88,20 @@ npm install @devcxl/opencode-cabbage
 ## Architecture
 
 ```
-src/                          # Thin TypeScript layer
-├── index.ts                  # Plugin entry point
-├── plugin.ts                 # Package root resolution
-├── plugin/                   # Loaders + goal tool
-│   ├── server.ts             # Main factory: injects skills/commands/agents, goal tool, context, auto-continuation
-│   ├── goal.ts               # goal tool (status + goal-verify authorization)
-│   ├── commands.ts           # Command loader
-│   ├── skills.ts             # Skill loader
+src/                          # Thin TypeScript layer (OpenCode V2 plugin)
+├── index.ts                  # Default export (Plugin.define)
+├── plugin.ts                 # Plugin definition: id + setup wiring
+├── plugin/                   # Setup glue + goal tool
+│   ├── server.ts             # setup(ctx): domain transforms (skills/commands/agents/tool), hooks, event dispatch
+│   ├── continuation.ts       # Turn-end driven continuation + auto-resume + child-session activity tracker
+│   ├── goal.ts               # goal tool (status machine + goal-verify authorization)
+│   ├── goal-store.ts         # Goal persistence (session metadata)
+│   ├── session-abort.ts      # User-interrupt markers (shared by events/tool/continuation)
+│   ├── commands.ts           # Command loader (execute-style registration)
+│   ├── skills.ts             # Skill loader + V2 registration entries
 │   ├── prompts.ts            # Prompt loader
 │   ├── bootstrap.ts          # Startup guidance
-│   ├── agents.ts             # Agent injection
+│   ├── agents.ts             # Agent loader + V1→V2 permission/tools rule conversion
 │   ├── shell.ts              # Agent shell env isolation
 │   └── prompt-lint.ts        # Prompt asset consistency checks
 └── kernel/                   # Minimal supporting modules

@@ -9,7 +9,7 @@
 ```json
 // opencode.json
 {
-  "plugin": ["@devcxl/opencode-cabbage"]
+  "plugins": ["@devcxl/opencode-cabbage"]
 }
 ```
 
@@ -19,28 +19,26 @@
 
 ```json
 {
-  "plugin": ["@devcxl/opencode-cabbage"],
-  "command": {
-    "/my-custom-requirements": {
+  "plugins": ["@devcxl/opencode-cabbage"],
+  "commands": {
+    "my-custom-requirements": {
       "template": "自定义需求分析模板...",
       "description": "自定义需求命令"
     }
   },
-  "agent": {
+  "agents": {
     "architect": {
       "description": "自定义架构师",
       "mode": "subagent",
       "color": "#ff5722",
-      "prompt": "自定义 prompt..."
+      "system": "自定义 prompt..."
     }
   },
-  "skills": {
-    "paths": ["./my-custom-skills"]
-  }
+  "skills": ["./my-custom-skills"]
 }
 ```
 
-> 插件不会覆盖已存在的配置 — 如果你在 `opencode.json` 中定义了同名 command 或 agent，插件的注入将被跳过。
+> 插件不会覆盖用户已存在的同名 agent（缺位才注册）。command 注册在 OpenCode V2 中为 transform 式（无同名跳过能力），自定义同名命令可能被插件注册覆盖——建议使用不同名称。
 
 ## 插件自动注入的配置
 
@@ -58,7 +56,7 @@
 
 每个 command 对应一个 `flow-*` skill，定义在 `assets/skills/` 目录中；所有命令共享单一 Stage contract（`assets/prompts/stage-contract.md`）。
 
-### 5 个 Agent
+### 6 个 Agent
 
 | Agent | 模式 | 角色 |
 |-------|------|------|
@@ -66,9 +64,10 @@
 | `@architect` | subagent | 架构设计、技术方案、DAG 拆解（只写 docs/assets） |
 | `@developer` | subagent | 技术栈无关代码 TDD 实现（worktree 内开发，不 push） |
 | `@reviewer` | subagent | 只读代码审查，输出结构化报告 |
+| `@researcher` | subagent | 独立调研与事实核查（产出带引用的调研文档） |
 | `@goal-verify` | subagent | 独立验证 Flow 完成状态（唯一可 complete goal） |
 
-### 8 个 Flow Skills
+### 9 个 Flow Skills
 
 | Skill | 对应命令 | 用途 |
 |-------|---------|------|
@@ -80,8 +79,9 @@
 | `flow-tdd` | — | TDD 协议唯一来源（advisory，self-report） |
 | `flow-review` | `/review` | 代码审查 |
 | `flow-release` | `/release` | 发布 |
+| `flow-research` | — | 调研与事实核查（由 @researcher 加载） |
 
-Skills 被复制到固定目录（`~/.config/opencode/cabbage/skills`）中运行，不会污染项目目录。
+Skills 安装到固定目录（`~/.config/opencode/cabbage/skills@<version>/`，按插件版本隔离），并通过 V2 原生 skill 注册（references 相对路径随目录解析），不会污染项目目录。
 
 ### 1 个工具：goal
 

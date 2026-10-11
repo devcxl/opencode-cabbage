@@ -27,7 +27,7 @@
 }
 ```
 
-插件启动后自动注入 7 个 slash command、10 个 flow skill、6 个 agent 与 2 个工具（`goal` 管流程状态、`cabbage` 管变更记录）。
+插件启动后自动注入 7 个 slash command、12 个 flow skill、6 个 agent 与 2 个工具（`goal` 管流程状态、`cabbage` 管变更记录）。
 
 > **⚠️ 插件冲突——不要与其他 goal 插件同时安装。** cabbage 自带 `goal` 工具与轮次结束事件驱动的自动续接循环。若与其他 goal / 自动续接类插件（如 `@prevalentware/opencode-goal-plugin`、`opencode-goal-mode`）同时安装，存在双方同时响应会话活动并注入续接 prompt 的风险：任务被重复续接、续接计数与 token 预算互不同步、abort 处理互相干扰。同一会话只能保留一个 goal 引擎——若使用外部 goal 插件，请勿触发 cabbage 的 goal 工具（仅 `dev-lifecycle` / `goal-verify` agent 可调用）。
 

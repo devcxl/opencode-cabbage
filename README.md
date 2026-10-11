@@ -27,7 +27,7 @@
 }
 ```
 
-Once started, the plugin automatically injects 7 slash commands, 10 flow skills, 6 agents, and 2 tools (`goal` for flow state, `cabbage` for change records).
+Once started, the plugin automatically injects 7 slash commands, 12 flow skills, 6 agents, and 2 tools (`goal` for flow state, `cabbage` for change records).
 
 > **⚠️ Plugin conflict — do not combine with other goal plugins.** cabbage ships its own `goal` tool with an auto-continuation loop driven by turn-end events. Installing it together with another goal / auto-continue plugin (e.g. `@prevalentware/opencode-goal-plugin`, `opencode-goal-mode`) risks both loops reacting to the same session activity and injecting continuation prompts: work gets continued twice, continuation counts and token budgets drift out of sync, and abort handling interferes across plugins. Use exactly one goal engine per session — if you rely on an external goal plugin, do not trigger cabbage's goal tool (it is restricted to the `dev-lifecycle` / `goal-verify` agents).
 
@@ -36,7 +36,7 @@ Once started, the plugin automatically injects 7 slash commands, 10 flow skills,
 The plugin bundles the Cabbage engine (`vendor/cabbage`, version-pinned by `scripts/sync-cabbage.mjs`) and injects a `flow-change` skill plus a `cabbage` tool: create a change record, declare risk flags, verify stages, pass gates, sync current-state docs, and archive after merge. A record is one directory under `.cabbage/changes/<id>/` — a single `tasks.md` by default; specialist documents (`design` / `rfc` / `adr` / `api` / `database` / `security` / `release`) open only for declared risks.
 
 - **Requirements**: Python 3.10+ on the machine. The CLI is released per plugin version to `~/.config/opencode/cabbage/cli@<version>/`; without Python the tool returns a readable error and everything else keeps working.
-- **Bootstrap a project**: `cabbage({op:"init"})` scaffolds `.cabbage/`, the docs skeleton, the CI template, and a vendored CLI copy for GitHub Actions.
+- **Bootstrap a project**: `cabbage({op:"init"})` scaffolds `.cabbage/`, the docs skeleton, the CI template, and a vendored CLI copy for GitHub Actions. Existing docs: `cabbage({op:"adopt"})` inventories markdown outside the docs tree (moves stay manual).
 - **Light path**: `new` → fill `tasks.md` → `verify` → `gate merge` → `archive` after the merge is confirmed. The tool is restricted to the `dev-lifecycle` orchestrator.
 
 ## Codex Installation (Compatibility Layer)
@@ -126,7 +126,7 @@ vendor/cabbage/               # Bundled Cabbage engine (synced via scripts/sync-
 
 assets/                       # Runtime assets (pure Prompt flows)
 ├── commands/                 # 7 slash commands
-├── skills/                   # 10 flow-* skills (Prompt-driven, direct git/gh)
+├── skills/                   # 12 flow-* skills (Prompt-driven, direct git/gh)
 ├── agents/                   # 6 agent definitions
 └── prompts/                  # Guidance prompts and templates
 

@@ -67,13 +67,13 @@
 | `@researcher` | subagent | 独立调研与事实核查（产出带引用的调研文档） |
 | `@goal-verify` | subagent | 独立验证 Flow 完成状态（唯一可 complete goal） |
 
-### 10 个 Flow Skills
+### 12 个 Flow Skills
 
 | Skill | 对应命令 | 用途 |
 |-------|---------|------|
-| `flow-setup` | `/setup` | 环境初始化 + Profile 确认 |
+| `flow-setup` | `/setup` | 环境初始化 + Profile 确认 + 存量文档接入（adopt） |
 | `flow-requirements` | `/requirements` | 需求分析 |
-| `flow-design` | `/design` | 技术设计 |
+| `flow-design` | `/design` | 技术设计 + ADR/RFC 内容标准 |
 | `flow-tasks` | `/tasks` | 任务拆解 |
 | `flow-code` | `/code` | 编码实现 |
 | `flow-tdd` | — | TDD 协议唯一来源（advisory，self-report） |
@@ -81,6 +81,8 @@
 | `flow-release` | `/release` | 发布 |
 | `flow-research` | — | 调研与事实核查（由 @researcher 加载） |
 | `flow-change` | — | 变更记录：tasks + 专项文档 → 验证/门禁/归档（内置 Cabbage 引擎） |
+| `flow-incident` | — | 事故复盘：incident → postmortem → 预防措施落地 |
+| `flow-docs` | — | 当前状态文档治理：编号目录、链接、图表、站点 |
 
 Skills 安装到固定目录（`~/.config/opencode/cabbage/skills@<version>/`，按插件版本隔离），并通过 V2 原生 skill 注册（references 相对路径随目录解析），不会污染项目目录。
 
@@ -103,6 +105,7 @@ Skills 安装到固定目录（`~/.config/opencode/cabbage/skills@<version>/`，
 | op | 说明 |
 |----|------|
 | `init` | 初始化 `.cabbage/`（工作流、CI 模板、vendored CLI） |
+| `adopt` | 盘点 docs 树之外的 Markdown → `.cabbage/adoption-report.md`（只读盘点，迁移手动） |
 | `new` | 创建记录（`type`: change / incident） |
 | `status` / `next` | 记录列表 / 阶段就绪与阻塞 |
 | `impact` | 声明风险标记（design/rfc/adr/api/database/security/deployment） |

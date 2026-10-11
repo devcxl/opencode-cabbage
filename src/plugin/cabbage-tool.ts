@@ -10,7 +10,7 @@ import { runCabbage } from "./cabbage-cli.js"
 export const CABBAGE_ALLOWED_AGENTS = new Set(["dev-lifecycle"])
 
 export interface CabbageToolInput {
-  op: "init" | "new" | "status" | "next" | "impact" | "validate" | "verify" | "gate" | "sync" | "archive" | "tasks" | "discard"
+  op: "init" | "new" | "status" | "next" | "impact" | "validate" | "verify" | "gate" | "sync" | "archive" | "tasks" | "discard" | "adopt"
   change?: string
   stage?: string
   target?: string
@@ -27,7 +27,7 @@ export interface CabbageToolResult {
   content: string
 }
 
-const OPS = ["init", "new", "status", "next", "impact", "validate", "verify", "gate", "sync", "archive", "tasks", "discard"] as const
+const OPS = ["init", "new", "status", "next", "impact", "validate", "verify", "gate", "sync", "archive", "tasks", "discard", "adopt"] as const
 
 export const CABBAGE_TOOL_INPUT_SCHEMA = {
   type: "object",
@@ -68,6 +68,7 @@ export const CABBAGE_TOOL_DESCRIPTION = `Manage this project's Cabbage change re
 
 Ops:
 - init: scaffold .cabbage/ (workflows, docs skeleton, CI template, vendored CLI) — run once per project
+- adopt: inventory existing markdown outside the docs tree and write .cabbage/adoption-report.md (advisory; moves stay manual)
 - new: create a record (type: change|incident; change: kebab-case id)
 - status: list active records and per-stage state (change optional)
 - next: show ready and blocked stages for a record
@@ -88,6 +89,8 @@ function buildArgs(input: CabbageToolInput): string[] | { error: string } {
   switch (input.op) {
     case "init":
       return ["init"]
+    case "adopt":
+      return ["adopt"]
     case "new": {
       if (!change || typeof change !== "string") return { error: "Error: op `new` requires `change` (kebab-case id)." }
       return ["new", input.type ?? "change", change]

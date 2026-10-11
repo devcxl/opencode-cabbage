@@ -94,6 +94,15 @@ describe("cabbage CLI runtime", () => {
     const badVerify = await tool.execute({ op: "verify", change: "demo-fix", stage: "tasks" }, ctx)
     expect(badVerify.content).toContain("placeholder")
     expect(badVerify.content).toContain("exit=2")
+
+    const incident = await tool.execute({ op: "new", type: "incident", change: "outage-demo" }, ctx)
+    expect(incident.content).toContain("created outage-demo")
+    const incidentNext = await tool.execute({ op: "next", change: "outage-demo" }, ctx)
+    expect(incidentNext.content).toContain("incident")
+    expect(incidentNext.content).toContain("postmortem")
+
+    const adopt = await tool.execute({ op: "adopt" }, ctx)
+    expect(adopt.content).toContain("exit=0")
   })
 
   it("restricts the tool to the dev-lifecycle orchestrator (double gating)", async () => {

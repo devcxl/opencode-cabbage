@@ -39,6 +39,19 @@ description: 初始化 — 探测环境 → 确认 Profile
 - release workflow: `.github/workflows/release.yml`
 ```
 
+## 存量项目接入（adopt）
+
+仓库已有文档时（`init` 只新增骨架、不改写已有文件；无 `.cabbage/` 时先经 flow-change 执行 `op:"init"`）：
+
+1. `cabbage({op:"adopt"})` 盘点 `docs/` 树之外的 Markdown → 生成 `.cabbage/` 下的 `adoption-report.md`；
+   每份文档得到四种动作：`keep`（已在编号目录）/ `migrate`（当前状态文档）/ `import`（历史记录）/
+   `review`（无法归类）。分类仅基于目录与文件名推断，**始终需要人工确认**。
+2. 逐行处理 `review`，与文档负责人确认归属；`import` 的历史记录（ADR/RFC/事故）原样归档，
+   **不改写内容**。
+3. `migrate` 用 `git mv` 保留历史，一个逻辑批次一个提交；移动后立即修正相对链接。
+4. 每批后 `cabbage({op:"validate"})` + 站点构建，确认无死链。
+5. 接入完成的判据：再次 `op:"adopt"` 应全部报告 `keep`。
+
 ## Output
 - readiness 报告（git/gh 可用性、CI/release workflow 存在性）
 - 根 AGENTS.md `## Project Profile` 区块

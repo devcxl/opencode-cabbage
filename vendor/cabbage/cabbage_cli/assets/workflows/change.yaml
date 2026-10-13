@@ -1,0 +1,11 @@
+# One change record; specialist documents open only for declared risks.
+record_covers: [product, testing]
+stages:
+  - {id: design, artifact: tech-spec.md, template: tech-spec.md, when: impact.design, required_headings: [Context, Design, Failure Modes, Rollout]}
+  - {id: rfc, artifact: rfc.md, template: rfc.md, when: impact.rfc, required_headings: [Problem, Proposal, Alternatives]}
+  - {id: adr, artifact: adr.md, template: adr.md, when: impact.architecture, required_headings: [Context, Decision, Consequences]}
+  - {id: api, artifact: api-design.md, template: api-design.md, when: impact.api, required_headings: [Contract, Compatibility]}
+  - {id: database, artifact: database-design.md, template: database-design.md, when: impact.database, required_headings: [Schema, Migration, Rollback]}
+  - {id: security, artifact: security-review.md, template: security-review.md, when: impact.security, required_headings: [Threats, Controls]}
+  - {id: release, artifact: release-plan.md, template: release-plan.md, when: impact.deployment, required_headings: [Deployment, Rollback, Verification]}
+  - {id: tasks, artifact: tasks.md, template: change-record.md, depends_on: [design, rfc, adr, api, database, security, release], validator: checklist, required_headings: [Goal, Design, Tasks, Verification]}

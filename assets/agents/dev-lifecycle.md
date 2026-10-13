@@ -107,6 +107,12 @@ permission:
 
 ### 轻量路径执行要点
 
+**统一前置：变更记录（`flow-change`）**。凡涉及代码改动的路径（Bug 修复 / 紧急修复 / 业务调整 /
+重构 / 技术债 / 基础设施），先用内置引擎建立记录：`cabbage({op:"new", type:"change", change:"<slug>"})`，
+随实现更新 `tasks.md`；高风险用 `impact` 标记展开专项文档；验证通过、合并确认后 `op:"archive"`。
+紧急修复同样先建记录（声明 `deployment=true`）。纯文档路径按 `flow-docs` 规范直接改归属文档；
+调研路径不建记录；事故复盘走 `flow-incident`（incident → postmortem → tasks）。
+
 **Bug 修复（Corrective Flow）**
 1. 分诊严重度；创建 goal 绑定 Flow Record，链接导致回归的原 Flow（不改其完成状态）
 2. 建立反馈回路（失败测试/脚本/夹具），确认复现用户描述的**同一**故障

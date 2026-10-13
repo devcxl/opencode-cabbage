@@ -1,6 +1,53 @@
-import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
+
+import { extractAndStripFrontmatter } from "./commands.js"
+import { ensureInstalledDir } from "./install-dir.js"
+
+/** V2 skill 注册条目（ctx.skill.transform add 用） */
+export interface SkillEntry {
+  id: string
+  name: string
+  description?: string
+  /** skill 目录绝对路径（references 等文件按此解析） */
+  path: string
+  /** SKILL.md 全文（模型加载时读取） */
+  content: string
+}
+
+/**
+ * 读取已安装 skills 目录，产出 V2 注册条目。
+ * 跳过 `_prompts` 等以下划线开头的辅助目录；无 SKILL.md 的目录忽略。
+ */
+export async function loadSkillEntries(skillsDir: string): Promise<SkillEntry[]> {
+  const entries: SkillEntry[] = []
+  let dirs
+  try {
+    dirs = await readdir(skillsDir, { withFileTypes: true })
+  } catch {
+    return entries
+  }
+  for (const entry of dirs) {
+    if (!entry.isDirectory() || entry.name.startsWith("_")) continue
+    const dirPath = path.join(skillsDir, entry.name)
+    let content: string
+    try {
+      content = await readFile(path.join(dirPath, "SKILL.md"), "utf8")
+    } catch {
+      continue
+    }
+    const { frontmatter } = extractAndStripFrontmatter(content)
+    entries.push({
+      id: entry.name,
+      name: frontmatter.name || entry.name,
+      ...(frontmatter.description ? { description: frontmatter.description } : {}),
+      path: dirPath,
+      content,
+    })
+  }
+  return entries
+}
 
 /**
  * skills 固定安装路径（按插件版本隔离，skills@<version>）。
@@ -13,26 +60,6 @@ function resolveSkillsPath(version: string): string {
   return path.join(homedir(), ".config", "opencode", "cabbage", `skills@${version}`)
 }
 
-/** 安装锁：mkdir 原子性互斥，防多实例并发 rm+cp 踩踏（超时放弃而非死等） */
-async function acquireLock(lockPath: string, timeoutMs = 10_000): Promise<() => Promise<void>> {
-  await mkdir(path.dirname(lockPath), { recursive: true })
-  const start = Date.now()
-  for (;;) {
-    try {
-      await mkdir(lockPath)
-      return async () => {
-        await rm(lockPath, { recursive: true, force: true }).catch(() => undefined)
-      }
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err
-      if (Date.now() - start > timeoutMs) {
-        throw new Error(`[cabbage] timed out waiting for skills install lock: ${lockPath}`)
-      }
-      await new Promise(r => setTimeout(r, 100))
-    }
-  }
-}
-
 /**
  * 安装目录结构完整（目录列表与源一致）→ 跳过全量重建；否则重建。
  * - 目录带插件版本号（skills@<version>）：升级插件后自动重装新版本内容，
@@ -42,39 +69,21 @@ async function acquireLock(lockPath: string, timeoutMs = 10_000): Promise<() => 
 export async function setupSkillsDir(sourceSkillsDir: string, promptsDir?: string, version = "0.0.0"): Promise<string> {
   const destDir = resolveSkillsPath(version)
 
-  // 已安装且完整（目录列表与源一致）→ 跳过全量重建（防多实例并发踩踏与无谓 IO）
   const sourceDirs = (await readdir(sourceSkillsDir, { withFileTypes: true }))
     .filter(e => e.isDirectory()).map(e => e.name)
-  let installed = false
-  try {
-    const destDirs = (await readdir(destDir, { withFileTypes: true }))
-      .filter(e => e.isDirectory()).map(e => e.name)
-    installed = sourceDirs.every(d => destDirs.includes(d)) && destDirs.length === sourceDirs.length
-  } catch {
-    installed = false
-  }
-
-  if (!installed) {
-    const release = await acquireLock(`${destDir}.lock`)
-    try {
-      // 锁内二次检查：等待期间其它实例可能已装好，避免重复 rm+cp
-      let recheck = false
+  await ensureInstalledDir({
+    sourceDir: sourceSkillsDir,
+    destDir,
+    isComplete: async (dir) => {
       try {
-        const destDirs = (await readdir(destDir, { withFileTypes: true }))
+        const destDirs = (await readdir(dir, { withFileTypes: true }))
           .filter(e => e.isDirectory()).map(e => e.name)
-        recheck = sourceDirs.every(d => destDirs.includes(d)) && destDirs.length === sourceDirs.length
+        return sourceDirs.every(d => destDirs.includes(d)) && destDirs.length === sourceDirs.length
       } catch {
-        recheck = false
+        return false
       }
-      if (!recheck) {
-        await rm(destDir, { recursive: true, force: true })
-        await mkdir(destDir, { recursive: true })
-        await cp(sourceSkillsDir, destDir, { recursive: true })
-      }
-    } finally {
-      await release()
-    }
-  }
+    },
+  })
 
   if (promptsDir) {
     const promptsDest = path.join(destDir, "_prompts")

@@ -85,11 +85,11 @@ describe("loadAgents", () => {
     expect(result[0].color).toBe("#abc")
   })
 
-  it("ignores deprecated tools frontmatter（tools 布尔已废弃）", () => {
-    writeAgent("tools-agent", "primary", "tools:\n  read: true\n  bash: true\n  write: true\n  edit: true")
+  it("parses tools frontmatter（V2 规则转换的输入）", () => {
+    writeAgent("tools-agent", "primary", "tools:\n  read: true\n  bash: true\n  write: false\n  edit: false")
     const result = loadAgents(tmpDir)
     expect(result).toHaveLength(1)
-    expect((result[0] as unknown as Record<string, unknown>).tools).toBeUndefined()
+    expect(result[0].tools).toEqual({ read: true, bash: true, write: false, edit: false })
   })
 
   it("ignores deprecated capabilities frontmatter（capabilities 已废弃）", () => {

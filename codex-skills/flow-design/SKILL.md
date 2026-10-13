@@ -29,6 +29,21 @@ description: 技术方案设计 → 方案文档 + ADR → Planning PR
    ```
 4. **合入基线**：PR 合并后即形成设计基线（Planning Baseline），后续任务拆解以此为前置。
 
+## ADR 内容标准
+
+ADR 是决策记录，不是设计文档。只有改变组件边界、拓扑、关键依赖或数据归属的决策才写 ADR；
+仅实现细节、内部重构、无长期影响的选型不写，记入变更记录即可。
+
+必需标题（工作流逐字校验 `Context` / `Decision` / `Consequences`）：
+
+- `Context`：约束和现状，不写解决方案。
+- `Decision`：选了什么**以及为什么**，列出被否决的备选方案和否决理由。
+- `Consequences`：同时写正面和负面影响，包括引入的运维负担与待办。
+
+需要跨团队评审、方案尚未定案时先写 RFC（`Problem` / `Proposal` / `Alternatives`），评审通过后再落 ADR。
+**已合并的 ADR/RFC 不重命名、不改写**：新决策用新记录显式取代旧的，旧记录保留可追溯。
+完整接口契约进 API 文档、表结构与迁移进数据库文档、测试策略进测试计划——不要塞进 ADR。
+
 ## 设计约束
 
 技术方案必须遵循以下原则：
@@ -73,7 +88,7 @@ Test Seam 应描述公共行为边界，例如 Session API，而不是 `SessionR
 
 ## 存量 Design Amendment
 
-当 tasks、code 或 review 阶段发现旧技术方案缺少 `Testing Decisions` 时，调用方可以在**保持当前 lifecycle stage 不变**的前提下委派 `@agent-architect` 补齐设计：
+当 tasks、code 或 review 阶段发现旧技术方案缺少 `Testing Decisions` 时，调用方可以在**保持当前 lifecycle stage 不变**的前提下委派 `@architect` 补齐设计：
 
 1. 读取 Design Gap、原技术方案、相关 PRD / ADR 与 repository context。
 2. 优先识别仓库已有的公共 Interface 和测试惯例，不为了补字段创建新 Seam。
@@ -82,7 +97,7 @@ Test Seam 应描述公共行为边界，例如 Session API，而不是 `SessionR
 
 如果补齐过程暴露新的架构取舍或多个无法直接判断的 Seam 方案，停止 amendment 并把决策交给用户；不得静默扩大设计。Design Amendment 不回退 goal stage、不重复勾选阶段，也不单独创建新的 lifecycle 状态。
 
-Design Amendment 是兼容子流程，覆盖本 skill 的普通发布流程：不创建 design 分支、Planning PR 或新 ADR。`@agent-architect` 只修改技术方案，primary 负责在当前 stage 保存变更并把补充内容传给后续 agent。
+Design Amendment 是兼容子流程，覆盖本 skill 的普通发布流程：不创建 design 分支、Planning PR 或新 ADR。`@architect` 只修改技术方案，primary 负责在当前 stage 保存变更并把补充内容传给后续 agent。
 
 ## CONTEXT.md 术语
 
@@ -101,7 +116,7 @@ Design Amendment 是兼容子流程，覆盖本 skill 的普通发布流程：�
 ## Contract
 
 ### Trigger
-由 `/design` 命令、`@agent-dev-lifecycle` Phase 1，或存量 Flow 的 Testing Decisions 兼容门触发。
+由 `/design` 命令、`@dev-lifecycle` Phase 1，或存量 Flow 的 Testing Decisions 兼容门触发。
 
 ### Inputs
 - `docs/prd/<title>.md` — 上游 PRD（来源：requirements 阶段产出）

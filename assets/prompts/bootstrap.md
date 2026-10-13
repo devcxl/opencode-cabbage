@@ -14,6 +14,10 @@
 - 新功能/需求：setup → requirements → design → tasks → code → review → release
 - 非功能场景（Bug 修复/紧急修复/业务调整/重构/技术债/基础设施/文档/回滚）：输入 @dev-lifecycle，自动分诊并按对应轻量路径执行
 
+变更记录：任何代码改动先经内置 `cabbage` 工具建立/更新变更记录（flow-change 技能）——
+默认一份 tasks.md（Goal/Design/Tasks/Verification），高风险经 impact 标记展开专项文档，
+验证通过、合并确认后归档并同步 docs/。
+
 阶段契约：每个 stage 的完成权威是 Parent Issue body checklist（`- [x] <stage>`），
 阶段顺序与约束详见 stage-contract。
 

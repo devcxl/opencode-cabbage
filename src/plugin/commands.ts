@@ -7,7 +7,7 @@ import path from "node:path"
  * Frontmatter 是位于文件开头的 --- 包裹的 YAML 格式元数据，
  * 例如：---\ntitle: foo\n---\n正文内容
  */
-function extractAndStripFrontmatter(content: string) {
+export function extractAndStripFrontmatter(content: string) {
   const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/)
   if (!match) return { frontmatter: {} as Record<string, string>, content }
 

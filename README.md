@@ -14,16 +14,30 @@
 
 ---
 
+## OpenCode Compatibility
+
+**Requires OpenCode v2 (tested on v2.0.26).** Version 2.0.0 is a V2-only line built on the `@opencode/plugin` 2.x API (`Plugin.define` setup, domain transforms, turn-end-event driven auto-continuation). OpenCode v1 users should stay on the `1.x` release line.
+
 ## Installation
 
 ```json
 // opencode.json
 {
-  "plugin": ["@devcxl/opencode-cabbage"]
+  "plugins": ["@devcxl/opencode-cabbage"]
 }
 ```
 
-Once started, the plugin automatically injects 7 slash commands, 9 flow skills, 6 agents, and 1 goal tool.
+Once started, the plugin automatically injects 7 slash commands, 12 flow skills, 6 agents, and 2 tools (`goal` for flow state, `cabbage` for change records).
+
+> **⚠️ Plugin conflict — do not combine with other goal plugins.** cabbage ships its own `goal` tool with an auto-continuation loop driven by turn-end events. Installing it together with another goal / auto-continue plugin (e.g. `@prevalentware/opencode-goal-plugin`, `opencode-goal-mode`) risks both loops reacting to the same session activity and injecting continuation prompts: work gets continued twice, continuation counts and token budgets drift out of sync, and abort handling interferes across plugins. Use exactly one goal engine per session — if you rely on an external goal plugin, do not trigger cabbage's goal tool (it is restricted to the `dev-lifecycle` / `goal-verify` agents).
+
+## Built-in change records (Cabbage engine)
+
+The plugin bundles the Cabbage engine (`vendor/cabbage`, version-pinned by `scripts/sync-cabbage.mjs`) and injects a `flow-change` skill plus a `cabbage` tool: create a change record, declare risk flags, verify stages, pass gates, sync current-state docs, and archive after merge. A record is one directory under `.cabbage/changes/<id>/` — a single `tasks.md` by default; specialist documents (`design` / `rfc` / `adr` / `api` / `database` / `security` / `release`) open only for declared risks.
+
+- **Requirements**: Python 3.10+ on the machine. The CLI is released per plugin version to `~/.config/opencode/cabbage/cli@<version>/`; without Python the tool returns a readable error and everything else keeps working.
+- **Bootstrap a project**: `cabbage({op:"init"})` scaffolds `.cabbage/`, the docs skeleton, the CI template, and a vendored CLI copy for GitHub Actions. Existing docs: `cabbage({op:"adopt"})` inventories markdown outside the docs tree (moves stay manual).
+- **Light path**: `new` → fill `tasks.md` → `verify` → `gate merge` → `archive` after the merge is confirmed. The tool is restricted to the `dev-lifecycle` orchestrator.
 
 ## Codex Installation (Compatibility Layer)
 
@@ -68,7 +82,7 @@ Notes:
 npm install @devcxl/opencode-cabbage
 
 # 2. Add the plugin to opencode.json
-# { "plugin": ["@devcxl/opencode-cabbage"] }
+# { "plugins": ["@devcxl/opencode-cabbage"] }
 
 # 3. Run in OpenCode
 # /setup → /requirements → @dev-lifecycle
@@ -82,17 +96,23 @@ npm install @devcxl/opencode-cabbage
 ## Architecture
 
 ```
-src/                          # Thin TypeScript layer
-├── index.ts                  # Plugin entry point
-├── plugin.ts                 # Package root resolution
-├── plugin/                   # Loaders + goal tool
-│   ├── server.ts             # Main factory: injects skills/commands/agents, goal tool, context, auto-continuation
-│   ├── goal.ts               # goal tool (status + goal-verify authorization)
-│   ├── commands.ts           # Command loader
-│   ├── skills.ts             # Skill loader
+src/                          # Thin TypeScript layer (OpenCode V2 plugin)
+├── index.ts                  # Default export (Plugin.define)
+├── plugin.ts                 # Plugin definition: id + setup wiring
+├── plugin/                   # Setup glue + built-in tools
+│   ├── server.ts             # setup(ctx): domain transforms (skills/commands/agents/tools), hooks, event dispatch
+│   ├── continuation.ts       # Turn-end driven continuation + auto-resume + child-session activity tracker
+│   ├── goal.ts               # goal tool (status machine + goal-verify authorization)
+│   ├── goal-store.ts         # Goal persistence (session metadata)
+│   ├── cabbage-cli.ts        # Releases the bundled Cabbage engine per plugin version; python detection + exec
+│   ├── cabbage-tool.ts       # `cabbage` tool: change records (ops mapped to the bundled CLI, agent-gated)
+│   ├── install-dir.ts        # Versioned dir install (lock + completeness check; shared by skills and the engine)
+│   ├── session-abort.ts      # User-interrupt markers (shared by events/tool/continuation)
+│   ├── commands.ts           # Command loader (execute-style registration)
+│   ├── skills.ts             # Skill loader + V2 registration entries
 │   ├── prompts.ts            # Prompt loader
 │   ├── bootstrap.ts          # Startup guidance
-│   ├── agents.ts             # Agent injection
+│   ├── agents.ts             # Agent loader + V1→V2 permission/tools rule conversion
 │   ├── shell.ts              # Agent shell env isolation
 │   └── prompt-lint.ts        # Prompt asset consistency checks
 └── kernel/                   # Minimal supporting modules
@@ -102,9 +122,11 @@ src/                          # Thin TypeScript layer
     ├── permission.ts         # Permission matching semantics
     └── mutex.ts              # Keyed async mutex
 
+vendor/cabbage/               # Bundled Cabbage engine (synced via scripts/sync-cabbage.mjs; hash-pinned)
+
 assets/                       # Runtime assets (pure Prompt flows)
 ├── commands/                 # 7 slash commands
-├── skills/                   # 9 flow-* skills (Prompt-driven, direct git/gh)
+├── skills/                   # 12 flow-* skills (Prompt-driven, direct git/gh)
 ├── agents/                   # 6 agent definitions
 └── prompts/                  # Guidance prompts and templates
 

@@ -9,7 +9,7 @@
 ```json
 // opencode.json
 {
-  "plugin": ["@devcxl/opencode-cabbage"]
+  "plugins": ["@devcxl/opencode-cabbage"]
 }
 ```
 
@@ -19,28 +19,26 @@
 
 ```json
 {
-  "plugin": ["@devcxl/opencode-cabbage"],
-  "command": {
-    "/my-custom-requirements": {
+  "plugins": ["@devcxl/opencode-cabbage"],
+  "commands": {
+    "my-custom-requirements": {
       "template": "自定义需求分析模板...",
       "description": "自定义需求命令"
     }
   },
-  "agent": {
+  "agents": {
     "architect": {
       "description": "自定义架构师",
       "mode": "subagent",
       "color": "#ff5722",
-      "prompt": "自定义 prompt..."
+      "system": "自定义 prompt..."
     }
   },
-  "skills": {
-    "paths": ["./my-custom-skills"]
-  }
+  "skills": ["./my-custom-skills"]
 }
 ```
 
-> 插件不会覆盖已存在的配置 — 如果你在 `opencode.json` 中定义了同名 command 或 agent，插件的注入将被跳过。
+> 插件不会覆盖用户已存在的同名 agent（缺位才注册）。command 注册在 OpenCode V2 中为 transform 式（无同名跳过能力），自定义同名命令可能被插件注册覆盖——建议使用不同名称。
 
 ## 插件自动注入的配置
 
@@ -58,7 +56,7 @@
 
 每个 command 对应一个 `flow-*` skill，定义在 `assets/skills/` 目录中；所有命令共享单一 Stage contract（`assets/prompts/stage-contract.md`）。
 
-### 5 个 Agent
+### 6 个 Agent
 
 | Agent | 模式 | 角色 |
 |-------|------|------|
@@ -66,26 +64,31 @@
 | `@architect` | subagent | 架构设计、技术方案、DAG 拆解（只写 docs/assets） |
 | `@developer` | subagent | 技术栈无关代码 TDD 实现（worktree 内开发，不 push） |
 | `@reviewer` | subagent | 只读代码审查，输出结构化报告 |
+| `@researcher` | subagent | 独立调研与事实核查（产出带引用的调研文档） |
 | `@goal-verify` | subagent | 独立验证 Flow 完成状态（唯一可 complete goal） |
 
-### 8 个 Flow Skills
+### 12 个 Flow Skills
 
 | Skill | 对应命令 | 用途 |
 |-------|---------|------|
-| `flow-setup` | `/setup` | 环境初始化 + Profile 确认 |
+| `flow-setup` | `/setup` | 环境初始化 + Profile 确认 + 存量文档接入（adopt） |
 | `flow-requirements` | `/requirements` | 需求分析 |
-| `flow-design` | `/design` | 技术设计 |
+| `flow-design` | `/design` | 技术设计 + ADR/RFC 内容标准 |
 | `flow-tasks` | `/tasks` | 任务拆解 |
 | `flow-code` | `/code` | 编码实现 |
 | `flow-tdd` | — | TDD 协议唯一来源（advisory，self-report） |
 | `flow-review` | `/review` | 代码审查 |
 | `flow-release` | `/release` | 发布 |
+| `flow-research` | — | 调研与事实核查（由 @researcher 加载） |
+| `flow-change` | — | 变更记录：tasks + 专项文档 → 验证/门禁/归档（内置 Cabbage 引擎） |
+| `flow-incident` | — | 事故复盘：incident → postmortem → 预防措施落地 |
+| `flow-docs` | — | 当前状态文档治理：编号目录、链接、图表、站点 |
 
-Skills 被复制到固定目录（`~/.config/opencode/cabbage/skills`）中运行，不会污染项目目录。
+Skills 安装到固定目录（`~/.config/opencode/cabbage/skills@<version>/`，按插件版本隔离），并通过 V2 原生 skill 注册（references 相对路径随目录解析），不会污染项目目录。
 
-### 1 个工具：goal
+### 2 个工具：goal 与 cabbage
 
-插件只注册一个工具 `goal`，用于会话级 Flow 状态跟踪：
+插件注册两个工具。`goal` 用于会话级 Flow 状态跟踪：
 
 | op | 说明 |
 |----|------|
@@ -96,6 +99,22 @@ Skills 被复制到固定目录（`~/.config/opencode/cabbage/skills`）中运�
 | `complete` | 标记完成（仅 `goal-verify` 可调用） |
 
 目标与验收标准从 Parent Issue body 读取，不存储在 goal 中。
+
+`cabbage` 用于变更记录（内置 Cabbage 引擎，需机器具备 Python 3.10+），仅 `dev-lifecycle` 可调用：
+
+| op | 说明 |
+|----|------|
+| `init` | 初始化 `.cabbage/`（工作流、CI 模板、vendored CLI） |
+| `adopt` | 盘点 docs 树之外的 Markdown → `.cabbage/adoption-report.md`（只读盘点，迁移手动） |
+| `new` | 创建记录（`type`: change / incident） |
+| `status` / `next` | 记录列表 / 阶段就绪与阻塞 |
+| `impact` | 声明风险标记（design/rfc/adr/api/database/security/deployment） |
+| `verify` / `gate` | 阶段验证 / 门禁（阶段 ID、merge、archive） |
+| `validate` | 结构校验 |
+| `sync` / `archive` | 同步当前文档 / 收尾归档 |
+| `tasks` / `discard` | 任务清单视图 / 废弃记录 |
+
+`archive` 不检查 Git 合并状态，须人工确认合并后执行；`change.yaml` 与 `state.json` 由 CLI 管理，不得手工编辑。
 
 ## 阶段契约
 

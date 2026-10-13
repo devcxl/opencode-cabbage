@@ -14,16 +14,30 @@
 
 ---
 
+## OpenCode 兼容性
+
+> **要求 OpenCode v2（已在 v2.0.26 实测）。** 2.0.0 为 V2-only 版本线，基于 `@opencode/plugin` 2.x（`Plugin.define` 入口、域 transform、轮次结束事件驱动的自动续接）。OpenCode v1 用户请继续使用 `1.x` 版本线。
+
 ## 安装
 
 ```json
 // opencode.json
 {
-  "plugin": ["@devcxl/opencode-cabbage"]
+  "plugins": ["@devcxl/opencode-cabbage"]
 }
 ```
 
-插件启动后自动注入 7 个 slash command、9 个 flow skill、6 个 agent 与 1 个 goal 工具。
+插件启动后自动注入 7 个 slash command、12 个 flow skill、6 个 agent 与 2 个工具（`goal` 管流程状态、`cabbage` 管变更记录）。
+
+> **⚠️ 插件冲突——不要与其他 goal 插件同时安装。** cabbage 自带 `goal` 工具与轮次结束事件驱动的自动续接循环。若与其他 goal / 自动续接类插件（如 `@prevalentware/opencode-goal-plugin`、`opencode-goal-mode`）同时安装，存在双方同时响应会话活动并注入续接 prompt 的风险：任务被重复续接、续接计数与 token 预算互不同步、abort 处理互相干扰。同一会话只能保留一个 goal 引擎——若使用外部 goal 插件，请勿触发 cabbage 的 goal 工具（仅 `dev-lifecycle` / `goal-verify` agent 可调用）。
+
+## 内置变更记录（Cabbage 引擎）
+
+插件捆绑 Cabbage 引擎（`vendor/cabbage`，由 `scripts/sync-cabbage.mjs` 固定版本生成），并注入 `flow-change` 技能与 `cabbage` 工具：创建变更记录、声明风险标记、验证阶段、通过门禁、同步当前文档、合并确认后归档。一份记录 = `.cabbage/changes/<id>/` 一个目录：默认只有 `tasks.md`；专项文档（`design` / `rfc` / `adr` / `api` / `database` / `security` / `release`）仅在声明风险时展开。
+
+- **运行要求**：机器需 Python 3.10+。CLI 按插件版本释放到 `~/.config/opencode/cabbage/cli@<version>/`；缺 Python 时工具返回明确错误，其余功能不受影响。
+- **项目接入**：`cabbage({op:"init"})` 生成 `.cabbage/`、docs 骨架、CI 模板与供 GitHub Actions 使用的 vendored CLI。
+- **轻量路径**：`new` → 填写 `tasks.md` → `verify` → `gate merge` → 合并确认后 `archive`。工具仅 `dev-lifecycle` 编排器可用。
 
 ## 命令一览
 
@@ -44,7 +58,7 @@
 npm install @devcxl/opencode-cabbage
 
 # 2. 在 opencode.json 中添加
-# { "plugin": ["@devcxl/opencode-cabbage"] }
+# { "plugins": ["@devcxl/opencode-cabbage"] }
 
 # 3. 在 OpenCode 中执行
 # /setup → /requirements → @dev-lifecycle
@@ -61,9 +75,12 @@ npm install @devcxl/opencode-cabbage
 src/                          # TypeScript 薄层
 ├── index.ts                  # 插件入口
 ├── plugin.ts                 # 包路径解析
-├── plugin/                   # 加载器 + goal 工具
-│   ├── server.ts             # 主工厂：注入 skills/commands/agents、goal 工具、Context、自动续接
+├── plugin/                   # 加载器 + 内置工具
+│   ├── server.ts             # 主工厂：注入 skills/commands/agents/tools、Context、自动续接
 │   ├── goal.ts               # goal 工具（状态管理 + goal-verify 授权）
+│   ├── cabbage-cli.ts        # 释放捆绑 Cabbage 引擎（按版本隔离）+ python 探测与执行
+│   ├── cabbage-tool.ts       # `cabbage` 工具：变更记录全流程（agent 门控）
+│   ├── install-dir.ts        # 版本化目录安装（锁 + 完整性校验，skills 与引擎共用）
 │   ├── commands.ts           # Command 加载器
 │   ├── skills.ts             # Skill 加载器
 │   ├── prompts.ts            # Prompt 加载器

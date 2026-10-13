@@ -171,6 +171,7 @@ describe("skills convergence (R12, §6.2)", () => {
   const EXPECTED_SKILLS = [
     "flow-setup", "flow-requirements", "flow-design", "flow-tasks",
     "flow-code", "flow-tdd", "flow-review", "flow-release", "flow-research",
+    "flow-change", "flow-incident", "flow-docs",
   ]
 
   // 已删除的生命周期工具（skill 不得再引用）
@@ -183,7 +184,7 @@ describe("skills convergence (R12, §6.2)", () => {
       .map(d => d.name)
   }
 
-  it("exactly 9 skills exist, no flow-handoff / flow-test", () => {
+  it("exactly 12 skills exist, no flow-handoff / flow-test", () => {
     const dirs = listSkillDirs()
     expect(dirs.sort()).toEqual([...EXPECTED_SKILLS].sort())
   })

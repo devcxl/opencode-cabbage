@@ -1,132 +1,49 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { mkdtemp, writeFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-const mockSessionGet = vi.fn()
-const mockPromptAsync = vi.fn()
-const mockSessionChildren = vi.fn()
-const mockSessionStatus = vi.fn()
-const mockSessionMessages = vi.fn()
-const mockSessionUpdate = vi.fn()
-
-/** 完成态的 assistant 消息：queueContinuation 的尾部检查/记账/续接依赖 */
-const COMPLETED_ASSISTANT = {
-  info: {
-    id: "msg-1",
-    role: "assistant",
-    time: { completed: 2 },
-    providerID: "provider",
-    modelID: "model",
-    tokens: { input: 1, output: 1, cache: { read: 0 } },
-  },
-  parts: [{ type: "text", text: "工作完成。" }],
-}
-
-vi.mock("../../src/plugin/goal.js", async () => {
-  const actual = await vi.importActual("../../src/plugin/goal.js")
-  return {
-    ...actual,
-    createGoalClient: () => ({
-      session: {
-        // 每次调用深拷贝返回值，防止 queueContinuation 原地修改 goal 污染共享常量
-        get: async (...args: unknown[]) => {
-          const r = await mockSessionGet(...args)
-          return JSON.parse(JSON.stringify(r))
-        },
-        update: (...args: unknown[]) => mockSessionUpdate(...args),
-        promptAsync: (...args: unknown[]) => mockPromptAsync(...args),
-        // queueContinuation 新增检查依赖：子会话活动闸 + 尾部静默/记账
-        children: (...args: unknown[]) => mockSessionChildren(...args),
-        status: (...args: unknown[]) => mockSessionStatus(...args),
-        messages: (...args: unknown[]) => mockSessionMessages(...args),
-      },
-    }),
-  }
-})
-
-import { createOpencodeCabbage, buildFirstUserInjection } from "../../src/plugin/server.js"
+import { buildFirstUserInjection } from "../../src/plugin/server.js"
 import { resetContextCache, CONTEXT_MARKER } from "../../src/kernel/context.js"
+import { makeHarness, waitFor, flush } from "./harness.js"
+import type { Harness } from "./harness.js"
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
-const ACTIVE_GOAL = {
-  data: {
-    parentID: null,
-    metadata: {
-      goal: { parentIssueNumber: 42, status: "active", continuationCount: 0 },
-    },
-  },
-}
-const PAUSED_GOAL = {
-  data: {
-    parentID: null,
-    metadata: {
-      goal: { parentIssueNumber: 42, status: "paused", continuationCount: 3 },
-    },
-  },
-}
-const SUBAGENT_SESSION = { data: { parentID: "parent-1", metadata: {} } }
-const PLAIN_SESSION = { data: { parentID: null, metadata: {} } }
-
-type Transform = (input: unknown, output: { messages: unknown[] }) => Promise<void>
-type EventHook = (input: { event: unknown }) => Promise<void>
 
 let tmpDir: string
-let transform: Transform
-let event: EventHook
-
-/** 等待 fire-and-forget 的 queueContinuation 完成（轮询而非固定延时，避免全量并发抖动） */
-async function waitForContinuation() {
-  for (let i = 0; i < 50; i++) {
-    await new Promise(r => setTimeout(r, 20))
-    if (mockPromptAsync.mock.calls.length > 0) return
-  }
-}
-
-async function makeOutput(sessionID = "sess-1", text = "hello") {
-  return {
-    messages: [
-      { info: { role: "user", sessionID }, parts: [{ type: "text", text }] },
-    ],
-  }
-}
-
-/** 深拷贝避免 queueContinuation 修改共享常量（goal 对象被原地改 status/count） */
-function goalSession(goal: unknown) {
-  return JSON.parse(JSON.stringify(goal))
-}
+let harness: Harness
 
 beforeEach(async () => {
   tmpDir = await mkdtemp(path.join(os.tmpdir(), "cabbage-server-context-"))
   resetContextCache()
   process.env.CABBAGE_SKILLS_DIR = path.join(tmpDir, "skills")
-  mockSessionGet.mockReset()
-  mockPromptAsync.mockReset()
-  mockSessionChildren.mockReset()
-  mockSessionStatus.mockReset()
-  mockSessionMessages.mockReset()
-  mockSessionUpdate.mockReset()
-  // 默认：无子会话、全部空闲、尾部为完成态 assistant（续接可正常通过全部新检查）
-  mockSessionChildren.mockResolvedValue({ data: [] })
-  mockSessionStatus.mockResolvedValue({ data: {} })
-  mockSessionMessages.mockResolvedValue({ data: [JSON.parse(JSON.stringify(COMPLETED_ASSISTANT))] })
-
-  const ctx = {
-    worktree: tmpDir,
-    directory: tmpDir,
-    client: { _client: { getConfig: () => ({}) } },
-    serverUrl: new URL("http://localhost:0"),
-  }
-  const plugin = await createOpencodeCabbage(projectRoot)(ctx as never, {})
-  transform = plugin["experimental.chat.messages.transform"] as Transform
-  event = plugin.event as EventHook
+  harness = await makeHarness(tmpDir, projectRoot)
 })
 
 afterEach(async () => {
+  harness.cleanup()
   resetContextCache()
   delete process.env.CABBAGE_SKILLS_DIR
   await rm(tmpDir, { recursive: true, force: true })
+})
+
+describe("setup — 资产注册", () => {
+  it("注册全部 flow skills / commands / goal 工具", () => {
+    const skillIds = harness.skillAdds.map((s) => s.id)
+    expect(skillIds).toContain("flow-setup")
+    expect(skillIds).toContain("flow-review")
+    expect(skillIds.length).toBeGreaterThanOrEqual(9)
+    expect(harness.commandAdds.map((c) => c.name).sort()).toEqual(
+      ["code", "design", "release", "requirements", "review", "setup", "tasks"].sort(),
+    )
+    const toolNames = harness.toolAdds.map((t) => t.name).sort()
+    expect(toolNames).toEqual(["cabbage", "goal"])
+    const goalTool = harness.toolAdds.find((t) => t.name === "goal")!
+    expect((goalTool.options as { permission?: string })?.permission).toBe("goal")
+    const cabbageTool = harness.toolAdds.find((t) => t.name === "cabbage")!
+    expect((cabbageTool.options as { permission?: string })?.permission).toBe("cabbage")
+  })
 })
 
 describe("buildFirstUserInjection — 注入决策", () => {
@@ -167,28 +84,26 @@ describe("buildFirstUserInjection — 注入决策", () => {
   })
 })
 
-describe("message.transform — 注入接线", () => {
-  it("Primary 首消息注入 bootstrap + Project Context 块", async () => {
+describe("context hook — 注入接线", () => {
+  const makeSystemEvent = (sessionID = "sess-1") => ({ sessionID, agent: "dev-lifecycle", system: [] as Array<{ type: string; text: string }> })
+
+  it("goal 会话注入 bootstrap + Project Context 块", async () => {
     await writeFile(path.join(tmpDir, "CONTEXT.md"), "## Terms\n- user\n", "utf8")
-    mockSessionGet.mockResolvedValue(ACTIVE_GOAL)
-
-    const output = await makeOutput()
-    await transform({}, output)
-
-    const text = (output.messages[0].parts[0] as { text: string }).text
+    harness.sessions.get("sess-1")!.metadata = { goal: { parentIssueNumber: 42, status: "active", continuationCount: 0 } }
+    const event = makeSystemEvent()
+    await harness.sessionHooks.get("context")!(event)
+    const text = event.system.map((p) => p.text).join("\n")
     expect(text).toContain("EXTREMELY_IMPORTANT")
     expect(text).toContain("Project Context (auto-injected)")
     expect(text).toContain(CONTEXT_MARKER)
   })
 
-  it("子 agent 首消息注入 Project Context 块（无 bootstrap）", async () => {
+  it("子 agent 注入 Project Context 块（无 bootstrap）", async () => {
     await writeFile(path.join(tmpDir, "CONTEXT.md"), "## Terms\n- agent\n", "utf8")
-    mockSessionGet.mockResolvedValue(SUBAGENT_SESSION)
-
-    const output = await makeOutput()
-    await transform({}, output)
-
-    const text = (output.messages[0].parts[0] as { text: string }).text
+    harness.sessions.set("sess-child", { parentID: "sess-1", metadata: {}, messages: [] })
+    const event = makeSystemEvent("sess-child")
+    await harness.sessionHooks.get("context")!(event)
+    const text = event.system.map((p) => p.text).join("\n")
     expect(text).toContain("Project Context (auto-injected)")
     expect(text).toContain(CONTEXT_MARKER)
     expect(text).not.toContain("EXTREMELY_IMPORTANT")
@@ -196,164 +111,140 @@ describe("message.transform — 注入接线", () => {
 
   it("goal 未激活且非子 agent 不注入", async () => {
     await writeFile(path.join(tmpDir, "CONTEXT.md"), "## Terms\n- user\n", "utf8")
-    mockSessionGet.mockResolvedValue(PLAIN_SESSION)
-
-    const output = await makeOutput()
-    await transform({}, output)
-
-    expect(output.messages[0].parts).toHaveLength(1)
-    expect((output.messages[0].parts[0] as { text: string }).text).toBe("hello")
+    const event = makeSystemEvent()
+    await harness.sessionHooks.get("context")!(event)
+    expect(event.system).toHaveLength(0)
   })
 
-  it("CONTEXT.md 缺失时不报错，Primary 仍注入 bootstrap", async () => {
-    mockSessionGet.mockResolvedValue(ACTIVE_GOAL)
-
-    const output = await makeOutput()
-    await transform({}, output)
-
-    const text = (output.messages[0].parts[0] as { text: string }).text
+  it("CONTEXT.md 缺失时不报错，goal 会话仍注入 bootstrap", async () => {
+    harness.sessions.get("sess-1")!.metadata = { goal: { parentIssueNumber: 42, status: "active", continuationCount: 0 } }
+    const event = makeSystemEvent()
+    await harness.sessionHooks.get("context")!(event)
+    const text = event.system.map((p) => p.text).join("\n")
     expect(text).toContain("EXTREMELY_IMPORTANT")
     expect(text).not.toContain(CONTEXT_MARKER)
   })
 
-  it("已含注入 marker 的会话不重复注入", async () => {
-    await writeFile(path.join(tmpDir, "CONTEXT.md"), "## Terms\n- user\n", "utf8")
-    mockSessionGet.mockResolvedValue(ACTIVE_GOAL)
-
-    const output = await makeOutput("sess-1", `already injected <!-- ${CONTEXT_MARKER} -->`)
-    await transform({}, output)
-
-    expect(output.messages[0].parts).toHaveLength(1)
+  it("system 已含注入 marker 时不重复注入（幂等）", async () => {
+    harness.sessions.get("sess-1")!.metadata = { goal: { parentIssueNumber: 42, status: "active", continuationCount: 0 } }
+    const event = makeSystemEvent()
+    event.system.push({ type: "text", text: `already injected <!-- ${CONTEXT_MARKER} -->` })
+    await harness.sessionHooks.get("context")!(event)
+    expect(event.system).toHaveLength(1)
   })
 })
 
-describe("event handler — idle 自动续接", () => {
-  it("active goal idle → 注入 continuation prompt（promptAsync 调用一次）", async () => {
-    mockSessionGet.mockResolvedValue(ACTIVE_GOAL)
-    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-1" } } })
-    // 等待 fire-and-forget 的 queueContinuation 完成
-    await waitForContinuation()
-    expect(mockPromptAsync).toHaveBeenCalledTimes(1)
-    const call = mockPromptAsync.mock.calls[0][0]
+describe("event handler — execution.succeeded 自动续接", () => {
+  const activeGoal = () => ({ goal: { parentIssueNumber: 42, status: "active", continuationCount: 0 } })
+
+  it("active goal 轮次结束 → 注入 continuation prompt（synthetic 一次）", async () => {
+    harness.sessions.get("sess-1")!.metadata = activeGoal()
+    harness.eventStream.push({ type: "session.execution.succeeded", id: "ev-1", data: { sessionID: "sess-1" } })
+    await waitFor(() => harness.sessionApi.synthetic.mock.calls.length > 0)
+    const call = harness.sessionApi.synthetic.mock.calls[0][0] as { sessionID: string; text: string }
     expect(call.sessionID).toBe("sess-1")
-    expect(call.parts[0].text).toContain("#42")
+    expect(call.text).toContain("#42")
   })
 
-  it("子 agent（parentID）idle → 不续接", async () => {
-    mockSessionGet.mockResolvedValue(SUBAGENT_SESSION)
-    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-child" } } })
-    await waitForContinuation()
-    expect(mockPromptAsync).not.toHaveBeenCalled()
+  it("子 agent（parentID）轮次结束 → 不续接", async () => {
+    harness.sessions.set("sess-child", { parentID: "sess-1", metadata: activeGoal(), messages: [structuredClone({ type: "assistant", id: "m", time: { created: 1, completed: 2 }, content: [] })] })
+    harness.eventStream.push({ type: "session.execution.succeeded", id: "ev-2", data: { sessionID: "sess-child" } })
+    await flush()
+    expect(harness.sessionApi.synthetic).not.toHaveBeenCalled()
   })
 
-  it("无 goal idle → 不续接", async () => {
-    mockSessionGet.mockResolvedValue(PLAIN_SESSION)
-    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-1" } } })
-    await waitForContinuation()
-    expect(mockPromptAsync).not.toHaveBeenCalled()
+  it("无 goal → 不续接", async () => {
+    harness.eventStream.push({ type: "session.execution.succeeded", id: "ev-3", data: { sessionID: "sess-1" } })
+    await flush()
+    expect(harness.sessionApi.synthetic).not.toHaveBeenCalled()
   })
 
-  it("paused goal idle → 不续接", async () => {
-    mockSessionGet.mockResolvedValue(PAUSED_GOAL)
-    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-1" } } })
-    await waitForContinuation()
-    expect(mockPromptAsync).not.toHaveBeenCalled()
+  it("paused goal → 不续接", async () => {
+    harness.sessions.get("sess-1")!.metadata = { goal: { parentIssueNumber: 42, status: "paused", continuationCount: 3 } }
+    harness.eventStream.push({ type: "session.execution.succeeded", id: "ev-4", data: { sessionID: "sess-1" } })
+    await flush()
+    expect(harness.sessionApi.synthetic).not.toHaveBeenCalled()
   })
 
   it("continuationCount 达上限 → 置 paused，不续接", async () => {
-    mockSessionGet.mockResolvedValue({
-      data: {
-        parentID: null,
-        metadata: { goal: { parentIssueNumber: 42, status: "active", continuationCount: 50 } },
-      },
+    harness.sessions.get("sess-1")!.metadata = { goal: { parentIssueNumber: 42, status: "active", continuationCount: 50 } }
+    harness.eventStream.push({ type: "session.execution.succeeded", id: "ev-5", data: { sessionID: "sess-1" } })
+    await waitFor(() => {
+      const g = harness.sessions.get("sess-1")!.metadata.goal as { status?: string } | undefined
+      return g?.status === "paused"
     })
-    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-1" } } })
-    await waitForContinuation()
-    expect(mockPromptAsync).not.toHaveBeenCalled()
+    expect(harness.sessionApi.synthetic).not.toHaveBeenCalled()
   })
 
-  it("并发两个 idle 事件 → 仅一次 promptAsync（continuationInFlight 防重入）", async () => {
-    mockSessionGet.mockResolvedValue(ACTIVE_GOAL)
-    await Promise.all([
-      event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-1" } } }),
-      event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-1" } } }),
-    ])
-    await waitForContinuation()
-    expect(mockPromptAsync).toHaveBeenCalledTimes(1)
+  it("重复 succeeded 事件在合成消息入队后不再二次续接（尾部队列防重入）", async () => {
+    harness.sessions.get("sess-1")!.metadata = activeGoal()
+    harness.eventStream.push({ type: "session.execution.succeeded", id: "ev-6", data: { sessionID: "sess-1" } })
+    await waitFor(() => harness.sessionApi.synthetic.mock.calls.length > 0)
+    harness.eventStream.push({ type: "session.execution.succeeded", id: "ev-7", data: { sessionID: "sess-1" } })
+    await flush()
+    expect(harness.sessionApi.synthetic).toHaveBeenCalledTimes(1)
   })
 })
 
-describe("event handler — message.updated 重置计数", () => {
-  it("用户消息 → continuationCount 重置为 0", async () => {
-    mockSessionGet.mockResolvedValue({
-      data: {
-        parentID: null,
-        metadata: { goal: { parentIssueNumber: 42, status: "active", continuationCount: 7 } },
-      },
+describe("event handler — inbox user 重置计数", () => {
+  it("用户消息 → continuationCount 重置为 0 并刷新 profile", async () => {
+    harness.sessions.get("sess-1")!.metadata = { goal: { parentIssueNumber: 42, status: "active", continuationCount: 7 } }
+    harness.sessions.get("sess-1")!.agent = "dev-lifecycle"
+    harness.eventStream.push({
+      type: "session.inbox.enqueued",
+      id: "ev-8",
+      data: { sessionID: "sess-1", inboxID: "inb-1", item: { type: "user" } },
     })
-    await event({
-      event: {
-        type: "message.updated",
-        properties: { sessionID: "sess-1", info: { role: "user", agent: "dev-lifecycle" } },
-      },
+    await waitFor(() => {
+      const g = harness.sessions.get("sess-1")!.metadata.goal as { continuationCount?: number } | undefined
+      return g?.continuationCount === 0
     })
-    // writeGoal 调用 session.update
-    expect(mockSessionGet).toHaveBeenCalled()
+    const goal = harness.sessions.get("sess-1")!.metadata.goal as { sessionProfile?: { agent?: string } }
+    expect(goal.sessionProfile?.agent).toBe("dev-lifecycle")
   })
 
-  it("续接 in-flight 时的用户消息不重置（continuationInFlight 保护）", async () => {
-    mockSessionGet.mockResolvedValue(ACTIVE_GOAL)
-    // 先触发续接（进入 in-flight）
-    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-1" } } })
-    // 立即用户消息（仍在 in-flight 窗口）
-    await event({
-      event: {
-        type: "message.updated",
-        properties: { sessionID: "sess-1", info: { role: "user", agent: "dev-lifecycle" } },
-      },
+  it("synthetic（非用户）入队不重置计数", async () => {
+    harness.sessions.get("sess-1")!.metadata = { goal: { parentIssueNumber: 42, status: "active", continuationCount: 7 } }
+    harness.eventStream.push({
+      type: "session.inbox.enqueued",
+      id: "ev-9",
+      data: { sessionID: "sess-1", inboxID: "inb-2", item: { type: "synthetic" } },
     })
-    await waitForContinuation()
-    // 续接正常发生一次
-    expect(mockPromptAsync).toHaveBeenCalledTimes(1)
+    await flush()
+    const goal = harness.sessions.get("sess-1")!.metadata.goal as { continuationCount?: number }
+    expect(goal.continuationCount).toBe(7)
   })
 })
 
-describe("event handler — session.error abort 标记", () => {
-  it("MessageAbortedError → 立即持久化 paused（不依赖后续 idle/内存标记），idle 不续接", async () => {
-    mockSessionGet.mockResolvedValue(ACTIVE_GOAL)
-    await event({
-      event: {
-        type: "session.error",
-        properties: { sessionID: "sess-abort-1", error: { name: "MessageAbortedError" } },
-      },
+describe("event handler — execution.interrupted 中断暂停", () => {
+  it.each(["user", "shutdown"])("reason=%s → 立即持久化 paused，后续轮次结束不续接", async (reason) => {
+    harness.sessions.get("sess-1")!.metadata = { goal: { parentIssueNumber: 42, status: "active", continuationCount: 1 } }
+    harness.eventStream.push({
+      type: "session.execution.interrupted",
+      id: "ev-10",
+      data: { sessionID: "sess-1", reason },
     })
-    // 等 fire-and-forget 的 abort pause 完成
-    await new Promise(r => setTimeout(r, 50))
-    // abort 事件本身即把 goal 置 paused 并持久化（插件重启/标记清理后不丢失）
-    const abortUpdate = mockSessionUpdate.mock.calls.at(-1)?.[0] as {
-      sessionID: string
-      metadata: { goal: { status: string; statusReason: string } }
-    }
-    expect(abortUpdate?.sessionID).toBe("sess-abort-1")
-    expect(abortUpdate.metadata.goal.status).toBe("paused")
-    expect(abortUpdate.metadata.goal.statusReason).toBe("aborted by user")
+    await waitFor(() => {
+      const g = harness.sessions.get("sess-1")!.metadata.goal as { status?: string } | undefined
+      return g?.status === "paused"
+    })
+    const goal = harness.sessions.get("sess-1")!.metadata.goal as { statusReason?: string }
+    expect(goal.statusReason).toBe("aborted by user")
 
-    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-abort-1" } } })
-    // 等 fire-and-forget 的 queueContinuation 完全结束（含 abort 分支），避免异步泄漏到下一测试
-    await new Promise(r => setTimeout(r, 50))
-    expect(mockPromptAsync).not.toHaveBeenCalled()
+    harness.eventStream.push({ type: "session.execution.succeeded", id: "ev-11", data: { sessionID: "sess-1" } })
+    await flush()
+    expect(harness.sessionApi.synthetic).not.toHaveBeenCalled()
   })
 
-  it("非 MessageAbortedError → 不标记 abort，idle 正常续接", async () => {
-    mockSessionGet.mockResolvedValue(ACTIVE_GOAL)
-    await event({
-      event: {
-        type: "session.error",
-        properties: { sessionID: "sess-abort-2", error: { name: "SomeOtherError" } },
-      },
+  it("非用户原因（superseded）→ 不暂停，轮次结束正常续接", async () => {
+    harness.sessions.get("sess-1")!.metadata = { goal: { parentIssueNumber: 42, status: "active", continuationCount: 0 } }
+    harness.eventStream.push({
+      type: "session.execution.interrupted",
+      id: "ev-12",
+      data: { sessionID: "sess-1", reason: "superseded" },
     })
-    await event({ event: { type: "session.status", properties: { status: { type: "idle" }, sessionID: "sess-abort-2" } } })
-    await waitForContinuation()
-    expect(mockPromptAsync).toHaveBeenCalledTimes(1)
+    harness.eventStream.push({ type: "session.execution.succeeded", id: "ev-13", data: { sessionID: "sess-1" } })
+    await waitFor(() => harness.sessionApi.synthetic.mock.calls.length > 0)
+    expect(harness.sessionApi.synthetic).toHaveBeenCalledTimes(1)
   })
 })

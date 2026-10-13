@@ -245,6 +245,9 @@ export async function setupCabbage(ctx: Context, packageRoot: string): Promise<(
   })
 
   // ── agents：缺失则新增（保留用户已存在的同名 agent），并为所有 agent 装配 goal 权限规则 ──
+  // 依赖 editor.update 对缺失 id 的 upsert 语义（新增 agent）：该语义未见于 V2 文档，
+  // 是 v2.0.16 / v2.0.26 的实测行为，单测按同语义锁定 mock。若宿主改为忽略缺失 id，
+  // 下方注册校验会告警（可观测）。决策与替代方案见 ADR 0010。
   await ctx.agent.transform((editor) => {
     for (const payload of agentPayloads) {
       if (editor.get(payload.key)) continue
@@ -274,6 +277,21 @@ export async function setupCabbage(ctx: Context, packageRoot: string): Promise<(
       })
     }
   })
+
+  // 注册校验：自有 agent 必须全部出现在宿主注册表中（兜住 upsert 语义变化的宿主升级）
+  try {
+    const registered = await ctx.agent.list()
+    const registeredIDs = new Set((registered?.data ?? []).map((agent) => String(agent.id)))
+    const missing = agentPayloads.map((payload) => payload.key).filter((key) => !registeredIDs.has(key))
+    if (missing.length > 0) {
+      console.warn(
+        `[cabbage] agent registration incomplete (missing: ${missing.join(", ")}); ` +
+        "the host may have changed the undocumented update-upsert semantics (see ADR 0010)",
+      )
+    }
+  } catch (err) {
+    console.warn("[cabbage] agent registration verification failed:", (err as Error | null)?.message ?? err)
+  }
 
   // ── goal 工具与内置 cabbage 引擎：JSON Schema 输入 + permission gating + 工具内授权自检 ──
   await ctx.tool.transform((editor) => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { mkdtemp, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -194,5 +194,32 @@ describe("server agent transform — goal 权限装配", () => {
     const input = goalTool.input as { type?: string; required?: string[] }
     expect(input.type).toBe("object")
     expect(input.required).toEqual(["op"])
+  })
+})
+
+describe("server agent 注册校验护栏 — 宿主 upsert 语义变化可观测", () => {
+  let tmpDir: string
+  let warnSpy: ReturnType<typeof vi.spyOn>
+  let harness: Harness
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(path.join(os.tmpdir(), "cabbage-agent-guard-"))
+    process.env.CABBAGE_SKILLS_DIR = path.join(tmpDir, "skills")
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    // 模拟宿主忽略「缺失 id 的 update」：注册校验必须报出缺失告警，而非静默通过
+    harness = await makeHarness(tmpDir, projectRoot, { agentUpsert: false })
+  })
+
+  afterEach(async () => {
+    harness.cleanup()
+    warnSpy.mockRestore()
+    delete process.env.CABBAGE_SKILLS_DIR
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it("缺失 agent 未进入宿主注册表时输出告警（含缺失清单）", () => {
+    const messages = warnSpy.mock.calls.map((call) => call.map(String).join(" ")).join("\n")
+    expect(messages).toContain("agent registration incomplete")
+    expect(messages).toContain("dev-lifecycle")
   })
 })

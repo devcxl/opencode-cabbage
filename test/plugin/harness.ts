@@ -67,8 +67,14 @@ export interface Harness {
   cleanup: () => void
 }
 
+export interface HarnessOptions {
+  /** false 模拟「宿主忽略缺失 id 的 update」（不采用 upsert 语义），用于注册校验护栏测试 */
+  agentUpsert?: boolean
+}
+
 /** 全量 ctx mock：驱动真实 setupCabbage，收集各域的注册产物 */
-export async function makeHarness(tmpDir: string, packageRoot: string): Promise<Harness> {
+export async function makeHarness(tmpDir: string, packageRoot: string, options: HarnessOptions = {}): Promise<Harness> {
+  const agentUpsert = options.agentUpsert !== false
   // 测试隔离：清空中断标记等模块级会话状态；内置 cabbage CLI 释放到本测试的临时目录
   clearAllAborted()
   process.env.CABBAGE_CLI_DIR = path.join(tmpDir, "cabbage-cli")
@@ -115,6 +121,7 @@ export async function makeHarness(tmpDir: string, packageRoot: string): Promise<
     get: (id: string) => agentRegistrations.get(id),
     list: () => [...agentRegistrations.keys()].map((id) => ({ id })),
     update: (id: string, apply: (a: Record<string, unknown>) => void) => {
+      if (!agentUpsert && !agentRegistrations.has(id)) return
       const existing = agentRegistrations.get(id) ?? { id }
       agentRegistrations.set(id, existing)
       apply(existing)
@@ -141,6 +148,7 @@ export async function makeHarness(tmpDir: string, packageRoot: string): Promise<
       }),
     },
     agent: {
+      list: vi.fn(async () => ({ location: { directory: tmpDir }, data: [...agentRegistrations.values()] })),
       transform: vi.fn(async (cb: (editor: Harness["agentEditor"]) => void) => {
         cb(agentEditor)
         return { dispose: async () => undefined }

@@ -6,6 +6,8 @@
 - 结论先行：**三个 P0 在 v2.0.16 上均已实测解除；API 已 GA 冻结；从 API 条件看可启动迁移。** 这只是迁移可行性评估，不表示本插件已完成迁移或支持 OpenCode v2：当前实现仍使用 `@opencode-ai/plugin` 1.x 插件 API，尚未完成适配，因此本插件目前暂不支持 OpenCode v2。唯一未完成实测的是 `session.synthetic` 的内容是否进入模型 prompt（本次因 provider 凭据失败未验证），但该路径有 `session.prompt({resume})` 作为等价替代。
 - API 标识符保持英文原文，其余叙述为中文以对齐既有 spike 文档风格。
 
+> **状态更新（2026-10-14）**：本报告的迁移建议已落地。2.0.0 完成 V2-only 迁移（PR #139/#140）；三个 P0 在 v2.0.16 / v2.0.26 实测解除；`session.synthetic` 内容达模型已由端到端验证确认。决策与机制映射见 [ADR 0010](../adr/2026-10-14-opencode-v2-only-migration.md)，端到端验收见 `2026-10-14-v2-e2e-verification.md`。本文保留为迁移前评估快照。
+
 ---
 
 ## 一、结论摘要

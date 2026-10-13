@@ -48,7 +48,10 @@
 |---|---|
 | `editor.update` 对缺失 id 的 upsert 语义未见于 V2 文档 | setup 后注册校验：缺失即告警；单测以 `agentUpsert:false` 模拟宿主语义变化 |
 | V2 事件词汇可能随版本漂移 | 事件分发集中在 `dispatchEvent` 单点适配 |
-| `session.synthetic` 内容是否进入模型 prompt（research 唯一 UNVERIFIED 项） | dogfood 实测证据（见 `docs/dev/research/2026-10-14-v2-e2e-verification.md`） |
+| 中断 reason 词汇：TUI Esc 为 `shutdown`（API interrupt 为 `user`） | 两者统一按用户中断暂停（含单测）；服务端关闭走 `execution.failed`，不误伤 autoResume（2026-10-14 实测） |
+| 自动续接依赖已建立的客户端会话（一次性 `opencode run` 入队后不消费） | 文档化限制（D2，见验证报告）；面向 TUI 等常驻会话 |
+| 项目级 `plugins: ["<绝对目录>"]` 静默不加载 | 文档化限制（D3）：本地开发用 `.opencode/plugins/`，用户安装用 npm 包名 |
+| `session.synthetic` 内容达模型 | 已实测通过：续接驱动模型读取 Flow Record、探针消息获回复（见 `docs/dev/research/2026-10-14-v2-e2e-verification.md`） |
 | 子会话活动跟踪为内存态，重启窗口内可能漏判 | 代码注释记录局限；子代理结果注入父会话会重新触发事件流 |
 
 ### 5. 替代方案与拒绝理由（补充）

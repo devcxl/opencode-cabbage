@@ -136,7 +136,10 @@ async function dispatchEvent(
     case "session.execution.interrupted": {
       if (!sessionID) return
       tracker.onIdle(sessionID)
-      if (data.reason !== "user") return
+      // 用户中断的两种 reason（v2.0.26 实测）：API session.interrupt → "user"；TUI Esc → "shutdown"。
+      // 两者都视为用户中断并暂停 goal；服务端关闭走 execution.failed（不命中本分支），
+      // 因此不会误暂停 autoResume 可恢复的 goal（详见 ADR 0010）。
+      if (data.reason !== "user" && data.reason !== "shutdown") return
       markAborted(sessionID)
       // abort 立即持久化 pause：不依赖内存标记。
       // 否则 30 分钟清理窗口内无轮次结束事件、或插件重启时标记丢失，

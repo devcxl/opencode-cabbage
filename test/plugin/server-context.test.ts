@@ -217,12 +217,12 @@ describe("event handler — inbox user 重置计数", () => {
 })
 
 describe("event handler — execution.interrupted 中断暂停", () => {
-  it("reason=user → 立即持久化 paused，后续轮次结束不续接", async () => {
+  it.each(["user", "shutdown"])("reason=%s → 立即持久化 paused，后续轮次结束不续接", async (reason) => {
     harness.sessions.get("sess-1")!.metadata = { goal: { parentIssueNumber: 42, status: "active", continuationCount: 1 } }
     harness.eventStream.push({
       type: "session.execution.interrupted",
       id: "ev-10",
-      data: { sessionID: "sess-1", reason: "user" },
+      data: { sessionID: "sess-1", reason },
     })
     await waitFor(() => {
       const g = harness.sessions.get("sess-1")!.metadata.goal as { status?: string } | undefined
@@ -236,12 +236,12 @@ describe("event handler — execution.interrupted 中断暂停", () => {
     expect(harness.sessionApi.synthetic).not.toHaveBeenCalled()
   })
 
-  it("非 user 原因（shutdown）→ 不暂停，轮次结束正常续接", async () => {
+  it("非用户原因（superseded）→ 不暂停，轮次结束正常续接", async () => {
     harness.sessions.get("sess-1")!.metadata = { goal: { parentIssueNumber: 42, status: "active", continuationCount: 0 } }
     harness.eventStream.push({
       type: "session.execution.interrupted",
       id: "ev-12",
-      data: { sessionID: "sess-1", reason: "shutdown" },
+      data: { sessionID: "sess-1", reason: "superseded" },
     })
     harness.eventStream.push({ type: "session.execution.succeeded", id: "ev-13", data: { sessionID: "sess-1" } })
     await waitFor(() => harness.sessionApi.synthetic.mock.calls.length > 0)

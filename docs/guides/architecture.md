@@ -2,7 +2,7 @@
 
 本文档介绍 opencode-cabbage 的核心架构设计。
 
-> **兼容性：**2.0.0 起插件入口使用 `@opencode/plugin` 2.x（OpenCode v2 插件 API），基于 `Plugin.define` setup、域 transform 与轮次结束事件驱动的自动续接，已在 OpenCode v2.0.26 端到端实测。OpenCode v1 使用 1.x 版本线。
+> **兼容性：**2.0.0 起插件入口使用 `@opencode/plugin` 2.x（OpenCode v2 插件 API），基于 `Plugin.define` setup、域 transform 与轮次结束事件驱动的自动续接，已在 OpenCode v2.0.28 端到端实测。OpenCode v1 使用 1.x 版本线。
 
 ---
 

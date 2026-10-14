@@ -16,7 +16,7 @@
 
 ## OpenCode 兼容性
 
-> **要求 OpenCode v2（已在 v2.0.26 实测）。** 2.0.0 为 V2-only 版本线，基于 `@opencode/plugin` 2.x（`Plugin.define` 入口、域 transform、轮次结束事件驱动的自动续接）。OpenCode v1 用户请继续使用 `1.x` 版本线。
+> **要求 OpenCode v2（已在 v2.0.28 实测）。** 2.0.0 为 V2-only 版本线，基于 `@opencode/plugin` 2.x（`Plugin.define` 入口、域 transform、轮次结束事件驱动的自动续接）。OpenCode v1 用户请继续使用 `1.x` 版本线。
 
 ## 安装
 

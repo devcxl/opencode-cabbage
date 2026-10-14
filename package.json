@@ -58,7 +58,7 @@
     "docs:preview": "vitepress preview docs"
   },
   "dependencies": {
-    "@opencode/plugin": "^2.0.26",
+    "@opencode/plugin": "^2.0.28",
     "yaml": "^2.8.3"
   },
   "devDependencies": {

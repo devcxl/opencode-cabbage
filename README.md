@@ -16,7 +16,7 @@
 
 ## OpenCode Compatibility
 
-**Requires OpenCode v2 (tested on v2.0.26).** Version 2.0.0 is a V2-only line built on the `@opencode/plugin` 2.x API (`Plugin.define` setup, domain transforms, turn-end-event driven auto-continuation). OpenCode v1 users should stay on the `1.x` release line.
+**Requires OpenCode v2 (tested on v2.0.28).** Version 2.0.0 is a V2-only line built on the `@opencode/plugin` 2.x API (`Plugin.define` setup, domain transforms, turn-end-event driven auto-continuation). OpenCode v1 users should stay on the `1.x` release line.
 
 ## Installation
 

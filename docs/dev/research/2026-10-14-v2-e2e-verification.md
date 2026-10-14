@@ -84,3 +84,14 @@
 
 - 2.0.28 中断 reason 联合类型未变（`user | shutdown | superseded | inactivity`，`@opencode/schema` 复核）；D2/D3 行为与 v2.0.26 一致。
 - 复验证据：`/tmp/opencode/cabbage-e2e/evidence/`（`serve-28.log`、`api-28-*.json`、`S1-messages-28.json`、`events.log`）。
+
+## 附二：2.0.0 npm 安装路径验证（发布后，2026-10-14 同日）
+
+2.0.0 发布到 npm 后，补齐上文 D3 缺口：**npm 包名安装形式**的端到端验证（隔离环境：独立 `XDG_CONFIG_HOME` / `XDG_DATA_HOME` / `XDG_CACHE_HOME`，CLI v2.0.28）：
+
+1. `opencode plugin add @devcxl/opencode-cabbage` → 写入全局配置 `plugins: ["@devcxl/opencode-cabbage"]`
+2. 启动私有 server → 宿主从 npm 解析 `@latest`（实测拉取到 **2.0.0**）并加载：`/api/plugin` 显示 `opencode-cabbage: active`，cabbage 的 7 个命令（code / design / release / requirements / review / setup / tasks）全部注册（证据 `api-pluginadd-*.json`）
+
+**发布传播窗口观察**：首次解析（发布后约 4 分钟内）曾拉到旧版本 1.3.0 并加载失败——v1 形态默认导出（`{ id, server }`）不满足 v2 schema（要求 `setup`/`effect`），宿主报 `Plugin must export a default definition with an id and an effect or setup function`；清理插件缓存重取即恢复（npm install-metadata 滞后于 dist-tags 的窗口）。升级/刷新场景可用 `opencode plugin update` 强制重取。
+
+至此 D3 关闭：`.opencode/plugins/` 与 npm 包名（`opencode plugin add`）两种加载形式均实测可用。

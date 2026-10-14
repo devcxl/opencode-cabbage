@@ -136,7 +136,7 @@ async function dispatchEvent(
     case "session.execution.interrupted": {
       if (!sessionID) return
       tracker.onIdle(sessionID)
-      // 用户中断的两种 reason（v2.0.26 实测）：API session.interrupt → "user"；TUI Esc → "shutdown"。
+      // 用户中断的两种 reason（v2.0.26 实测，v2.0.28 复验）：API session.interrupt → "user"；TUI Esc → "shutdown"。
       // 两者都视为用户中断并暂停 goal；服务端关闭走 execution.failed（不命中本分支），
       // 因此不会误暂停 autoResume 可恢复的 goal（详见 ADR 0010）。
       if (data.reason !== "user" && data.reason !== "shutdown") return
@@ -249,7 +249,7 @@ export async function setupCabbage(ctx: Context, packageRoot: string): Promise<(
 
   // ── agents：缺失则新增（保留用户已存在的同名 agent），并为所有 agent 装配 goal 权限规则 ──
   // 依赖 editor.update 对缺失 id 的 upsert 语义（新增 agent）：该语义未见于 V2 文档，
-  // 是 v2.0.16 / v2.0.26 的实测行为，单测按同语义锁定 mock。若宿主改为忽略缺失 id，
+  // 是 v2.0.16 / v2.0.26 / v2.0.28 的实测行为，单测按同语义锁定 mock。若宿主改为忽略缺失 id，
   // 下方注册校验会告警（可观测）。决策与替代方案见 ADR 0010。
   await ctx.agent.transform((editor) => {
     for (const payload of agentPayloads) {

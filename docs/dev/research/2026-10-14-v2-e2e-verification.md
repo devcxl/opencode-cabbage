@@ -66,3 +66,21 @@
 ## 五、结论
 
 2.0.0 的 V2 迁移在 v2.0.26 上核心链路可用；D1 修复后 10/10 验收项通过。D2/D3 为主机边界行为，已在 ADR 0010 与本报告记录。
+
+## 附：v2.0.28 基线复验（2026-10-14 同日）
+
+基线从 v2.0.26 升级到 v2.0.28（CLI 与 `@opencode/plugin` 依赖）后，按 ADR 0010 §3 的宿主小版本升级流程复验核心链路（隔离数据目录 + 真实模型会话，隔离项目与上文相同）：
+
+| 链路 | 结果 | 证据 |
+|---|---|---|
+| 插件加载（`.opencode/plugins/` shim） | ✅ | `/api/plugin`：`opencode-cabbage: active`（`api-28-plugin.json`） |
+| agents / commands / skills 注册 | ✅ | cabbage agents、7 个命令、12 个 flow-* skills（`api-28-agent.json`、`api-28-command.json`、`api-28-skill.json`） |
+| goal 创建与持久化 | ✅ | S1 metadata：`parentIssueNumber: 888888`、token 记账 99301（`S1-session-28.json`） |
+| 首条上下文注入 | ✅ | 模型回复 `MARKER_SEEN`（`EXTREMELY_IMPORTANT` 在系统上下文） |
+| 零输入自动续接 | ✅ | 两例：客户端（`run --session`）附着即消费队列、模型自行调查 #888888；TUI 附着后自行启动续接 |
+| 用户中断 → 暂停 | ✅ | TUI Esc → 探针捕获 `session.execution.interrupted` `reason=shutdown`（`events.log`）→ goal `paused / aborted by user` |
+| 门控负向（general） | ✅ | 模型回复 `NO_GOAL_TOOL` |
+| cabbage 引擎 | ✅ | `cabbage op init` → `.cabbage/` 重建（config.yaml、workflows/change.yaml 等） |
+
+- 2.0.28 中断 reason 联合类型未变（`user | shutdown | superseded | inactivity`，`@opencode/schema` 复核）；D2/D3 行为与 v2.0.26 一致。
+- 复验证据：`/tmp/opencode/cabbage-e2e/evidence/`（`serve-28.log`、`api-28-*.json`、`S1-messages-28.json`、`events.log`）。

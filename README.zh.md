@@ -20,12 +20,11 @@
 
 ## 安装
 
-```json
-// opencode.json
-{
-  "plugins": ["@devcxl/opencode-cabbage"]
-}
+```bash
+opencode plugin add @devcxl/opencode-cabbage
 ```
+
+该命令会安装插件并写入全局配置（`plugins: ["@devcxl/opencode-cabbage"]`）。重启 OpenCode 或执行 `opencode reload` 后生效。
 
 插件启动后自动注入 7 个 slash command、12 个 flow skill、6 个 agent 与 2 个工具（`goal` 管流程状态、`cabbage` 管变更记录）。
 
@@ -55,12 +54,9 @@
 
 ```bash
 # 1. 安装
-npm install @devcxl/opencode-cabbage
+opencode plugin add @devcxl/opencode-cabbage
 
-# 2. 在 opencode.json 中添加
-# { "plugins": ["@devcxl/opencode-cabbage"] }
-
-# 3. 在 OpenCode 中执行
+# 2. 在 OpenCode 中执行
 # /setup → /requirements → @dev-lifecycle
 ```
 

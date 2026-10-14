@@ -6,8 +6,13 @@
 
 ### 基础安装
 
+```bash
+opencode plugin add @devcxl/opencode-cabbage
+```
+
+等价于在全局 `opencode.json` 中手动写入：
+
 ```json
-// opencode.json
 {
   "plugins": ["@devcxl/opencode-cabbage"]
 }

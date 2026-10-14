@@ -20,12 +20,11 @@
 
 ## Installation
 
-```json
-// opencode.json
-{
-  "plugins": ["@devcxl/opencode-cabbage"]
-}
+```bash
+opencode plugin add @devcxl/opencode-cabbage
 ```
+
+This installs the plugin and registers it in the global OpenCode configuration (`plugins: ["@devcxl/opencode-cabbage"]`). Restart OpenCode or run `opencode reload` to activate.
 
 Once started, the plugin automatically injects 7 slash commands, 12 flow skills, 6 agents, and 2 tools (`goal` for flow state, `cabbage` for change records).
 
@@ -79,12 +78,9 @@ Notes:
 
 ```bash
 # 1. Install
-npm install @devcxl/opencode-cabbage
+opencode plugin add @devcxl/opencode-cabbage
 
-# 2. Add the plugin to opencode.json
-# { "plugins": ["@devcxl/opencode-cabbage"] }
-
-# 3. Run in OpenCode
+# 2. Run in OpenCode
 # /setup → /requirements → @dev-lifecycle
 ```
 

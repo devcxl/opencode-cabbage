@@ -13,14 +13,13 @@
 
 ## 第一步：安装插件
 
-```json
-// opencode.json
-{
-  "plugins": ["@devcxl/opencode-cabbage"]
-}
+```bash
+opencode plugin add @devcxl/opencode-cabbage
 ```
 
-重启 OpenCode，插件自动加载。
+该命令会安装插件并写入全局配置（`plugins` 数组）。重启 OpenCode（或执行 `opencode reload`）后插件自动加载。
+
+> 手动方式：在全局 `opencode.json` 的 `plugins` 数组中加入 `"@devcxl/opencode-cabbage"`。
 
 ## 第二步：初始化
 

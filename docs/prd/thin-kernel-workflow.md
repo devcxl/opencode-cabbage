@@ -168,5 +168,5 @@
 
 - `CONTEXT.md`（根）：领域术语权威。
 - `AGENTS.md`（根）：项目规则 + Project Profile。
-- `docs/adr/0002-adopt-thin-workflow-kernel.md`：架构决策。
+- `docs/adr/0011-adopt-thin-workflow-kernel.md`：架构决策。
 - `docs/dev/specs/thin-kernel-workflow.md`：技术方案（含 §14 假设与不确定项，实施前逐项落定）。

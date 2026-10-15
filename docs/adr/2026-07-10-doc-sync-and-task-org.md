@@ -1,6 +1,6 @@
 # ADR 0004: 文档同步流程与任务目录组织
 
-**状态:** Proposed
+**状态:** Accepted
 **日期:** 2026-07-10
 **上级:** [ADR 0003](/adr/2026-07-10-jekyll-to-vitepress)
 

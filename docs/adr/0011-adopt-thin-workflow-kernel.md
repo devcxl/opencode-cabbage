@@ -1,6 +1,7 @@
-# ADR 0002: 采用薄工作流内核（Thin Kernel + Project Context）
+# ADR 0011: 采用薄工作流内核（Thin Kernel + Project Context）
 
 **状态:** Superseded（2026-08-02 被"纯 Prompt + goal 架构"推翻：内核不再承担流程门禁，回归 agent/skill 直接驱动；仅保留 goal 工具与最小支撑模块）
+**原 ADR 0007 并入记录:** FlowRun 接入 Spike（2026-07-15）曾选定 Option A 阶段性接入；2026-08-01/02 全量删除 `src/flowrun/` 与生命周期内核（fd70ec5、ab47197），实际结局为 Option C（删除 FlowRun，简化为 Goal 增强）。gate/checkpoint 逻辑在 Spike 中验证通过（141 项测试）但从未接入运行时，最终整体删除；删除理由是双轨状态与 GitHub 权威源重复、约 4000 行已实现未接入代码。
 **日期:** 2026-08-01
 
 ## 背景

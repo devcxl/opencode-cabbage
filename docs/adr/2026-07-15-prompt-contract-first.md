@@ -1,6 +1,6 @@
 # ADR 0006: Prompt 资产采用 Contract-first 约定式 Markdown
 
-**状态:** Proposed
+**状态:** Accepted
 **日期:** 2026-07-15
 **上级:** [ADR 0001](/adr/0001-replace-openspec-with-full-flow)
 

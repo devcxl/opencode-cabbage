@@ -104,7 +104,6 @@ export default withMermaid(defineConfig({
         text: '开发',
         items: [
           { text: '贡献指南', link: '/dev/guides/contributing' },
-          { text: '技术方案', link: '/dev/specs/opencode-cabbage-docs-and-pages' },
           { text: 'VitePress 迁移', link: '/dev/specs/vitepress-docs-migration' },
         ],
       },
@@ -119,7 +118,6 @@ export default withMermaid(defineConfig({
       {
         text: 'PRD',
         items: [
-          { text: 'Docs & Pages', link: '/prd/opencode-cabbage-docs-and-pages' },
           { text: 'VitePress 迁移', link: '/prd/vitepress-docs-migration' },
         ],
       },

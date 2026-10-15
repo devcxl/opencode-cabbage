@@ -43,11 +43,10 @@ let _commandsCache: { key: string; value: ParsedCommand[] } | undefined
 /**
  * 从 commandsDir 加载所有 slash command
  *
- * 遍历目录下的所有 .md 文件，解析 frontmatter 获取命令的元数据，
- * 并将 skills 路径替换为运行时动态创建的 skills 目录。
+ * 遍历目录下的所有 .md 文件，解析 frontmatter 获取命令的元数据。
  */
-export function loadCommands(commandsDir: string, skillsDir: string): ParsedCommand[] {
-  const cacheKey = `${commandsDir}:${skillsDir}`
+export function loadCommands(commandsDir: string): ParsedCommand[] {
+  const cacheKey = commandsDir
   if (_commandsCache?.key === cacheKey) return _commandsCache.value
 
   if (!existsSync(commandsDir)) {
@@ -64,7 +63,7 @@ export function loadCommands(commandsDir: string, skillsDir: string): ParsedComm
     const raw = readFileSync(path.join(commandsDir, file), "utf8")
     const { frontmatter, content } = extractAndStripFrontmatter(raw)
 
-    const template = content.trim().replaceAll(".opencode/skills/", `${skillsDir}/`)
+    const template = content.trim()
 
     parsed.push({
       name,

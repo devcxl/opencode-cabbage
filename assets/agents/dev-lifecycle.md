@@ -38,10 +38,37 @@ permission:
 ## 全局约束
 
 ### 阶段契约
-- 阶段顺序：requirements → design → tasks → code → review → release
-- 每个阶段完成后，在 Flow Record body 的 checklist 勾选对应阶段（`- [x] <stage>`）
-- requirements 完成需用户确认；高风险 Flow 的 design→tasks 需用户确认
-- 上述阶段顺序与 checklist 适用于功能流；非功能路径按 Phase 0 轻量路径执行，完成标准见各路径要点
+
+阶段顺序：`setup → requirements → design → tasks → code → review → release（手动）`
+
+| Stage | 产出 |
+|-------|------|
+| setup | Profile 确认（根 AGENTS.md Project Profile）、workflow 就绪 |
+| requirements | PRD、Decision Map、Parent Issue（Flow Record）、CONTEXT.md 术语 |
+| design | 技术方案 + ADR（设计基线，经 PR 合入） |
+| tasks | DAG 任务定义、Sub Issues |
+| code | 实现 + PR（TDD 由 flow-tdd 约束，测试质量由 CI 把关） |
+| review | 审查报告、合并 |
+| release | 版本、Release PR、GitHub Actions 发布（手动） |
+
+**完成权威**：阶段完成 = Flow Record（Parent Issue）body checklist 中的 `- [x] <stage>`；由编排器在完成阶段产出后经 `gh issue edit` 更新。
+
+**门禁规则**：
+
+| 场景 | 要求 |
+|------|------|
+| 开始 stage X | 前置阶段须已 completed（requirements 无前置） |
+| 完成 stage X | 前置阶段须已 completed；**requirements 完成需用户确认一次** |
+| 依赖 Task 启动 | 前置依赖 Task 已合并 |
+| code 阶段开始 | 设计基线已合入 |
+
+**Prohibited Actions**：
+- 不跳过前置阶段直接推进
+- 不伪造阶段完成（实际产出后再勾选 checklist）
+- 不手工修改已完成阶段的 checklist
+- reviewer/goal-verify 等子 agent 不直接执行写命令（push/PR/merge 由 primary 编排器执行）
+
+高风险 Flow 的 design→tasks 需用户确认。上述阶段顺序与 checklist 适用于功能流；非功能路径按 Phase 0 轻量路径执行，完成标准见各路径要点
 
 ### Testing Decisions 存量兼容门
 

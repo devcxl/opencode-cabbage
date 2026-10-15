@@ -18,8 +18,7 @@
 默认一份 tasks.md（Goal/Design/Tasks/Verification），高风险经 impact 标记展开专项文档，
 验证通过、合并确认后归档并同步 docs/。
 
-阶段契约：每个 stage 的完成权威是 Parent Issue body checklist（`- [x] <stage>`），
-阶段顺序与约束详见 stage-contract。
+阶段契约：每个 stage 的完成权威是 Parent Issue body checklist（`- [x] <stage>`）。
 
 ⚡ 自动化模式：输入 @dev-lifecycle，先按输入场景分诊再执行对应流程；功能流终点为合并（不含 release），发布走 /release 手动阶段
 </EXTREMELY_IMPORTANT>

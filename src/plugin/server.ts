@@ -183,17 +183,16 @@ async function dispatchEvent(
 
 export async function setupCabbage(ctx: Context, packageRoot: string): Promise<() => void> {
   const sourceSkillsDir = path.join(packageRoot, "assets", "skills")
-  const promptsDir = path.join(packageRoot, "assets", "prompts")
   const commandsDir = path.join(packageRoot, "assets", "commands")
   const agentsDir = path.join(packageRoot, "assets", "agents")
   const projectDir = ctx.location.directory
 
   const pluginVersion = readPluginVersion(packageRoot)
-  const skillsDir = await setupSkillsDir(sourceSkillsDir, promptsDir, pluginVersion)
+  const skillsDir = await setupSkillsDir(sourceSkillsDir, pluginVersion)
 
   // 预读磁盘内容：transform 回调是同步的，所有 IO 必须先完成
   const skillEntries = await loadSkillEntries(skillsDir)
-  const commands = loadCommands(commandsDir, skillsDir)
+  const commands = loadCommands(commandsDir)
   const profile = await readProjectProfile(projectDir)
   const testCommandToken = profile.testCommand?.split(" ")[0] ?? ""
   const agentPayloads = buildAgentPayloads(agentsDir, testCommandToken)

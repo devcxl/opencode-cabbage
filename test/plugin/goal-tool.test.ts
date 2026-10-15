@@ -235,8 +235,7 @@ describe("goal 工具 — complete 授权", () => {
     expect(updated.sessionID).toBe("sess-parent")
     expect(updated.metadata.goal.status).toBe("complete")
     // 索引标记 completed（flow 级持久化）
-    const index = JSON.parse(await readFile(sessionIndexPath(dir), "utf8")) as { flows: Record<string, { goalComplete?: boolean; status?: string }> }
-    expect(index.flows["42"]?.goalComplete).toBe(true)
+    const index = JSON.parse(await readFile(sessionIndexPath(dir), "utf8")) as { flows: Record<string, { status?: string }> }
     expect(index.flows["42"]?.status).toBe("completed")
   })
 

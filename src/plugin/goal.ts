@@ -266,9 +266,8 @@ export function buildGoalTool(store: GoalStore, projectDir: string) {
             return { goal, value: `Parent session goal is not active (status: ${goal.status}).` }
           }
           goal.status = "complete"
-          // flow 级持久化：complete-flow 可跨会话识别验证完成（不依赖 index 会话一致性）
           try {
-            await updateFlowSession(projectDir, goal.parentIssueNumber, { goalComplete: true, status: "completed" })
+            await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "completed" })
           } catch {
             // 索引写入失败不阻塞 goal 完成（goal 本身已持久化）
           }

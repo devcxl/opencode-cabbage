@@ -26,6 +26,9 @@ Load skills by name: @agent-dev-lifecycle, @agent-architect, @agent-developer, @
 - \`@flow-tdd\` — TDD 协议参考
 - \`@flow-review\` — 代码审查
 - \`@flow-release\` — 发布流程
+- \`@flow-change\` — 变更记录（内置 Cabbage 引擎）
+- \`@flow-incident\` — 生产事故处置与复盘
+- \`@flow-docs\` — 项目文档维护
 
 ### Available Agent Skills
 - \`@agent-dev-lifecycle\` — 全流程编排器（主 agent，场景分诊）

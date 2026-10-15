@@ -19,6 +19,17 @@ function listSkillNames(dirRel: string): string[] {
     .sort()
 }
 
+/** 递归列出目录内全部文件（相对路径，字典序） */
+function listFilesRecursive(dir: string, base = dir): string[] {
+  const out: string[] = []
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) out.push(...listFilesRecursive(full, base))
+    else out.push(path.relative(base, full))
+  }
+  return out.sort()
+}
+
 /** 解析 SKILL.md frontmatter 的 name/description */
 function parseSkillMeta(skillDir: string): { name: string; description: string } {
   const content = fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8")
@@ -69,6 +80,15 @@ describe("codex plugin manifest (.codex-plugin/plugin.json)", () => {
   it("does not declare hooks (default ./hooks/hooks.json is auto-loaded)", () => {
     expect(manifest.hooks).toBeUndefined()
   })
+
+  it("longDescription skill counts match the shipped codex skills", () => {
+    const longDescription = String((manifest.interface as Record<string, unknown>).longDescription ?? "")
+    const skills = listSkillNames("codex-skills")
+    const flowCount = skills.filter((n) => n.startsWith("flow-")).length
+    const agentCount = skills.filter((n) => n.startsWith("agent-")).length
+    expect(longDescription).toContain(`${flowCount} 个 flow skills`)
+    expect(longDescription).toContain(`${agentCount} 个 agent skills`)
+  })
 })
 
 describe("codex hooks (hooks/hooks.json)", () => {
@@ -110,19 +130,38 @@ describe("codex hooks (hooks/hooks.json)", () => {
   })
 })
 
+describe("codex SessionStart hook inventory", () => {
+  it("advertises exactly the codex skills that exist (no stale list)", () => {
+    const hookSrc = fs.readFileSync(path.join(PROJECT_ROOT, "src", "hooks", "session-start.ts"), "utf8")
+    const mentioned = new Set(Array.from(hookSrc.matchAll(/@((?:flow|agent)-[a-z-]+)/g)).map((m) => m[1]))
+    expect([...mentioned].sort()).toEqual(listSkillNames("codex-skills"))
+  })
+})
+
 describe("codex skills drift vs assets", () => {
   const codexFlows = listSkillNames("codex-skills").filter((n) => n.startsWith("flow-"))
   const assetFlows = listSkillNames("assets/skills")
 
-  it("flow-* coverage matches assets/skills exactly (9/9)", () => {
+  it("flow-* coverage matches assets/skills exactly", () => {
     expect(codexFlows).toEqual(assetFlows)
   })
 
-  it("flow-* SKILL.md contents match assets after agent-ref normalization", () => {
+  it("flow-* trees match assets (SKILL.md normalized; other files byte-identical)", () => {
     for (const name of codexFlows) {
-      const codex = fs.readFileSync(path.join(PROJECT_ROOT, "codex-skills", name, "SKILL.md"), "utf8")
-      const asset = fs.readFileSync(path.join(PROJECT_ROOT, "assets", "skills", name, "SKILL.md"), "utf8")
-      expect(normalizeAgentRefs(codex), `${name}: codex copy drifted from assets`).toBe(asset)
+      const codexDir = path.join(PROJECT_ROOT, "codex-skills", name)
+      const assetDir = path.join(PROJECT_ROOT, "assets", "skills", name)
+      const codexFiles = listFilesRecursive(codexDir)
+      const assetFiles = listFilesRecursive(assetDir)
+      expect(codexFiles, `${name}: codex file set drifted from assets`).toEqual(assetFiles)
+      for (const rel of codexFiles) {
+        const codex = fs.readFileSync(path.join(codexDir, rel), "utf8")
+        const asset = fs.readFileSync(path.join(assetDir, rel), "utf8")
+        if (rel === "SKILL.md") {
+          expect(normalizeAgentRefs(codex), `${name}/SKILL.md: codex copy drifted from assets`).toBe(asset)
+        } else {
+          expect(codex, `${name}/${rel}: codex copy drifted from assets`).toBe(asset)
+        }
+      }
     }
   })
 

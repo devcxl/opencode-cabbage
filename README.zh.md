@@ -93,7 +93,7 @@ src/                          # TypeScript 薄层
 
 assets/                       # 运行时资源（纯 Prompt 流程）
 ├── commands/                 # 7 个 slash command
-├── skills/                   # 9 个 flow-* skill（Prompt 驱动，直接 git/gh）
+├── skills/                   # 12 个 flow-* skill（Prompt 驱动，直接 git/gh）
 ├── agents/                   # 6 个 agent 定义
 └── prompts/                  # 引导提示词 + 模板
 ```

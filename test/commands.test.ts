@@ -97,18 +97,18 @@ describe("loadCommands", () => {
     writeCommand("cached", "data")
     const r1 = loadCommands(tmpDir, skillsDir)
     const r2 = loadCommands(tmpDir, skillsDir)
-    expect(r1).toEqual(r2)
+    expect(r2).toBe(r1)
   })
 
   it("invalidates cache when skillsDir changes", () => {
-    writeCommand("a", "hello")
+    writeCommand("a", "load .opencode/skills/flow-x")
     const otherSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), "other-skills-"))
     try {
       const r1 = loadCommands(tmpDir, skillsDir)
       const r2 = loadCommands(tmpDir, otherSkillsDir)
-      expect(r1[0].template).toBe("hello")
-      expect(r2[0].template).toBe("hello")
-      expect(r1).toEqual(r2)
+      expect(r1[0].template).toBe(`load ${skillsDir}/flow-x`)
+      // 缓存按 skillsDir 失效：第二次加载必须用新目录重新替换模板
+      expect(r2[0].template).toBe(`load ${otherSkillsDir}/flow-x`)
     } finally {
       fs.rmSync(otherSkillsDir, { recursive: true, force: true })
     }

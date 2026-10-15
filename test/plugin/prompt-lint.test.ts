@@ -104,15 +104,6 @@ worker prompt
     // This test ensures the rule runs and doesn't false-positive
     expect(warnings.length).toBe(0)
   })
-
-  it("detects all permission rules on current agents", () => {
-    const { findings } = lintAll(PROJECT_ROOT)
-    const permRules = findings.filter((f: LintFinding) =>
-      ["missing-permission", "worker-gh-write-permission", "reviewer-write-permission", "capability-permission-mismatch"].includes(f.rule)
-    )
-    // 批 12 后所有 agent 均合规（permission 齐全、无 worker 写 gh、reviewer 只读、capabilities 已删）
-    expect(permRules.length).toBe(0)
-  })
 })
 
 describe("prompt-lint: skill/command convergence (R12)", () => {

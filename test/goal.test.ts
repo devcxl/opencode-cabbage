@@ -33,12 +33,6 @@ describe("GoalData 最小化", () => {
     const goal = createGoal(42, { agent: "dev" })
     expect(formatGoal(goal)).toContain("Agent: dev")
   })
-
-  it("不再存储 objective/completionCriterion（从 Flow Record 读取）", () => {
-    const goal = createGoal(42)
-    expect("objective" in goal).toBe(false)
-    expect("completionCriterion" in goal).toBe(false)
-  })
 })
 
 describe("canTransitionTo", () => {

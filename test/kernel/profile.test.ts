@@ -5,7 +5,6 @@ import { join } from "node:path"
 import {
   parseProjectProfile,
   readProjectProfile,
-  upsertProjectProfile,
   emptyProfile,
   PROFILE_SECTION_TITLE,
 } from "../../src/kernel/profile.js"
@@ -156,29 +155,5 @@ describe("readProjectProfile", () => {
     await withProjectDir("# Rules\n\n- keep it simple\n", async dir => {
       await expect(readProjectProfile(dir)).resolves.toEqual(emptyProfile())
     })
-  })
-})
-
-describe("upsertProjectProfile", () => {
-  const block = FULL_BLOCK.trimEnd()
-
-  it("appends the block to markdown without a profile section", () => {
-    const markdown = "# Project Rules\n\n- be concise\n"
-    const result = upsertProjectProfile(markdown, block)
-    expect(result.startsWith(markdown.trimEnd())).toBe(true)
-    expect(result).toContain(`\n\n${block}`)
-  })
-
-  it("returns the block alone for empty markdown", () => {
-    expect(upsertProjectProfile("", block)).toBe(block)
-  })
-
-  it("replaces the existing profile section and keeps surrounding content", () => {
-    const markdown = `# Project Rules\n\n- be concise\n\n## Project Profile\n\n- test command: \`old\`\n\n## Other Section\n\nkeep me`
-    const result = upsertProjectProfile(markdown, block)
-    expect(result).toContain("# Project Rules\n\n- be concise")
-    expect(result).toContain("## Other Section\n\nkeep me")
-    expect(result).not.toContain("old")
-    expect(result).toContain(block)
   })
 })

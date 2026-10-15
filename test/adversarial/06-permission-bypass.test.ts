@@ -2,13 +2,13 @@
  * 对抗测试 #6 — permission 语义：
  * 纯 Prompt 架构下 dev-lifecycle 作为 primary 编排器直接执行 git/gh 命令（"*": "allow"）；
  * 安全边界由用户审查与模型能力承担。本测试验证 permission 匹配原语本身正确：
- * 最后匹配优先、auto 模式仅 allow 放行、architect 只读代码只写 docs。
+ * 最后匹配优先、architect 只读代码只写 docs。
  */
 import { describe, it, expect } from "vitest"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { loadAgents, type AgentEntry } from "../../src/plugin/agents.js"
-import { matchPermission, isAllowedInAutoMode } from "../../src/kernel/permission.js"
+import { matchPermission } from "../../src/kernel/permission.js"
 
 const AGENTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets/agents")
 
@@ -18,12 +18,6 @@ describe("adversarial #6 — permission 匹配语义", () => {
     expect(matchPermission(rules, "git push origin main")).toBe("deny")
     const rules2 = { "*": "deny", "git status*": "allow" }
     expect(matchPermission(rules2, "gh pr merge 1")).toBe("deny")
-  })
-
-  it("auto 模式下仅 allow 放行；deny/ask 均拒绝", () => {
-    const rules = { "*": "ask", "git status*": "allow" }
-    expect(isAllowedInAutoMode(rules, "git status")).toBe(true)
-    expect(isAllowedInAutoMode(rules, "git push origin main")).toBe(false)
   })
 
   it("dev-lifecycle 作为 primary 编排器拥有全部 bash 权限（纯 Prompt 架构）", () => {

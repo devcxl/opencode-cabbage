@@ -4,7 +4,6 @@
  * 语义与 OpenCode 当前实现对齐：
  * - bash 模式规则：pattern 支持 `*` 通配（`*` 兜底、`cmd*` 前缀匹配）
  * - 最后匹配优先：后声明的规则覆盖先声明的同命中规则
- * - auto 模式：仅 allow 放行，deny/ask 均拒绝
  */
 
 export type PermissionAction = "allow" | "deny" | "ask"
@@ -36,11 +35,4 @@ export function matchPermission(rules: Record<string, string>, command: string):
     action = raw === "allow" ? "allow" : raw === "deny" ? "deny" : "ask"
   }
   return action
-}
-
-/**
- * auto 模式门禁：仅 allow 放行；deny 与 ask（无命中）均拒绝。
- */
-export function isAllowedInAutoMode(rules: Record<string, string>, command: string): boolean {
-  return matchPermission(rules, command) === "allow"
 }

@@ -79,24 +79,6 @@ export async function readProjectProfile(projectDir: string): Promise<ProjectPro
   return parseProjectProfile(markdown).profile
 }
 
-/**
- * 确认回写辅助：将 profileBlock（完整 `## Project Profile` 区块）写入 markdown。
- * 已存在区块则整块替换，否则追加到末尾。
- */
-export function upsertProjectProfile(markdown: string, profileBlock: string): string {
-  const section = findProfileSection(markdown)
-  if (!section) {
-    const trimmed = markdown.trimEnd()
-    if (trimmed === "") return profileBlock.trimStart()
-    return `${trimmed}\n\n${profileBlock}`
-  }
-
-  const lines = markdown.split("\n")
-  const before = lines.slice(0, section.start).join("\n").trimEnd()
-  const after = lines.slice(section.end).join("\n").trimStart()
-  return [before, profileBlock.trim(), after].filter(part => part !== "").join("\n\n")
-}
-
 /** 定位 Profile 区块：标题行索引与结束行索引（下一个 `##` 标题，含；无则到文件末尾） */
 function findProfileSection(markdown: string): { start: number; end: number } | null {
   const lines = markdown.split("\n")

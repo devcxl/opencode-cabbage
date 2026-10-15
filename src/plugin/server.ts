@@ -8,7 +8,7 @@ import { loadCommands } from "./commands.js"
 import { setupSkillsDir, loadSkillEntries } from "./skills.js"
 import { buildAgentPayloads } from "./agents.js"
 import { createAgentShellEnv } from "./shell.js"
-import { buildGoalTool } from "./goal.js"
+import { buildGoalTool, GOAL_ALLOWED_AGENTS } from "./goal.js"
 import { mutateGoal } from "./goal.js"
 import { createSessionGoalStore } from "./goal-store.js"
 import { setupCabbageCli } from "./cabbage-cli.js"
@@ -264,7 +264,7 @@ export async function setupCabbage(ctx: Context, packageRoot: string): Promise<(
     ])
     // 工具门控双层策略的规则层：按 action 指定允许名单，其余 agent 显式 deny（后匹配优先）
     const toolAccess: Array<{ action: string; allowed: Set<string> }> = [
-      { action: "goal", allowed: new Set(["dev-lifecycle", "goal-verify"]) },
+      { action: "goal", allowed: GOAL_ALLOWED_AGENTS },
       { action: "cabbage", allowed: new Set(["dev-lifecycle"]) },
     ]
     for (const id of ids) {

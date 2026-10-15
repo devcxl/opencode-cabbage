@@ -89,18 +89,14 @@ export async function queueContinuation(
       // 读改写与事件处理同锁串行，杜绝续接计数/状态被并发覆盖
       if (!goal || goal.status !== "active") return { goal, value: null }
 
-      await updateFlowSession(projectDir, goal.parentIssueNumber, { status: goal.status, continuationCount: goal.continuationCount }).catch(() => undefined)
-
       if (consumeAborted(sessionID)) {
         goal.status = "paused"
         goal.statusReason = "aborted by user"
-        await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" }).catch(() => undefined)
         return { goal, value: null }
       }
 
       if (goal.continuationCount >= MAX_CONTINUATIONS) {
         goal.status = "paused"
-        await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" }).catch(() => undefined)
         return { goal, value: null }
       }
 
@@ -139,7 +135,6 @@ export async function queueContinuation(
         } else {
           goal.status = "paused"
           goal.statusReason = isBlockedReport(assistantText) ? "blocked report" : "done report"
-          await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" }).catch(() => undefined)
           return { goal, value: null }
         }
       } else if (goal.statusReason === "resumed") {
@@ -162,17 +157,13 @@ export async function queueContinuation(
       if (budgetReached(goal)) {
         goal.status = "paused"
         goal.statusReason = "token budget reached"
-        await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" }).catch(() => undefined)
         return { goal, value: null }
       }
 
       // 先写计数后发 prompt：崩溃窗口只会"少发一次续接"（等下次轮次结束重试），
       // 不会"prompt 已发但计数未落盘"导致重启 autoResume 双发。
       goal.continuationCount++
-      await updateFlowSession(projectDir, goal.parentIssueNumber, {
-        continuationCount: goal.continuationCount,
-        lastContinuedAt: Date.now(),
-      }).catch(() => undefined)
+      await updateFlowSession(projectDir, goal.parentIssueNumber, { lastContinuedAt: Date.now() }).catch(() => undefined)
       return { goal, value: { proceed: true, goal } }
     })
 
@@ -184,7 +175,6 @@ export async function queueContinuation(
         if (!goal) return { goal, value: null }
         goal.status = "paused"
         goal.continuationCount = Math.max(0, goal.continuationCount - 1)
-        await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" }).catch(() => undefined)
         return { goal, value: null }
       }).catch(() => undefined)
       return
@@ -214,7 +204,6 @@ export async function queueContinuation(
       await mutateGoal(store, sessionID, async (goal) => {
         if (!goal) return { goal, value: null }
         goal.continuationCount = Math.max(0, goal.continuationCount - 1)
-        await updateFlowSession(projectDir, goal.parentIssueNumber, { continuationCount: goal.continuationCount }).catch(() => undefined)
         return { goal, value: null }
       }).catch(() => undefined)
     }
@@ -229,12 +218,9 @@ export async function autoResume(ctx: Context, store: GoalStore, projectDir: str
   const index = await readIndex(projectDir)
 
   for (const [parentIssueNumber, entry] of Object.entries(index.flows)) {
-    if (entry.status !== "active") continue
-
     // 重启双发防护：仅跳过"最近实际续接过"的 flow（lastContinuedAt 在发送续接时写入）。
-    // 不用 updatedAt——它被 queueContinuation 开头的索引心跳无条件刷新，反映"最近轮次结束"，
-    // 崩溃前频繁结束的 flow 会被误跳过且无再武装（静默卡住）。
-    // 无 lastContinuedAt 的旧 entry 不跳过（兼容升级前索引）。跳过时告警保证可观测。
+    // 无 lastContinuedAt 的 entry 不跳过（resume 后重启、升级前的旧索引都走这条）。
+    // 跳过时告警保证可观测。
     if (entry.lastContinuedAt && Date.now() - entry.lastContinuedAt < AUTO_RESUME_SKIP_WINDOW_MS) {
       console.warn(`[cabbage] auto-resume: skip #${parentIssueNumber} (continued ${Math.round((Date.now() - entry.lastContinuedAt) / 1000)}s ago; next turn end re-arms)`)
       continue
@@ -248,10 +234,8 @@ export async function autoResume(ctx: Context, store: GoalStore, projectDir: str
       await removeFlowSession(projectDir, Number(parentIssueNumber))
       continue
     }
-    if (!goal || goal.status !== "active") {
-      await updateFlowSession(projectDir, Number(parentIssueNumber), { status: "paused" })
-      continue
-    }
+    // Goal 是唯一状态权威：非 active 或缺失即跳过（不回写索引）
+    if (!goal || goal.status !== "active") continue
 
     try {
       await restoreSessionProfile(ctx, entry.sessionID, goal.sessionProfile)

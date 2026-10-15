@@ -1,5 +1,5 @@
 import type { GoalSession, GoalStore } from "./goal-store.js"
-import { bindSession, updateFlowSession, removeFlowSession } from "../kernel/session-index.js"
+import { bindSession, removeFlowSession } from "../kernel/session-index.js"
 import { KeyedMutex } from "../kernel/mutex.js"
 import { clearAborted } from "./session-abort.js"
 
@@ -266,11 +266,6 @@ export function buildGoalTool(store: GoalStore, projectDir: string) {
             return { goal, value: `Parent session goal is not active (status: ${goal.status}).` }
           }
           goal.status = "complete"
-          try {
-            await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "completed" })
-          } catch {
-            // 索引写入失败不阻塞 goal 完成（goal 本身已持久化）
-          }
           return { goal, value: `Goal completed and verified: Flow #${goal.parentIssueNumber}` }
         }) }
       }

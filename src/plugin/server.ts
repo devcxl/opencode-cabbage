@@ -15,7 +15,6 @@ import { setupCabbageCli } from "./cabbage-cli.js"
 import { buildCabbageTool } from "./cabbage-tool.js"
 import { queueContinuation, autoResume, SessionActivityTracker } from "./continuation.js"
 import { markAborted, clearAborted, clearAllAborted } from "./session-abort.js"
-import { readIndex, updateFlowSession } from "../kernel/session-index.js"
 import { getContextBlock, CONTEXT_MARKER } from "../kernel/context.js"
 import type { ContextBlock } from "../kernel/context.js"
 import { readProjectProfile } from "../kernel/profile.js"
@@ -148,7 +147,6 @@ async function dispatchEvent(
         if (!goal || goal.status !== "active") return { goal, value: undefined }
         goal.status = "paused"
         goal.statusReason = "aborted by user"
-        await updateFlowSession(projectDir, goal.parentIssueNumber, { status: "paused" }).catch(() => undefined)
         return { goal, value: undefined }
       }).catch((err) => {
         console.warn("[cabbage] abort pause failed:", (err as Error | null)?.message ?? err)
@@ -352,8 +350,6 @@ export async function setupCabbage(ctx: Context, packageRoot: string): Promise<(
   // ── 启动恢复：扫描索引，续接插件重启前处于 active 的 goal ──
   void (async () => {
     try {
-      // 校验索引可读（损坏时 readIndex 返回空索引，不阻塞启动）
-      await readIndex(projectDir)
       await autoResume(ctx, store, projectDir)
     } catch (err) {
       console.error("[cabbage] auto-resume failed:", err)

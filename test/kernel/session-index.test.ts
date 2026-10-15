@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest"
-import { mkdtemp, readFile, rm, access } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, rm, access } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import {
@@ -127,7 +127,9 @@ describe("writeIndex / readIndex 往返", () => {
     const dir = await makeProjectDir()
     await writeIndex(dir, { flows: { "1": entry() as never } })
     expect(await fileExists(sessionIndexPath(dir))).toBe(true)
-    expect(await fileExists(`${sessionIndexPath(dir)}.tmp`)).toBe(false)
+    // 实现写入 `${target}.${pid}.tmp` 后 rename；扫描目录确认无任何 *.tmp 残留
+    const files = await readdir(path.dirname(sessionIndexPath(dir)))
+    expect(files.filter(f => f.endsWith(".tmp"))).toEqual([])
   })
 
   it("重复写入覆盖旧索引", async () => {

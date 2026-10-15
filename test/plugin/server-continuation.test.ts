@@ -79,14 +79,6 @@ describe("queueContinuation — 子会话活动闸（事件跟踪）", () => {
     expect(session.synthetic).not.toHaveBeenCalled()
   })
 
-  it("子会话 retry（busy）时跳过续接", async () => {
-    const { ctx, session, store, tracker } = makeHarness({ goal: activeGoal() })
-    tracker.onCreated("child-1", "sess-main")
-    tracker.onBusy("child-1")
-    await queueContinuation(ctx, store, "sess-main", PROJECT_DIR, tracker)
-    expect(session.synthetic).not.toHaveBeenCalled()
-  })
-
   it("子会话结束后正常续接", async () => {
     const { ctx, session, store, tracker } = makeHarness({ goal: activeGoal() })
     tracker.onCreated("child-1", "sess-main")

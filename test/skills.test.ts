@@ -115,11 +115,6 @@ describe("flow-tdd Advisory Skill", () => {
     return fs.readFileSync(skillPath, "utf8")
   }
 
-  it("flow-tdd SKILL.md exists in assets", () => {
-    const skillPath = path.join(ASSETS_SKILLS_DIR, "flow-tdd", "SKILL.md")
-    expect(fs.existsSync(skillPath)).toBe(true)
-  })
-
   it("flow-tdd SKILL.md has complete 8-section Contract", () => {
     const content = readFlowTddSkill()
     expect(content).not.toBeNull()

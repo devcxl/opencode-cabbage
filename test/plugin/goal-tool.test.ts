@@ -220,9 +220,9 @@ describe("goal 工具 — complete 授权", () => {
       "sess-parent": activeGoalMeta(),
       "sess-verify": { parentID: "sess-parent" },
     })
-    // create 阶段已绑定索引；complete-flow 依赖既有 entry
+    // create 阶段已绑定索引；complete 不再镜像索引状态
     await writeIndex(dir, {
-      flows: { "42": { sessionID: "sess-parent", status: "active", continuationCount: 0, updatedAt: Date.now() } },
+      flows: { "42": { sessionID: "sess-parent" } },
     })
     const tool = buildGoalTool(store, dir)
     const out = await tool.execute(
@@ -234,9 +234,9 @@ describe("goal 工具 — complete 授权", () => {
     const updated = session.update.mock.calls[0][0] as unknown as { sessionID: string; metadata: { goal: { status: string } } }
     expect(updated.sessionID).toBe("sess-parent")
     expect(updated.metadata.goal.status).toBe("complete")
-    // 索引标记 completed（flow 级持久化）
-    const index = JSON.parse(await readFile(sessionIndexPath(dir), "utf8")) as { flows: Record<string, { status?: string }> }
-    expect(index.flows["42"]?.status).toBe("completed")
+    // 索引保持最小绑定（Goal 自身持久化完成状态，索引不镜像）
+    const index = JSON.parse(await readFile(sessionIndexPath(dir), "utf8")) as { flows: Record<string, { sessionID?: string; status?: string }> }
+    expect(index.flows["42"]).toEqual({ sessionID: "sess-parent" })
   })
 
   it("子会话中非 goal-verify agent 不能 complete", async () => {
@@ -285,10 +285,9 @@ describe("goal 工具 — create 写 session-index 绑定", () => {
     const tool = buildGoalTool(store, dir)
     await tool.execute({ op: "create", parent_issue_number: 42 }, makeToolCtx())
     const index = JSON.parse(await readFile(sessionIndexPath(dir), "utf8")) as {
-      flows: Record<string, { sessionID: string; status: string }>
+      flows: Record<string, { sessionID?: string }>
     }
-    expect(index.flows["42"]?.sessionID).toBe("sess-main")
-    expect(index.flows["42"]?.status).toBe("active")
+    expect(index.flows["42"]).toEqual({ sessionID: "sess-main" })
   })
 
   it("索引写入失败不阻塞 goal 创建", async () => {

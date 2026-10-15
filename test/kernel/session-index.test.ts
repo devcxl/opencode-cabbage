@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest"
-import { mkdtemp, readdir, readFile, rm, access } from "node:fs/promises"
+import { mkdtemp, readdir, rm, access } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import {
@@ -8,6 +8,7 @@ import {
   sessionIndexPath,
   updateFlowSession,
   writeIndex,
+  type FlowSessionEntry,
   type SessionIndex,
 } from "../../src/kernel/session-index.js"
 
@@ -33,12 +34,9 @@ async function fileExists(p: string): Promise<boolean> {
   }
 }
 
-function entry(overrides: Partial<Record<string, unknown>> = {}) {
+function entry(overrides: Partial<FlowSessionEntry> = {}): FlowSessionEntry {
   return {
     sessionID: "sess_abc",
-    status: "active",
-    continuationCount: 0,
-    updatedAt: 1754000000000,
     ...overrides,
   }
 }
@@ -64,27 +62,20 @@ describe("并发安全（KeyedMutex 串行化 read-modify-write）", () => {
     expect(index.flows["3"]?.sessionID).toBe("sess_c")
   })
 
-  it("并发绑定 + 更新同一 flow：最终状态一致且不丢失 entry", async () => {
+  it("并发更新同一 flow：串行落盘，不丢失 entry", async () => {
     const dir = await makeProjectDir()
     await bindSession(dir, 7, "sess_x")
     await Promise.all([
-      updateFlowSession(dir, 7, { continuationCount: 1 }),
-      updateFlowSession(dir, 7, { continuationCount: 2 }),
-      updateFlowSession(dir, 7, { continuationCount: 3 }),
+      updateFlowSession(dir, 7, { lastContinuedAt: 1 }),
+      updateFlowSession(dir, 7, { lastContinuedAt: 2 }),
+      updateFlowSession(dir, 7, { lastContinuedAt: 3 }),
     ])
     const index = await readIndex(dir)
     const flow = index.flows["7"]
     expect(flow).toBeDefined()
-    expect(flow?.continuationCount).toBe(3)
-  })
-
-  it("updateFlowSession 拒绝非法 status", async () => {
-    const dir = await makeProjectDir()
-    await bindSession(dir, 7, "sess_x")
-    const result = await updateFlowSession(dir, 7, { status: "bogus" as never })
-    expect(result).toBeNull()
-    const index = await readIndex(dir)
-    expect(index.flows["7"]?.status).toBe("active")
+    expect(flow?.sessionID).toBe("sess_x")
+    // 三次更新串行执行，最后一次写入的值生效
+    expect(flow?.lastContinuedAt).toBe(3)
   })
 })
 
@@ -111,13 +102,34 @@ describe("readIndex", () => {
     await writeFile(p, JSON.stringify({ other: true }), "utf8")
     expect(await readIndex(dir)).toEqual({ flows: {} })
   })
+
+  it("旧格式 entry 的多余字段（status/continuationCount/updatedAt）被读取忽略，无需迁移", async () => {
+    const dir = await makeProjectDir()
+    const p = sessionIndexPath(dir)
+    const { mkdir, writeFile } = await import("node:fs/promises")
+    await mkdir(path.dirname(p), { recursive: true })
+    await writeFile(p, JSON.stringify({
+      flows: {
+        "42": {
+          sessionID: "sess_legacy",
+          status: "paused",
+          continuationCount: 5,
+          updatedAt: 1754000000000,
+          lastContinuedAt: 1754000000000,
+        },
+      },
+    }), "utf8")
+    const index = await readIndex(dir)
+    expect(index.flows["42"]?.sessionID).toBe("sess_legacy")
+    expect(index.flows["42"]?.lastContinuedAt).toBe(1754000000000)
+  })
 })
 
 describe("writeIndex / readIndex 往返", () => {
   it("写入后可读回相同内容", async () => {
     const dir = await makeProjectDir()
     const index: SessionIndex = {
-      flows: { "12": entry() as never },
+      flows: { "12": entry({ lastContinuedAt: 1754000000000 }) },
     }
     await writeIndex(dir, index)
     expect(await readIndex(dir)).toEqual(index)
@@ -125,7 +137,7 @@ describe("writeIndex / readIndex 往返", () => {
 
   it("原子写：不残留 .tmp 临时文件", async () => {
     const dir = await makeProjectDir()
-    await writeIndex(dir, { flows: { "1": entry() as never } })
+    await writeIndex(dir, { flows: { "1": entry() } })
     expect(await fileExists(sessionIndexPath(dir))).toBe(true)
     // 实现写入 `${target}.${pid}.tmp` 后 rename；扫描目录确认无任何 *.tmp 残留
     const files = await readdir(path.dirname(sessionIndexPath(dir)))
@@ -134,8 +146,8 @@ describe("writeIndex / readIndex 往返", () => {
 
   it("重复写入覆盖旧索引", async () => {
     const dir = await makeProjectDir()
-    await writeIndex(dir, { flows: { "1": entry() as never } })
-    await writeIndex(dir, { flows: { "2": entry({ sessionID: "sess_2" }) as never } })
+    await writeIndex(dir, { flows: { "1": entry() } })
+    await writeIndex(dir, { flows: { "2": entry({ sessionID: "sess_2" }) } })
     const index = await readIndex(dir)
     expect(index.flows["1"]).toBeUndefined()
     expect(index.flows["2"]?.sessionID).toBe("sess_2")
@@ -143,23 +155,19 @@ describe("writeIndex / readIndex 往返", () => {
 })
 
 describe("bindSession", () => {
-  it("绑定成功，status=active，continuationCount=0", async () => {
+  it("绑定成功：只写入 sessionID", async () => {
     const dir = await makeProjectDir()
     await bindSession(dir, 12, "sess_new")
     const index = await readIndex(dir)
-    expect(index.flows["12"]?.sessionID).toBe("sess_new")
-    expect(index.flows["12"]?.status).toBe("active")
-    expect(index.flows["12"]?.continuationCount).toBe(0)
+    expect(index.flows["12"]).toEqual({ sessionID: "sess_new" })
   })
 
-  it("同一 session 重复绑定：幂等并保留 continuationCount", async () => {
+  it("同一 session 重复绑定：幂等", async () => {
     const dir = await makeProjectDir()
     await bindSession(dir, 12, "sess_a")
-    await updateFlowSession(dir, 12, { continuationCount: 5 })
     await bindSession(dir, 12, "sess_a")
     const index = await readIndex(dir)
-    expect(index.flows["12"]?.sessionID).toBe("sess_a")
-    expect(index.flows["12"]?.continuationCount).toBe(5)
+    expect(index.flows["12"]).toEqual({ sessionID: "sess_a" })
   })
 
   it("另一 session 绑定同一 flow：覆盖旧绑定（无双 session 强制）", async () => {
@@ -167,28 +175,24 @@ describe("bindSession", () => {
     await bindSession(dir, 12, "sess_active")
     await bindSession(dir, 12, "sess_other")
     const index = await readIndex(dir)
-    expect(index.flows["12"]?.sessionID).toBe("sess_other")
-    expect(index.flows["12"]?.status).toBe("active")
-    // 覆盖时 continuationCount 归零（sessionID 变更）
-    expect(index.flows["12"]?.continuationCount).toBe(0)
+    expect(index.flows["12"]).toEqual({ sessionID: "sess_other" })
   })
 })
 
 describe("updateFlowSession", () => {
-  it("更新 status 与 continuationCount 并刷新 updatedAt", async () => {
+  it("更新 lastContinuedAt 且保留绑定", async () => {
     const dir = await makeProjectDir()
     await bindSession(dir, 12, "sess_a")
-    const updated = await updateFlowSession(dir, 12, { status: "paused", continuationCount: 3 })
-    expect(updated?.status).toBe("paused")
-    expect(updated?.continuationCount).toBe(3)
+    const updated = await updateFlowSession(dir, 12, { lastContinuedAt: 1754000000000 })
+    expect(updated?.sessionID).toBe("sess_a")
+    expect(updated?.lastContinuedAt).toBe(1754000000000)
     const index = await readIndex(dir)
-    expect(index.flows["12"]?.status).toBe("paused")
-    expect(index.flows["12"]?.continuationCount).toBe(3)
+    expect(index.flows["12"]).toEqual({ sessionID: "sess_a", lastContinuedAt: 1754000000000 })
   })
 
   it("flow 未绑定时返回 null 且不创建 entry", async () => {
     const dir = await makeProjectDir()
-    expect(await updateFlowSession(dir, 99, { status: "paused" })).toBeNull()
+    expect(await updateFlowSession(dir, 99, { lastContinuedAt: Date.now() })).toBeNull()
     expect((await readIndex(dir)).flows["99"]).toBeUndefined()
   })
 })

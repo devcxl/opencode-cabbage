@@ -326,7 +326,32 @@ describe("queueContinuation — 先写后发与失败回滚", () => {
   })
 })
 
-describe("autoResume — 重启双发防护", () => {
+describe("queueContinuation — 索引只记录最近续接时刻", () => {
+  let tmpDir: string
+
+  afterEach(async () => {
+    if (tmpDir) await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it("发送前写入 lastContinuedAt，不镜像状态/计数字段", async () => {
+    tmpDir = await mkdtemp(path.join(os.tmpdir(), "cabbage-continuation-index-"))
+    const { ctx, session, store, tracker } = makeHarness({ goal: activeGoal() })
+    await writeIndex(tmpDir, { flows: { "42": { sessionID: "sess-main" } } })
+    const before = Date.now()
+    await queueContinuation(ctx, store, "sess-main", tmpDir, tracker)
+    expect(session.synthetic).toHaveBeenCalledTimes(1)
+    const index = JSON.parse(await readFile(
+      path.join(tmpDir, ".opencode", "opencode-cabbage", "session-index.json"), "utf8",
+    )) as { flows: Record<string, Record<string, unknown>> }
+    const flow = index.flows["42"]!
+    expect(flow.sessionID).toBe("sess-main")
+    expect(flow.lastContinuedAt).toBeGreaterThanOrEqual(before)
+    // entry 无其它字段（status/continuationCount/updatedAt 已删除）
+    expect(Object.keys(flow).sort()).toEqual(["lastContinuedAt", "sessionID"])
+  })
+})
+
+describe("autoResume — goal 为唯一状态权威，lastContinuedAt 重启双发防护", () => {
   let tmpDir: string
 
   afterEach(async () => {
@@ -342,19 +367,16 @@ describe("autoResume — 重启双发防护", () => {
     const dir = await makeIndexDir()
     const { ctx, session, store } = makeHarness({ goal: activeGoal({ continuationCount: 5 }) })
     await writeIndex(dir, {
-      flows: { "42": { sessionID: "sess-main", status: "active", continuationCount: 5, lastContinuedAt: Date.now() - 1000, updatedAt: Date.now() - 1000 } },
+      flows: { "42": { sessionID: "sess-main", lastContinuedAt: Date.now() - 1000 } },
     })
     await autoResume(ctx, store, dir)
     expect(session.synthetic).not.toHaveBeenCalled()
   })
 
-  it("updatedAt 新但从未实际续接过（无 lastContinuedAt）的 flow 正常恢复", async () => {
+  it("Goal active 且 entry 无 lastContinuedAt（resume 后、下一次续接前重启）→ 正常续接", async () => {
     const dir = await makeIndexDir()
-    const { ctx, session, store } = makeHarness({ goal: activeGoal({ continuationCount: 5 }) })
-    // 心跳刷新了 updatedAt 但没发过续接（如 tick 被 children/尾部检查跳过）——不应被窗口误伤
-    await writeIndex(dir, {
-      flows: { "42": { sessionID: "sess-main", status: "active", continuationCount: 5, updatedAt: Date.now() - 1000 } },
-    })
+    const { ctx, session, store } = makeHarness({ goal: activeGoal({ statusReason: "resumed" }) })
+    await writeIndex(dir, { flows: { "42": { sessionID: "sess-main" } } })
     await autoResume(ctx, store, dir)
     expect(session.synthetic).toHaveBeenCalledTimes(1)
   })
@@ -363,24 +385,35 @@ describe("autoResume — 重启双发防护", () => {
     const dir = await makeIndexDir()
     const { ctx, session, store } = makeHarness({ goal: activeGoal({ continuationCount: 5 }) })
     await writeIndex(dir, {
-      flows: { "42": { sessionID: "sess-main", status: "active", continuationCount: 5, lastContinuedAt: Date.now() - 60_000, updatedAt: Date.now() - 60_000 } },
+      flows: { "42": { sessionID: "sess-main", lastContinuedAt: Date.now() - 60_000 } },
     })
     await autoResume(ctx, store, dir)
     expect(session.synthetic).toHaveBeenCalledTimes(1)
   })
 
-  it("索引中 active 但会话 goal 已不 active 的 flow 置 paused 不恢复", async () => {
+  it("旧格式 entry（含 status/continuationCount/updatedAt）多余字段被忽略 → 正常恢复", async () => {
     const dir = await makeIndexDir()
-    const { ctx, session, store } = makeHarness({ goal: null })
+    const { ctx, session, store } = makeHarness({ goal: activeGoal({ continuationCount: 5 }) })
     await writeIndex(dir, {
-      flows: { "42": { sessionID: "sess-main", status: "active", continuationCount: 5, updatedAt: Date.now() - 60_000 } },
+      flows: { "42": { sessionID: "sess-main", status: "active", continuationCount: 5, updatedAt: Date.now() - 60_000 } as never },
     })
+    await autoResume(ctx, store, dir)
+    expect(session.synthetic).toHaveBeenCalledTimes(1)
+  })
+
+  it("goal 已不 active 的 flow 跳过恢复，且不回写索引", async () => {
+    const dir = await makeIndexDir()
+    const { ctx, session, store } = makeHarness({
+      goal: { parentIssueNumber: 42, status: "paused", continuationCount: 5 },
+    })
+    await writeIndex(dir, { flows: { "42": { sessionID: "sess-main" } } })
     await autoResume(ctx, store, dir)
     expect(session.synthetic).not.toHaveBeenCalled()
     const index = JSON.parse(await readFile(
       path.join(dir, ".opencode", "opencode-cabbage", "session-index.json"), "utf8",
-    )) as { flows: Record<string, { status: string }> }
-    expect(index.flows["42"]?.status).toBe("paused")
+    )) as { flows: Record<string, { sessionID?: string; status?: string }> }
+    // 索引不再镜像 goal 状态：entry 保持绑定原样
+    expect(index.flows["42"]).toEqual({ sessionID: "sess-main" })
   })
 
   it("索引指向的 goal 已是别的 Flow（edit 残留）时清理陈旧 entry 不续接", async () => {
@@ -388,8 +421,8 @@ describe("autoResume — 重启双发防护", () => {
     const { ctx, session, store } = makeHarness({ goal: activeGoal({ parentIssueNumber: 99 }) })
     await writeIndex(dir, {
       flows: {
-        "42": { sessionID: "sess-main", status: "active", continuationCount: 5, updatedAt: Date.now() - 60_000 },
-        "99": { sessionID: "sess-main", status: "active", continuationCount: 0, updatedAt: Date.now() - 60_000 },
+        "42": { sessionID: "sess-main" },
+        "99": { sessionID: "sess-main" },
       },
     })
     await autoResume(ctx, store, dir)

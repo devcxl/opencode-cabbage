@@ -1,7 +1,7 @@
 /**
  * Flow → session 轻量索引（替代 session-state.json）。
  * 路径：.opencode/opencode-cabbage/session-index.json
- * 作用：parentIssueNumber → sessionID 绑定；双 session 检测（R7）。
+ * 作用：parentIssueNumber → sessionID 绑定（覆盖式，无双 session 强制）+ 最近续接时刻。
  * 并发：全部 read-modify-write 按 projectDir 走 KeyedMutex 串行，防丢失更新。
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
@@ -9,17 +9,10 @@ import path from "node:path"
 import { PLUGIN_ID } from "../util/paths.js"
 import { KeyedMutex } from "./mutex.js"
 
-export type FlowSessionStatus = "active" | "paused" | "completed" | "cancelled"
-
-const VALID_STATUSES: FlowSessionStatus[] = ["active", "paused", "completed", "cancelled"]
-
 export interface FlowSessionEntry {
   sessionID: string
-  status: FlowSessionStatus
-  continuationCount: number
-  /** 最近一次实际发送续接的时刻（autoResume 重启双发防护用；区别于 updatedAt 心跳） */
+  /** 最近一次实际发送续接的时刻（autoResume 重启双发防护用） */
   lastContinuedAt?: number
-  updatedAt: number
 }
 
 export interface SessionIndex {
@@ -33,7 +26,7 @@ export function sessionIndexPath(projectDir: string): string {
   return path.join(projectDir, ".opencode", PLUGIN_ID, "session-index.json")
 }
 
-/** 读取索引；文件不存在或损坏时返回空索引。 */
+/** 读取索引；文件不存在或损坏时返回空索引。旧格式的多余字段被忽略，无需迁移。 */
 export async function readIndex(projectDir: string): Promise<SessionIndex> {
   try {
     const parsed = JSON.parse(await readFile(sessionIndexPath(projectDir), "utf8")) as { flows?: unknown }
@@ -66,34 +59,23 @@ export async function bindSession(
 ): Promise<void> {
   return indexMutex.runExclusive(projectDir, async () => {
     const index = await readIndex(projectDir)
-    const key = String(parentIssueNumber)
-    const existing = index.flows[key]
-    const entry: FlowSessionEntry = {
-      sessionID,
-      status: "active",
-      continuationCount: existing && existing.sessionID === sessionID ? existing.continuationCount : 0,
-      updatedAt: Date.now(),
-    }
-    index.flows[key] = entry
+    index.flows[String(parentIssueNumber)] = { sessionID }
     await writeIndex(projectDir, index)
   })
 }
 
-/** 更新已绑定 flow 的状态/计数/goal 完成标记；flow 未绑定时返回 null 且不创建 entry。 */
+/** 更新已绑定 flow 的最近续接时刻；flow 未绑定时返回 null 且不创建 entry。 */
 export async function updateFlowSession(
   projectDir: string,
   parentIssueNumber: number,
-  patch: Partial<Pick<FlowSessionEntry, "status" | "continuationCount" | "lastContinuedAt">>,
+  patch: Partial<Pick<FlowSessionEntry, "lastContinuedAt">>,
 ): Promise<FlowSessionEntry | null> {
-  if (patch.status !== undefined && !VALID_STATUSES.includes(patch.status)) {
-    return null
-  }
   return indexMutex.runExclusive(projectDir, async () => {
     const index = await readIndex(projectDir)
     const key = String(parentIssueNumber)
     const existing = index.flows[key]
     if (!existing) return null
-    const entry: FlowSessionEntry = { ...existing, ...patch, updatedAt: Date.now() }
+    const entry: FlowSessionEntry = { ...existing, ...patch }
     index.flows[key] = entry
     await writeIndex(projectDir, index)
     return entry

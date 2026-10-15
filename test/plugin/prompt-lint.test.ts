@@ -108,8 +108,9 @@ worker prompt
 
 describe("prompt-lint: skill/command convergence (R12)", () => {
   const EXPECTED_SKILLS = [
-    "flow-setup", "flow-requirements", "flow-design", "flow-tasks",
-    "flow-code", "flow-tdd", "flow-review", "flow-release",
+    "flow-change", "flow-code", "flow-design", "flow-docs",
+    "flow-incident", "flow-release", "flow-requirements", "flow-research",
+    "flow-review", "flow-setup", "flow-tasks", "flow-tdd",
   ]
   const EXPECTED_COMMANDS = ["setup", "requirements", "design", "tasks", "code", "review", "release"]
 
@@ -130,41 +131,12 @@ describe("prompt-lint: skill/command convergence (R12)", () => {
     for (const c of EXPECTED_COMMANDS) writeCommand(root, c, "body")
   }
 
-  it("passes a valid 8-skill / 7-command assets tree", () => {
+  it("passes a valid 12-skill / 7-command assets tree", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cabbage-lint-conv-"))
     try {
       makeValidAssets(tmp)
       const { findings } = lintAll(tmp)
-      const conv = findings.filter(f => f.rule.startsWith("skill-") || f.rule.startsWith("command-"))
-      expect(conv.length).toBe(0)
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true })
-    }
-  })
-
-  it("flags removed skills flow-handoff / flow-test", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cabbage-lint-conv-"))
-    try {
-      makeValidAssets(tmp)
-      writeSkill(tmp, "flow-handoff", "## Contract\n### Trigger\n### Inputs\n### Preconditions\n### Procedure\n### Outputs\n### Failure\n### Idempotency\n### Prohibited Actions")
-      writeSkill(tmp, "flow-test", "## Contract\n### Trigger\n### Inputs\n### Preconditions\n### Procedure\n### Outputs\n### Failure\n### Idempotency\n### Prohibited Actions")
-      const { findings } = lintAll(tmp)
-      const removed = findings.filter(f => f.rule === "skill-removed")
-      expect(removed.length).toBeGreaterThanOrEqual(2)
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true })
-    }
-  })
-
-  it("flags removed commands /test and /handoff", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cabbage-lint-conv-"))
-    try {
-      makeValidAssets(tmp)
-      writeCommand(tmp, "test", "请加载 flow-test 技能")
-      writeCommand(tmp, "handoff", "请加载 flow-handoff 技能")
-      const { findings } = lintAll(tmp)
-      const removed = findings.filter(f => f.rule === "command-removed")
-      expect(removed.length).toBeGreaterThanOrEqual(2)
+      expect(findings).toEqual([])
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true })
     }
@@ -183,11 +155,9 @@ describe("prompt-lint: skill/command convergence (R12)", () => {
     }
   })
 
-  it("current assets have no removed skills/commands and no handoff/test residue", () => {
+  it("current assets have no handoff/test residue", () => {
     const { findings } = lintAll(PROJECT_ROOT)
-    const violations = findings.filter(f =>
-      f.rule === "skill-removed" || f.rule === "command-removed" || f.rule === "handoff-test-residue"
-    )
+    const violations = findings.filter(f => f.rule === "handoff-test-residue")
     expect(violations.length).toBe(0)
   })
 })

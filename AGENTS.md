@@ -13,3 +13,17 @@
 - version file: `package.json $.version`
 - tag format: `v{version}`
 - release workflow: `.github/workflows/release-publish.yml`
+
+## Agent skills
+
+### Issue tracker
+
+Issue 与 spec 以 GitHub Issues 管理（`gh` CLI）。见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+五个规范 triage 标签，字符串与角色同名（`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`）。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+单 context：根 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。

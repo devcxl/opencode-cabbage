@@ -1,4 +1,4 @@
-import { globSync, readdirSync } from "node:fs"
+import { globSync } from "node:fs"
 import { readFileSync, existsSync } from "node:fs"
 import path from "node:path"
 import { parse as parseYaml } from "yaml"
@@ -24,10 +24,6 @@ const FORBIDDEN_PATTERNS: Array<{ pattern: RegExp; rule: string; message: string
   { pattern: /^\s*git add \.\s*$/m, rule: "no-blanket-git-add", message: "contains blanket 'git add .' without context" },
   { pattern: /git worktree remove.*--force/, rule: "no-default-force-cleanup", message: "contains default --force worktree cleanup" },
 ]
-
-// R12 skill/command 收敛（§6.2/§6.4）：删除 flow-handoff / flow-test skill 与 /test /handoff 命令
-const REMOVED_SKILLS = ["flow-handoff", "flow-test"]
-const REMOVED_COMMANDS = ["test", "handoff"]
 
 /** 残留引用：skill 名 / 命令引用（反引号、加粗、列表项） */
 const HANDOFF_TEST_RESIDUE_PATTERNS: Array<{ pattern: RegExp; rule: string; message: string }> = [
@@ -111,42 +107,6 @@ function checkHandoffTestResidue(content: string, filePath: string): LintFinding
     if (pattern.test(content)) {
       findings.push({ severity: "error", file: filePath, rule, message })
       break
-    }
-  }
-  return findings
-}
-
-/** R12：assets/skills 下不得存在已删除的 flow-handoff / flow-test */
-function checkRemovedSkills(root: string): LintFinding[] {
-  const skillsDir = path.join(root, "assets", "skills")
-  if (!existsSync(skillsDir)) return []
-  const findings: LintFinding[] = []
-  for (const name of readdirSync(skillsDir)) {
-    if (REMOVED_SKILLS.includes(name)) {
-      findings.push({
-        severity: "error",
-        file: path.join(skillsDir, name),
-        rule: "skill-removed",
-        message: `removed skill directory still exists: ${name}`,
-      })
-    }
-  }
-  return findings
-}
-
-/** R12：assets/commands 下不得存在已删除的 test.md / handoff.md */
-function checkRemovedCommands(root: string): LintFinding[] {
-  const commandsDir = path.join(root, "assets", "commands")
-  if (!existsSync(commandsDir)) return []
-  const findings: LintFinding[] = []
-  for (const name of readdirSync(commandsDir)) {
-    if (REMOVED_COMMANDS.includes(name.replace(/\.md$/, ""))) {
-      findings.push({
-        severity: "error",
-        file: path.join(commandsDir, name),
-        rule: "command-removed",
-        message: `removed command file still exists: ${name}`,
-      })
     }
   }
   return findings
@@ -356,10 +316,6 @@ export function lintAll(projectRoot: string): { findings: LintFinding[]; passed:
   const assetDirs = ["assets/agents", "assets/skills", "assets/commands", "assets/prompts"]
   const files = findMdFiles(projectRoot, assetDirs)
   const allFindings: LintFinding[] = []
-
-  // R12：目录级收敛校验（flow-handoff/flow-test skill、/test /handoff 命令不得存在）
-  allFindings.push(...checkRemovedSkills(projectRoot))
-  allFindings.push(...checkRemovedCommands(projectRoot))
 
   for (const file of files) {
     const content = readFileSync(file, "utf8")

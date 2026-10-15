@@ -85,7 +85,7 @@
 
 ### 阶段（Stage）
 
-7 个阶段（stage-contract 契约）：
+7 个阶段（契约内嵌在 `@dev-lifecycle` prompt）：
 
 ```
 setup → requirements → design → tasks → code → review → release（手动）
@@ -150,7 +150,7 @@ setup → requirements → design → tasks → code → review → release（�
 | 审查 | `/review` | 双轴审查（规范+规格）→ gh pr review → CI 通过后 merge | 合并 PR |
 | 发布 | `/release` | 版本提议 → release 分支 + 版本文件 → PR → 合并 + tag | GitHub Release |
 
-- 阶段顺序与完成条件由 `stage-contract` 契约定义（单一来源）
+- 阶段顺序与完成条件由 `@dev-lifecycle` prompt 的《阶段契约》章节定义（单一来源）
 - 阶段完成 = Parent Issue body checklist `- [x] <stage>`；requirements 完成需用户确认
 - 设计基线（docs + ADR）合入后才能拆解任务
 - Release 为人工流程，不属于自动 Stage

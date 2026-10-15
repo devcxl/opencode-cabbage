@@ -59,7 +59,7 @@ opencode plugin add @devcxl/opencode-cabbage
 | `/review` | `@reviewer` | 双轴审查 → 合并 |
 | `/release` | — | 版本提议 → Release PR → tag push → workflow 监控 |
 
-每个 command 对应一个 `flow-*` skill，定义在 `assets/skills/` 目录中；所有命令共享单一 Stage contract（`assets/prompts/stage-contract.md`）。
+每个 command 对应一个 `flow-*` skill，定义在 `assets/skills/` 目录中；阶段契约（阶段顺序、完成权威、门禁规则）内嵌在 `assets/agents/dev-lifecycle.md` 的《阶段契约》章节。
 
 ### 6 个 Agent
 
@@ -123,7 +123,7 @@ Skills 安装到固定目录（`~/.config/opencode/cabbage/skills@<version>/`，
 
 ## 阶段契约
 
-7 个阶段，顺序推进（stage-contract 为单一来源）：
+7 个阶段，顺序推进（阶段契约内嵌在 `assets/agents/dev-lifecycle.md`）：
 
 ```
 setup → requirements → design → tasks → code → review → release（手动）

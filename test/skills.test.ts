@@ -41,27 +41,6 @@ describe("setupSkillsDir", () => {
     expect(content).toContain("# flow-test")
   })
 
-  it("replaces .opencode/skills/ references in SKILL.md", async () => {
-    const srcDir = path.join(tmpDir, "skills-src")
-    fs.mkdirSync(srcDir, { recursive: true })
-    createSkill(srcDir, "test", "Load from .opencode/skills/flow-other")
-
-    const result = await setupSkillsDir(srcDir)
-
-    const content = fs.readFileSync(path.join(result, "flow-test", "SKILL.md"), "utf8")
-    expect(content).toContain(`Load from ${result}/flow-other`)
-    expect(content).not.toContain(".opencode/skills/")
-  })
-
-  it("handles non-existent prompts dir gracefully（签名不再接收 context）", async () => {
-    const srcDir = path.join(tmpDir, "skills-src")
-    fs.mkdirSync(srcDir, { recursive: true })
-    createSkill(srcDir, "a", "# a")
-
-    const result = await setupSkillsDir(srcDir, "/non/existent/path")
-    expect(fs.existsSync(path.join(result, "flow-a", "SKILL.md"))).toBe(true)
-  })
-
   it("handles empty skills directory", async () => {
     const srcDir = path.join(tmpDir, "empty-skills")
     fs.mkdirSync(srcDir, { recursive: true })
@@ -76,17 +55,17 @@ describe("setupSkillsDir", () => {
     fs.mkdirSync(srcDir, { recursive: true })
     createSkill(srcDir, "test", "# v1")
 
-    const result = await setupSkillsDir(srcDir, undefined, "1.0.0")
+    const result = await setupSkillsDir(srcDir, "1.0.0")
     expect(fs.readFileSync(path.join(result, "flow-test", "SKILL.md"), "utf8")).toContain("# v1")
 
     // 同版本内容变更：不重建（已安装副本保持，目录按版本隔离不受影响）
     createSkill(srcDir, "test", "# v1 updated")
-    const same = await setupSkillsDir(srcDir, undefined, "1.0.0")
+    const same = await setupSkillsDir(srcDir, "1.0.0")
     expect(same).toBe(result)
     expect(fs.readFileSync(path.join(result, "flow-test", "SKILL.md"), "utf8")).toContain("# v1")
 
     // 版本升级：重建，新内容生效（且与旧版本目录互不覆盖）
-    const upgraded = await setupSkillsDir(srcDir, undefined, "1.1.0")
+    const upgraded = await setupSkillsDir(srcDir, "1.1.0")
     expect(upgraded).not.toBe(result)
     expect(fs.readFileSync(path.join(upgraded, "flow-test", "SKILL.md"), "utf8")).toContain("# v1 updated")
     // 旧版本目录保留（多版本共存不踩踏）

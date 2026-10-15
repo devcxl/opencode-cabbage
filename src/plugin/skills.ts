@@ -1,4 +1,4 @@
-import { cp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { readdir, readFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
 
@@ -18,7 +18,7 @@ export interface SkillEntry {
 
 /**
  * 读取已安装 skills 目录，产出 V2 注册条目。
- * 跳过 `_prompts` 等以下划线开头的辅助目录；无 SKILL.md 的目录忽略。
+ * 跳过以下划线开头的辅助目录；无 SKILL.md 的目录忽略。
  */
 export async function loadSkillEntries(skillsDir: string): Promise<SkillEntry[]> {
   const entries: SkillEntry[] = []
@@ -66,7 +66,7 @@ function resolveSkillsPath(version: string): string {
  *   且同一机器上不同版本插件共存时互不覆盖（P2-4 多版本踩踏修复）。
  * - 重建在锁内执行（mkdir 原子锁 + 锁内二次检查），防多实例并发 rm+cp 竞态。
  */
-export async function setupSkillsDir(sourceSkillsDir: string, promptsDir?: string, version = "0.0.0"): Promise<string> {
+export async function setupSkillsDir(sourceSkillsDir: string, version = "0.0.0"): Promise<string> {
   const destDir = resolveSkillsPath(version)
 
   const sourceDirs = (await readdir(sourceSkillsDir, { withFileTypes: true }))
@@ -84,35 +84,6 @@ export async function setupSkillsDir(sourceSkillsDir: string, promptsDir?: strin
       }
     },
   })
-
-  if (promptsDir) {
-    const promptsDest = path.join(destDir, "_prompts")
-    try {
-      // 同步 _prompts：先清空再拷贝，保证源中删除的文件不残留
-      await rm(promptsDest, { recursive: true, force: true })
-      await cp(promptsDir, promptsDest, { recursive: true })
-    } catch (err) {
-      console.warn("[cabbage] failed to copy prompts dir into skills:", err)
-    }
-  }
-
-  async function processDir(dir: string) {
-    const entries = await readdir(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        await processDir(fullPath)
-        continue
-      }
-      if (entry.name === "SKILL.md") {
-        let content = await readFile(fullPath, "utf8")
-        content = content.replaceAll(".opencode/skills/", `${destDir}/`)
-        await writeFile(fullPath, content, "utf8")
-      }
-    }
-  }
-
-  await processDir(destDir)
 
   return destDir
 }

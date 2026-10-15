@@ -55,7 +55,6 @@ function checkRelativeRefs(content: string, filePath: string): LintFinding[] {
   while ((match = refPattern.exec(content)) !== null) {
     const ref = match[1]
     if (ref.startsWith("/") || ref.startsWith("http")) continue
-    if (ref.includes("_prompts/") || ref.includes("_context/")) continue
     if (ref.includes("<") && ref.includes(">")) continue
     // only flag paths starting with ../ or ./
     if (!ref.startsWith(".")) continue

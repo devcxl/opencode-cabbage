@@ -1,6 +1,6 @@
 # ADR 0005: Worktree 并行开发支持
 
-**状态:** Proposed
+**状态:** Accepted（实现部分已被 2026-08-02 回归移除，工作流形态保留）
 **日期:** 2026-07-10
 **上级:** [ADR 0001](/adr/0001-replace-openspec-with-full-flow)
 

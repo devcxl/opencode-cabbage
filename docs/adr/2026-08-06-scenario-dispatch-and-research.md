@@ -2,7 +2,7 @@
 
 **状态:** Accepted（2026-08-06）
 **日期:** 2026-08-06
-**上级:** [ADR 0002](/adr/0002-adopt-thin-workflow-kernel)（薄工作流内核 / 纯 Prompt + goal 架构）
+**上级:** [ADR 0011](/adr/0011-adopt-thin-workflow-kernel)（薄工作流内核 / 纯 Prompt + goal 架构）
 
 ## 背景
 

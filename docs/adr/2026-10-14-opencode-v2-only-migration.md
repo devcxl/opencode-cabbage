@@ -2,7 +2,7 @@
 
 **状态:** Accepted（2026-10-14，随 2.0.0 生效）
 **日期:** 2026-10-14
-**上级:** [ADR 0002](/adr/0002-adopt-thin-workflow-kernel)（薄工作流内核）、[ADR 0009](/adr/2026-08-06-scenario-dispatch-and-research)（场景分诊与子 agent 隔离）
+**上级:** [ADR 0011](/adr/0011-adopt-thin-workflow-kernel)（薄工作流内核）、[ADR 0009](/adr/2026-08-06-scenario-dispatch-and-research)（场景分诊与子 agent 隔离）
 
 ## 背景
 

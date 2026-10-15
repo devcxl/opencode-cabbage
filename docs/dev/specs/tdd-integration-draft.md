@@ -3,7 +3,7 @@
 > ⚠️ **已废弃（2026-08-02）**：Runtime TDD 工具链（`tdd_checkpoint`）已整体移除，TDD 回归 advisory self-report + CI 把关。保留本文档作为历史决策记录。
 > 状态：Draft（依据 v1 审查及 v2 读者测试重写）  
 > 日期：2026-07-20  
-> 兼容决策：ADR 0006（Prompt Contract-first）、ADR 0007（FlowRun 阶段性接入）  
+> 兼容决策：ADR 0006（Prompt Contract-first）、原 ADR 0007（FlowRun 阶段性接入，已退役并入 ADR 0011）  
 > 实施状态：本文中的 Schema v2、运行时工具和受控 PR 操作均为拟新增能力，当前代码尚未实现。
 
 ---

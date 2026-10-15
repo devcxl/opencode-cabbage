@@ -1,5 +1,7 @@
 # PRD: opencode-cabbage 配置指南与 GitHub Pages 自动部署
 
+> ⚠️ **已废弃（2026-10-15）**：本 PRD 描述的 Jekyll + GitHub Pages 站点方案已由 VitePress 迁移替代（ADR 0003、`docs/dev/specs/vitepress-docs-migration.md`）。文中命令/agent 数量与 FlowRun 描述为当时状态，现状见 README。保留本文档作为历史设计记录。
+
 **Status:** Approved
 
 ## 背景与动机

@@ -1,5 +1,7 @@
 # 技术方案：配置指南与 GitHub Pages 自动部署
 
+> ⚠️ **已废弃（2026-10-15）**：本方案描述的 Jekyll + GitHub Pages 站点方案已由 VitePress 迁移替代（ADR 0003、`docs/dev/specs/vitepress-docs-migration.md`）。保留本文档作为历史设计记录。
+
 ## 技术选型
 
 | 选项 | 选择 | 理由 |

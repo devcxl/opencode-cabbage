@@ -317,12 +317,23 @@ describe("queueContinuation — 先写后发与失败回滚", () => {
   it("profile 快照在续接前恢复（switchAgent/switchModel）", async () => {
     const { ctx, session, store, tracker } = makeHarness({
       goal: activeGoal({
-        sessionProfile: { agent: "dev-lifecycle", model: { providerID: "provider", modelID: "model" } },
+        sessionProfile: { agent: "dev-lifecycle", model: { providerID: "provider", id: "model", variant: "fast" } },
       }),
     })
     await queueContinuation(ctx, store, "sess-main", PROJECT_DIR, tracker)
     expect(session.switchAgent).toHaveBeenCalledWith({ sessionID: "sess-main", agent: "dev-lifecycle" })
-    expect(session.switchModel).toHaveBeenCalledWith({ sessionID: "sess-main", model: { providerID: "provider", id: "model" } })
+    expect(session.switchModel).toHaveBeenCalledWith({ sessionID: "sess-main", model: { providerID: "provider", id: "model", variant: "fast" } })
+  })
+
+  it("profile.model 形状不完整（缺 id）时不调用 switchModel", async () => {
+    const { ctx, session, store, tracker } = makeHarness({
+      goal: activeGoal({
+        sessionProfile: { agent: "dev-lifecycle", model: { providerID: "provider" } },
+      }),
+    })
+    await queueContinuation(ctx, store, "sess-main", PROJECT_DIR, tracker)
+    expect(session.switchAgent).toHaveBeenCalledTimes(1)
+    expect(session.switchModel).not.toHaveBeenCalled()
   })
 })
 

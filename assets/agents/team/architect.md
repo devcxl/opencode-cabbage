@@ -3,28 +3,49 @@ name: architect
 description: 负责需求分析、架构设计、技术方案和 DAG 任务拆解
 mode: subagent
 color: '#00bcd4'
-tools:
-  read: true
-  bash: true
-  write: true
-  edit: true
-permission:
-  bash:
-    "*": "deny"
-    "git status": "allow"
-    "git status *": "allow"
-    "git diff": "allow"
-    "git diff *": "allow"
-    "git log": "allow"
-    "git log *": "allow"
-  edit:
-    "*": "deny"
-    "docs/**": "allow"
-    "assets/**": "allow"
-  skill:
-    "*": "deny"
-    "flow-design": "allow"
-    "flow-tasks": "allow"
+permissions:
+  # ── bash：兜底 deny + 只读白名单（最后匹配优先）──
+  - action: bash
+    resource: "*"
+    effect: deny
+  - action: bash
+    resource: "git status"
+    effect: allow
+  - action: bash
+    resource: "git status *"
+    effect: allow
+  - action: bash
+    resource: "git diff"
+    effect: allow
+  - action: bash
+    resource: "git diff *"
+    effect: allow
+  - action: bash
+    resource: "git log"
+    effect: allow
+  - action: bash
+    resource: "git log *"
+    effect: allow
+  # ── edit：仅交付物目录可写 ──
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: edit
+    resource: "docs/**"
+    effect: allow
+  - action: edit
+    resource: "assets/**"
+    effect: allow
+  # ── skill：仅归属技能（flow-design / flow-tasks）──
+  - action: skill
+    resource: "*"
+    effect: deny
+  - action: skill
+    resource: "flow-design"
+    effect: allow
+  - action: skill
+    resource: "flow-tasks"
+    effect: allow
 ---
 
 <system-reminder>

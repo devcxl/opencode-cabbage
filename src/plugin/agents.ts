@@ -2,27 +2,6 @@ import { readFileSync, readdirSync, existsSync } from "node:fs"
 import path from "node:path"
 import { parse as parseYaml } from "yaml"
 
-/**
- * Agent frontmatter 的 permission 解析。
- * 值可为字符串（如 "deny"、"npm test|git push"）或嵌套规则对象
- * （OpenCode 语义：pattern → action，如 bash: { "*": "deny", "npm *": "allow" }）。
- * V2 注册时转换为规则数组（见 buildAgentRules）。
- */
-export interface AgentPermission {
-  [key: string]: string | Record<string, string> | undefined
-}
-
-export interface AgentEntry {
-  key: string
-  description?: string
-  mode?: "subagent" | "primary" | "all"
-  color?: string
-  permission?: AgentPermission
-  /** V1 tools 启停映射（write/edit/bash/read…）；false 表示禁用该工具 */
-  tools?: Record<string, boolean>
-  prompt: string
-}
-
 /** V2 permission 规则（@opencode/schema PermissionRule 子集） */
 export interface AgentRule {
   action: string
@@ -30,61 +9,49 @@ export interface AgentRule {
   effect: "allow" | "deny" | "ask"
 }
 
-/** V1 tools 名 → V2 permission action（write 工具的权限 action 实测为 "edit"） */
-const TOOLS_TO_PERMISSION_ACTION: Record<string, string> = {
-  write: "edit",
-  edit: "edit",
-  bash: "bash",
-  read: "read",
-  glob: "glob",
-  grep: "grep",
-  webfetch: "webfetch",
-  websearch: "websearch",
-  todowrite: "todowrite",
-  task: "subagent",
+/** Agent frontmatter 解析结果（V2 原生 `permissions: PermissionRule[]` 结构） */
+export interface AgentEntry {
+  key: string
+  description?: string
+  mode?: "subagent" | "primary" | "all"
+  color?: string
+  /** V2 原生权限规则数组（顺序即优先级：最后匹配优先） */
+  permissions?: AgentRule[]
+  prompt: string
 }
 
-function normalizeEffect(value: string): AgentRule["effect"] {
-  return value === "allow" ? "allow" : value === "deny" ? "deny" : "ask"
-}
+const VALID_EFFECTS = new Set<string>(["allow", "deny", "ask"])
+
+/** 规则 resource 中的 Profile 测试命令占位符（注册时按 Profile 渲染） */
+const TEST_COMMAND_PLACEHOLDER = "<profile-test-command>"
 
 /**
- * 渲染规则中的 `<profile-test-command>` 占位符为 Profile 测试命令首 token。
- * Profile 未配置（token 为空）时返回 null 表示删除该规则（避免渲染成 "*" 覆盖兜底 deny）。
+ * 渲染 resource 中的 `<profile-test-command>` 占位符为 Profile 测试命令的安全前缀：
+ * - 含 `{testPaths}` → 取占位符前的固定前缀 + 空格（`"npm test -- {testPaths}"` → `"npm test -- "`，
+ *   配合规则中的 `*` 形成 `"npm test -- *"`，只放行该前缀后的测试参数）
+ * - 不含占位符 → 原样返回命令（`"pytest"`，配合 `*` 形成 `"pytest*"`）
+ * - 命令为空、或 `{testPaths}` 前无可用的固定前缀 → 返回 null，调用方丢弃该规则
+ *   （避免退化为 `*` 放行；杜绝 `"npm*"` 式首 token 权限放大）
  */
-function renderPlaceholder(pattern: string, testCommandToken: string): string | null {
-  if (!pattern.includes("<profile-test-command>")) return pattern
-  if (testCommandToken === "") return null
-  return pattern.replaceAll("<profile-test-command>", testCommandToken)
+function renderPlaceholder(pattern: string, testCommand: string): string | null {
+  if (!pattern.includes(TEST_COMMAND_PLACEHOLDER)) return pattern
+  const command = testCommand.trim()
+  if (command === "") return null
+  const testPathsIndex = command.indexOf("{testPaths}")
+  const prefix = testPathsIndex >= 0 ? `${command.slice(0, testPathsIndex).trimEnd()} ` : command
+  if (prefix.trim() === "") return null
+  return pattern.replaceAll(TEST_COMMAND_PLACEHOLDER, prefix)
 }
 
-/**
- * 将 agent 的 V1 风格 permission/tools 转换为 V2 规则数组。
- * 顺序保持声明序（V2 最后匹配优先）；tools 禁用规则置于末尾（V1 语义：工具整体禁用不可被白名单恢复）。
- */
-export function buildAgentRules(entry: AgentEntry, testCommandToken: string): AgentRule[] {
-  const rules: AgentRule[] = []
-  for (const [action, value] of Object.entries(entry.permission ?? {})) {
-    if (typeof value === "string") {
-      rules.push({ action, resource: "*", effect: normalizeEffect(value) })
-      continue
-    }
-    if (!value) continue
-    for (const [pattern, raw] of Object.entries(value)) {
-      const rendered = renderPlaceholder(pattern, testCommandToken)
-      if (rendered === null) continue
-      rules.push({ action, resource: rendered, effect: normalizeEffect(raw) })
-    }
+/** 渲染规则数组中的占位符；渲染为 null 的规则被丢弃 */
+function renderRules(rules: AgentRule[], testCommand: string): AgentRule[] {
+  const rendered: AgentRule[] = []
+  for (const rule of rules) {
+    const resource = renderPlaceholder(rule.resource, testCommand)
+    if (resource === null) continue
+    rendered.push(rule.resource === resource ? rule : { ...rule, resource })
   }
-  const deniedActions = new Set<string>()
-  for (const [tool, enabled] of Object.entries(entry.tools ?? {})) {
-    if (enabled !== false) continue
-    const action = TOOLS_TO_PERMISSION_ACTION[tool] ?? tool
-    if (deniedActions.has(action)) continue
-    deniedActions.add(action)
-    rules.push({ action, resource: "*", effect: "deny" })
-  }
-  return rules
+  return rendered
 }
 
 /** V2 agent 注册载荷：缺失时新增，已存在则保留用户版本（V1 的 skip-if-exists 语义） */
@@ -93,7 +60,7 @@ export interface AgentPayload {
   fields: Record<string, unknown>
 }
 
-export function buildAgentPayloads(agentsDir: string, testCommandToken: string): AgentPayload[] {
+export function buildAgentPayloads(agentsDir: string, testCommand: string): AgentPayload[] {
   return loadAgents(agentsDir).map((entry) => ({
     key: entry.key,
     fields: {
@@ -102,9 +69,23 @@ export function buildAgentPayloads(agentsDir: string, testCommandToken: string):
       ...(entry.mode ? { mode: entry.mode } : {}),
       ...(entry.color ? { color: entry.color } : {}),
       system: entry.prompt,
-      permissions: buildAgentRules(entry, testCommandToken),
+      permissions: renderRules(entry.permissions ?? [], testCommand),
     },
   }))
+}
+
+/** 解析 V2 原生 permissions 数组；非数组返回 undefined，结构不完整的规则被跳过 */
+function parsePermissions(raw: unknown): AgentRule[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const rules: AgentRule[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue
+    const { action, resource, effect } = item as Record<string, unknown>
+    if (typeof action !== "string" || typeof resource !== "string") continue
+    if (typeof effect !== "string" || !VALID_EFFECTS.has(effect)) continue
+    rules.push({ action, resource, effect: effect as AgentRule["effect"] })
+  }
+  return rules
 }
 
 function parseAgentFile(filePath: string): AgentEntry | null {
@@ -126,42 +107,12 @@ function parseAgentFile(filePath: string): AgentEntry | null {
   const name = String(parsed.name ?? "")
   if (!name) return null
 
-  const permissionRaw = parsed.permission
-  const permission: AgentPermission | undefined =
-    permissionRaw && typeof permissionRaw === "object" && !Array.isArray(permissionRaw)
-      ? Object.fromEntries(
-          Object.entries(permissionRaw as Record<string, unknown>)
-            .map(([key, value]) => {
-              if (typeof value === "string") return [key, value]
-              if (value && typeof value === "object" && !Array.isArray(value)) {
-                const rules: Record<string, string> = {}
-                for (const [pattern, action] of Object.entries(value as Record<string, unknown>)) {
-                  if (typeof action === "string") rules[pattern] = action
-                }
-                return [key, rules]
-              }
-              return [key, undefined]
-            })
-            .filter(([, v]) => v !== undefined)
-        )
-      : undefined
-
-  const toolsRaw = parsed.tools
-  const tools = toolsRaw && typeof toolsRaw === "object" && !Array.isArray(toolsRaw)
-    ? Object.fromEntries(
-        Object.entries(toolsRaw as Record<string, unknown>)
-          .filter(([, v]) => typeof v === "boolean")
-          .map(([k, v]) => [k, v as boolean]),
-      )
-    : undefined
-
   return {
     key: name,
     description: parsed.description as string | undefined,
     mode: parsed.mode as AgentEntry["mode"],
     color: parsed.color as string | undefined,
-    permission,
-    tools,
+    permissions: parsePermissions(parsed.permissions),
     prompt: body,
   }
 }

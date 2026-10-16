@@ -3,9 +3,10 @@ name: dev-lifecycle
 description: 全流程开发编排器 — 按输入场景分诊并编排（功能/Bug/紧急修复/业务调整/重构/技术债/基础设施/文档/回滚）
 mode: primary
 color: '#00bcd4'
-permission:
-  bash:
-    "*": "allow"
+permissions:
+  - action: bash
+    resource: "*"
+    effect: allow
 ---
 
 <system-reminder>

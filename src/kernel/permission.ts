@@ -8,6 +8,13 @@
 
 export type PermissionAction = "allow" | "deny" | "ask"
 
+/** V2 原生权限规则（宿主 `permissions: PermissionRule[]` 子集） */
+export interface PermissionRuleLike {
+  action: string
+  resource: string
+  effect: string
+}
+
 /** 含 `**` 的 pattern 按 glob 语义匹配（`**` 跨目录、`*` 单段，对齐引擎 edit/read 路径规则） */
 function globPatternMatches(pattern: string, value: string): boolean {
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&")
@@ -29,10 +36,29 @@ export function permissionPatternMatches(pattern: string, command: string): bool
  * 无任何命中返回 "ask"（默认询问，auto 模式下等效拒绝）。
  */
 export function matchPermission(rules: Record<string, string>, command: string): PermissionAction {
-  let action: PermissionAction = "ask"
-  for (const [pattern, raw] of Object.entries(rules)) {
-    if (!permissionPatternMatches(pattern, command)) continue
-    action = raw === "allow" ? "allow" : raw === "deny" ? "deny" : "ask"
+  return matchPermissionRules(
+    Object.entries(rules).map(([resource, effect]) => ({ action: "", resource, effect })),
+    command,
+  )
+}
+
+/**
+ * 按 V2 原生规则数组解析 value 的最终动作（`permissions: PermissionRule[]`）。
+ * 规则序即优先级：action 相同且 resource 命中的规则后写覆盖先写（最后匹配优先）。
+ * 指定 action 时先过滤该 action 的规则（不同 action 的 `*` 规则不得互相干扰）；
+ * 缺省 action 时不做过滤（V1 记录式规则集语义，见 matchPermission）。
+ * 无任何命中返回 "ask"。
+ */
+export function matchPermissionRules(
+  rules: readonly PermissionRuleLike[],
+  value: string,
+  action?: string,
+): PermissionAction {
+  let result: PermissionAction = "ask"
+  for (const rule of rules) {
+    if (action !== undefined && rule.action !== action) continue
+    if (!permissionPatternMatches(rule.resource, value)) continue
+    result = rule.effect === "allow" ? "allow" : rule.effect === "deny" ? "deny" : "ask"
   }
-  return action
+  return result
 }

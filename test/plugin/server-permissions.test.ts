@@ -1,88 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { buildAgentRules, buildAgentPayloads } from "../../src/plugin/agents.js"
-import type { AgentEntry } from "../../src/plugin/agents.js"
+import { buildAgentPayloads, type AgentRule } from "../../src/plugin/agents.js"
+import { matchPermissionRules } from "../../src/kernel/permission.js"
 import { makeHarness } from "./harness.js"
 import type { Harness } from "./harness.js"
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
+const agentsDir = path.join(projectRoot, "assets", "agents")
 
-const entry = (overrides: Partial<AgentEntry>): AgentEntry => ({
-  key: "test-agent",
-  prompt: "system prompt",
-  ...overrides,
-})
-
-describe("buildAgentRules — V1 permission/tools → V2 规则数组", () => {
-  it("permission 映射保持声明序（V2 最后匹配优先）", () => {
-    const rules = buildAgentRules(entry({
-      permission: {
-        bash: { "*": "deny", "git status": "allow", "git push*": "deny" },
-      },
-    }), "")
-    expect(rules).toEqual([
-      { action: "bash", resource: "*", effect: "deny" },
-      { action: "bash", resource: "git status", effect: "allow" },
-      { action: "bash", resource: "git push*", effect: "deny" },
-    ])
-  })
-
-  it("skill 隔离规则原样转换", () => {
-    const rules = buildAgentRules(entry({
-      permission: { skill: { "*": "deny", "flow-design": "allow", "flow-tasks": "allow" } },
-    }), "")
-    expect(rules).toEqual([
-      { action: "skill", resource: "*", effect: "deny" },
-      { action: "skill", resource: "flow-design", effect: "allow" },
-      { action: "skill", resource: "flow-tasks", effect: "allow" },
-    ])
-  })
-
-  it("<profile-test-command> 占位符渲染为 Profile 测试命令首 token", () => {
-    const rules = buildAgentRules(entry({
-      permission: { bash: { "<profile-test-command> *": "allow" } },
-    }), "npm")
-    expect(rules).toEqual([{ action: "bash", resource: "npm *", effect: "allow" }])
-  })
-
-  it("Profile 未配置测试命令时删除占位规则（不渲染成 *）", () => {
-    const rules = buildAgentRules(entry({
-      permission: { bash: { "*": "deny", "<profile-test-command> *": "allow" } },
-    }), "")
-    expect(rules).toEqual([{ action: "bash", resource: "*", effect: "deny" }])
-  })
-
-  it("tools 禁用映射为 deny 规则并置于末尾；write 与 edit 共用 edit action", () => {
-    const rules = buildAgentRules(entry({
-      tools: { read: true, bash: true, write: false, edit: false },
-      permission: { bash: { "*": "deny", "npm test*": "allow" } },
-    }), "")
-    expect(rules).toEqual([
-      { action: "bash", resource: "*", effect: "deny" },
-      { action: "bash", resource: "npm test*", effect: "allow" },
-      { action: "edit", resource: "*", effect: "deny" },
-    ])
-  })
-
-  it("bash:false 的 deny 追加在 permission 规则之后（工具整体禁用不可被白名单恢复）", () => {
-    const rules = buildAgentRules(entry({
-      tools: { read: true, bash: false, write: false, edit: false },
-      permission: { bash: { "gh pr view": "allow" } },
-    }), "")
-    expect(rules).toEqual([
-      { action: "bash", resource: "gh pr view", effect: "allow" },
-      { action: "bash", resource: "*", effect: "deny" },
-      { action: "edit", resource: "*", effect: "deny" },
-    ])
-  })
-})
-
-describe("buildAgentPayloads — 资产加载与字段装配", () => {
-  const payloads = buildAgentPayloads(path.join(projectRoot, "assets", "agents"), "npm")
+describe("buildAgentPayloads — 资产加载与原生 permissions 装配", () => {
+  const payloads = buildAgentPayloads(agentsDir, "npm test -- {testPaths}")
 
   it("加载全部 6 个流程 agent", () => {
     expect(payloads.map((p) => p.key).sort()).toEqual(
@@ -98,15 +29,32 @@ describe("buildAgentPayloads — 资产加载与字段装配", () => {
     expect(architect.fields.color).toBe("#00bcd4")
     expect(architect.fields.prompt).toBeUndefined()
     expect(architect.fields.permission).toBeUndefined()
-    const rules = architect.fields.permissions as Array<{ action: string; resource: string; effect: string }>
+    const rules = architect.fields.permissions as AgentRule[]
     expect(rules).toContainEqual({ action: "skill", resource: "flow-design", effect: "allow" })
     expect(rules).toContainEqual({ action: "edit", resource: "docs/**", effect: "allow" })
   })
 
-  it("goal-verify 的 tools 禁用转换为 edit deny", () => {
+  it("goal-verify 原生 permissions 含 edit deny（只读验证者）", () => {
     const goalVerify = payloads.find((p) => p.key === "goal-verify")!
-    const rules = goalVerify.fields.permissions as Array<{ action: string; resource: string; effect: string }>
+    const rules = goalVerify.fields.permissions as AgentRule[]
     expect(rules).toContainEqual({ action: "edit", resource: "*", effect: "deny" })
+  })
+
+  it("Profile 测试命令渲染为固定前缀（不生成首 token 宽通配）", () => {
+    for (const key of ["developer", "goal-verify"]) {
+      const rules = payloads.find((p) => p.key === key)!.fields.permissions as AgentRule[]
+      expect(rules, key).toContainEqual({ action: "bash", resource: "npm test -- *", effect: "allow" })
+      expect(rules.some((r) => r.action === "bash" && r.resource === "npm*"), key).toBe(false)
+    }
+  })
+
+  it("Profile 未配置测试命令时丢弃占位规则（不渲染成 `*` 放行）", () => {
+    const emptyProfilePayloads = buildAgentPayloads(agentsDir, "")
+    for (const key of ["developer", "goal-verify"]) {
+      const rules = emptyProfilePayloads.find((p) => p.key === key)!.fields.permissions as AgentRule[]
+      expect(rules.some((r) => r.resource.includes("<profile-test-command>")), key).toBe(false)
+      expect(rules.some((r) => r.action === "bash" && r.resource === "*" && r.effect === "allow"), key).toBe(false)
+    }
   })
 })
 
@@ -194,6 +142,34 @@ describe("server agent transform — goal 权限装配", () => {
     const input = goalTool.input as { type?: string; required?: string[] }
     expect(input.type).toBe("object")
     expect(input.required).toEqual(["op"])
+  })
+})
+
+describe("server agent transform — Profile 测试命令白名单收敛（#137）", () => {
+  let tmpDir: string
+  let harness: Harness
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(path.join(os.tmpdir(), "cabbage-server-testcmd-"))
+    process.env.CABBAGE_SKILLS_DIR = path.join(tmpDir, "skills")
+    await writeFile(path.join(tmpDir, "AGENTS.md"), "## Project Profile\n\n- test command: `npm test -- {testPaths}`\n", "utf8")
+    harness = await makeHarness(tmpDir, projectRoot)
+  })
+
+  afterEach(async () => {
+    harness.cleanup()
+    delete process.env.CABBAGE_SKILLS_DIR
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it("developer 注册载荷使用 Profile 测试命令安全前缀，提权命令被拒绝", () => {
+    const rules = (harness.agentEditor.get("developer")?.permissions ?? []) as AgentRule[]
+    const bash = rules.filter((r) => r.action === "bash")
+    expect(bash).toContainEqual({ action: "bash", resource: "npm test -- *", effect: "allow" })
+    expect(matchPermissionRules(bash, "npm test -- test/plugin/server-permissions.test.ts", "bash")).toBe("allow")
+    for (const cmd of ["npm install", "npm run build", "npm publish", "npm exec -- rm -rf /"]) {
+      expect(matchPermissionRules(bash, cmd, "bash"), `${cmd} 应被拒绝`).toBe("deny")
+    }
   })
 })
 

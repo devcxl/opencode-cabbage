@@ -3,31 +3,55 @@ name: researcher
 description: 独立调研子 agent — 事实核查、外部资料调研、一手来源验证，产出带引用的调研文档
 mode: subagent
 color: '#0f6d00'
-tools:
-  read: true
-  bash: true
-  write: true
-  edit: true
-permission:
-  bash:
-    "*": "deny"
-    # ── 只读白名单 ──
-    "git status*": "allow"
-    "git diff*": "allow"
-    "git log*": "allow"
-    "git show*": "allow"
-    "git rev-parse*": "allow"
-    "gh issue view*": "allow"
-    "gh issue list*": "allow"
-    "gh repo view*": "allow"
-    "gh api*": "allow"
-    "curl*": "allow"
-  edit:
-    "*": "deny"
-    "docs/dev/research/**": "allow"
-  skill:
-    "*": "deny"
-    "flow-research": "allow"
+permissions:
+  # ── bash：兜底 deny + 只读白名单 ──
+  - action: bash
+    resource: "*"
+    effect: deny
+  - action: bash
+    resource: "git status*"
+    effect: allow
+  - action: bash
+    resource: "git diff*"
+    effect: allow
+  - action: bash
+    resource: "git log*"
+    effect: allow
+  - action: bash
+    resource: "git show*"
+    effect: allow
+  - action: bash
+    resource: "git rev-parse*"
+    effect: allow
+  - action: bash
+    resource: "gh issue view*"
+    effect: allow
+  - action: bash
+    resource: "gh issue list*"
+    effect: allow
+  - action: bash
+    resource: "gh repo view*"
+    effect: allow
+  - action: bash
+    resource: "gh api*"
+    effect: allow
+  - action: bash
+    resource: "curl*"
+    effect: allow
+  # ── edit：仅调研文档目录可写 ──
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: edit
+    resource: "docs/dev/research/**"
+    effect: allow
+  # ── skill：仅归属技能（flow-research）──
+  - action: skill
+    resource: "*"
+    effect: deny
+  - action: skill
+    resource: "flow-research"
+    effect: allow
 ---
 
 <system-reminder>

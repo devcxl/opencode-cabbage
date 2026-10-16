@@ -59,7 +59,7 @@ _Avoid_: Flow Stage
 - 一个 **Flow** 包含多个有序 **Stage**
 - **Goal** 绑定一个 **Flow Record**，驱动会话自动续接直至完成
 - 每个 **Stage** 读取 **Project Context**；确认的新术语和关系即时写回
-- **Project Profile** 为流程提供项目特定的测试与发布约定
+- **Project Profile** 为流程提供项目特定的测试与发布约定，确立测试执行的命令基线
 - 每个 **Flow** 只有一个 **Flow Record**
 - 每个可交付任务只有一个 **Task Record**
 - **Flow Record** 和 **Task Record** 都使用英文功能标题，据此派生 **Functional Slug**
@@ -80,3 +80,4 @@ _Avoid_: Flow Stage
 - “Context”曾同时表示会话上下文、插件内置术语表和目标项目领域词汇表；本流程中的 **Project Context** 专指目标项目维护的领域语言。
 - “Stage”曾被限定为 slash command；现统一为逻辑环节，命令只是可能的触发方式。
 - “Thin Kernel”曾表示用生命周期工具约束高风险动作；现回归纯 Prompt 编排，仅保留 **Goal** 工具与最小支撑模块。
+- “Agent Permission”曾依赖多层转译与宽松通配；现统一与 **Project Profile** 的测试命令基线精确对齐。

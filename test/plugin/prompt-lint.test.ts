@@ -71,11 +71,16 @@ describe("prompt-lint: agent permission rules", () => {
         `---
 name: developer
 mode: subagent
-permission:
-  bash:
-    "*": "deny"
-    "gh pr create*": "allow"
-  edit: "deny"
+permissions:
+  - action: bash
+    resource: "*"
+    effect: deny
+  - action: bash
+    resource: "gh pr create*"
+    effect: allow
+  - action: edit
+    resource: "*"
+    effect: deny
 ---
 
 worker prompt
@@ -84,6 +89,59 @@ worker prompt
       )
       const { findings } = lintAll(tmpDir)
       const violations = findings.filter(f => f.rule === "worker-gh-write-permission")
+      expect(violations.length).toBe(1)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it("warns when agent still uses V1 permission frontmatter（不再被识别）", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cabbage-lint-"))
+    try {
+      fs.mkdirSync(path.join(tmpDir, "assets", "agents", "team"), { recursive: true })
+      fs.writeFileSync(
+        path.join(tmpDir, "assets", "agents", "team", "legacy.md"),
+        `---
+name: legacy
+mode: subagent
+permission:
+  bash:
+    "*": "deny"
+---
+
+legacy prompt
+`,
+        "utf8",
+      )
+      const { findings } = lintAll(tmpDir)
+      const missing = findings.filter(f => f.rule === "missing-permission")
+      expect(missing.length).toBe(1)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it("errors when reviewer native permissions do not deny edit", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cabbage-lint-"))
+    try {
+      fs.mkdirSync(path.join(tmpDir, "assets", "agents", "team"), { recursive: true })
+      fs.writeFileSync(
+        path.join(tmpDir, "assets", "agents", "team", "reviewer.md"),
+        `---
+name: reviewer
+mode: subagent
+permissions:
+  - action: bash
+    resource: "*"
+    effect: deny
+---
+
+reviewer prompt
+`,
+        "utf8",
+      )
+      const { findings } = lintAll(tmpDir)
+      const violations = findings.filter(f => f.rule === "reviewer-write-permission")
       expect(violations.length).toBe(1)
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })

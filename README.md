@@ -108,7 +108,7 @@ src/                          # Thin TypeScript layer (OpenCode V2 plugin)
 │   ├── skills.ts             # Skill loader + V2 registration entries
 │   ├── prompts.ts            # Prompt loader
 │   ├── bootstrap.ts          # Startup guidance
-│   ├── agents.ts             # Agent loader + V1→V2 permission/tools rule conversion
+│   ├── agents.ts             # Agent loader + native V2 permissions (placeholder rendering)
 │   ├── shell.ts              # Agent shell env isolation
 │   └── prompt-lint.ts        # Prompt asset consistency checks
 └── kernel/                   # Minimal supporting modules

@@ -3,11 +3,6 @@ name: reviewer
 description: 负责代码审查、风险检查、质量把关
 mode: subagent
 color: '#e91e63'
-tools:
-  read: true
-  bash: false
-  write: false
-  edit: false
 capabilities:
   create_pr: false
   merge_pr: false
@@ -16,21 +11,46 @@ capabilities:
   push_branch: false
   approve_review: false
   complete_goal: false
-permission:
-  bash:
-    "*": "deny"
-    "gh pr view": "allow"
-    "gh pr view *": "allow"
-    "gh pr diff": "allow"
-    "gh pr diff *": "allow"
-    "diff": "allow"
-    "diff *": "allow"
-    "gh pr checks": "allow"
-    "gh pr checks *": "allow"
-  edit: "deny"
-  skill:
-    "*": "deny"
-    "flow-review": "allow"
+permissions:
+  # ── bash：兜底 deny + 只读审查命令白名单 ──
+  - action: bash
+    resource: "*"
+    effect: deny
+  - action: bash
+    resource: "gh pr view"
+    effect: allow
+  - action: bash
+    resource: "gh pr view *"
+    effect: allow
+  - action: bash
+    resource: "gh pr diff"
+    effect: allow
+  - action: bash
+    resource: "gh pr diff *"
+    effect: allow
+  - action: bash
+    resource: "diff"
+    effect: allow
+  - action: bash
+    resource: "diff *"
+    effect: allow
+  - action: bash
+    resource: "gh pr checks"
+    effect: allow
+  - action: bash
+    resource: "gh pr checks *"
+    effect: allow
+  # ── edit：只读审查者，禁止写文件 ──
+  - action: edit
+    resource: "*"
+    effect: deny
+  # ── skill：仅归属技能（flow-review）──
+  - action: skill
+    resource: "*"
+    effect: deny
+  - action: skill
+    resource: "flow-review"
+    effect: allow
 ---
 
 <system-reminder>

@@ -192,8 +192,8 @@ export async function setupCabbage(ctx: Context, packageRoot: string): Promise<(
   const skillEntries = await loadSkillEntries(skillsDir)
   const commands = loadCommands(commandsDir)
   const profile = await readProjectProfile(projectDir)
-  const testCommandToken = profile.testCommand?.split(" ")[0] ?? ""
-  const agentPayloads = buildAgentPayloads(agentsDir, testCommandToken)
+  const testCommand = profile.testCommand ?? ""
+  const agentPayloads = buildAgentPayloads(agentsDir, testCommand)
 
   initPrompts(packageRoot, projectDir)
   await initBootstrap()
@@ -232,9 +232,6 @@ export async function setupCabbage(ctx: Context, packageRoot: string): Promise<(
             await ctx.session.switchAgent({ sessionID, agent: cmd.agent }).catch((err) => {
               console.warn(`[cabbage] command /${cmd.name}: switchAgent failed:`, (err as Error | null)?.message ?? err)
             })
-          }
-          if (cmd.model || cmd.subtask) {
-            console.warn(`[cabbage] command /${cmd.name}: model/subtask frontmatter is not supported on OpenCode V2; ignoring`)
           }
           const args = (prompt?.text ?? "").trim()
           const text = args ? `${cmd.template}\n\n${args}` : cmd.template

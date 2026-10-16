@@ -3,49 +3,121 @@ name: developer
 description: 技术栈无关的实现 agent — 认领 Task Record，在 worktree 内 TDD 实现
 mode: subagent
 color: '#4caf50'
-permission:
-  bash:
-    "*": "deny"                     # 兜底：auto 模式默认拒绝
-    # ── allow 白名单（只读）──
-    "<profile-test-command>*": "allow"   # 白名单测试命令由 Profile（§9.1）生成，不硬编码 npm
-    "git status*": "allow"
-    "git diff*": "allow"
-    "git log*": "allow"
-    "git show*": "allow"
-    "git rev-parse*": "allow"
-    "git ls-files*": "allow"
-    "git branch --merged*": "allow"
-    "gh pr view*": "allow"
-    "gh pr diff*": "allow"
-    "gh pr checks*": "allow"
-    "gh issue view*": "allow"
-    "gh run list*": "allow"
-    "gh api rate_limit*": "allow"
-    # ── 本地写（developer 专属）──
-    "git add*": "allow"
-    "git commit*": "allow"
-    # ── deny 黑名单（写操作，置尾，最后匹配优先）──
-    "git push*": "deny"
-    "git worktree*": "deny"
-    "git checkout -b*": "deny"
-    "git tag*": "deny"
-    "<profile-test-command> publish*": "deny"   # 防测试命令首 token（如 npm）被白名单放行到 publish
-    "gh pr create*": "deny"
-    "gh pr merge*": "deny"
-    "gh pr review*": "deny"
-    "gh issue create*": "deny"
-    "gh issue edit*": "deny"
-    "gh issue close*": "deny"
-    "gh issue comment*": "deny"
-    "gh label*": "deny"
-    "gh release*": "deny"
-  edit:
-    "*": "deny"
-    ".worktree/**": "allow"
-  skill:
-    "*": "deny"
-    "flow-code": "allow"
-    "flow-tdd": "allow"
+permissions:
+  # ── bash 兜底：auto 模式默认拒绝 ──
+  - action: bash
+    resource: "*"
+    effect: deny
+  # ── allow 白名单（只读）──
+  - action: bash
+    resource: "<profile-test-command>*"
+    effect: allow                    # Profile 测试命令安全前缀由渲染器生成（不硬编码 npm）；空 Profile 丢弃
+  - action: bash
+    resource: "git status*"
+    effect: allow
+  - action: bash
+    resource: "git diff*"
+    effect: allow
+  - action: bash
+    resource: "git log*"
+    effect: allow
+  - action: bash
+    resource: "git show*"
+    effect: allow
+  - action: bash
+    resource: "git rev-parse*"
+    effect: allow
+  - action: bash
+    resource: "git ls-files*"
+    effect: allow
+  - action: bash
+    resource: "git branch --merged*"
+    effect: allow
+  - action: bash
+    resource: "gh pr view*"
+    effect: allow
+  - action: bash
+    resource: "gh pr diff*"
+    effect: allow
+  - action: bash
+    resource: "gh pr checks*"
+    effect: allow
+  - action: bash
+    resource: "gh issue view*"
+    effect: allow
+  - action: bash
+    resource: "gh run list*"
+    effect: allow
+  - action: bash
+    resource: "gh api rate_limit*"
+    effect: allow
+  # ── 本地写（developer 专属）──
+  - action: bash
+    resource: "git add*"
+    effect: allow
+  - action: bash
+    resource: "git commit*"
+    effect: allow
+  # ── deny 黑名单（写操作，置尾，最后匹配优先）──
+  - action: bash
+    resource: "git push*"
+    effect: deny
+  - action: bash
+    resource: "git worktree*"
+    effect: deny
+  - action: bash
+    resource: "git checkout -b*"
+    effect: deny
+  - action: bash
+    resource: "git tag*"
+    effect: deny
+  - action: bash
+    resource: "<profile-test-command> publish*"
+    effect: deny                    # 退化 Profile（test command 为裸命令）时拦住 publish 子命令
+  - action: bash
+    resource: "gh pr create*"
+    effect: deny
+  - action: bash
+    resource: "gh pr merge*"
+    effect: deny
+  - action: bash
+    resource: "gh pr review*"
+    effect: deny
+  - action: bash
+    resource: "gh issue create*"
+    effect: deny
+  - action: bash
+    resource: "gh issue edit*"
+    effect: deny
+  - action: bash
+    resource: "gh issue close*"
+    effect: deny
+  - action: bash
+    resource: "gh issue comment*"
+    effect: deny
+  - action: bash
+    resource: "gh label*"
+    effect: deny
+  - action: bash
+    resource: "gh release*"
+    effect: deny
+  # ── edit：仅 worktree 内可写（单一基准）──
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: edit
+    resource: ".worktree/**"
+    effect: allow
+  # ── skill：仅归属技能（flow-code / flow-tdd）──
+  - action: skill
+    resource: "*"
+    effect: deny
+  - action: skill
+    resource: "flow-code"
+    effect: allow
+  - action: skill
+    resource: "flow-tdd"
+    effect: allow
 ---
 
 <system-reminder>

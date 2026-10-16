@@ -1,16 +1,20 @@
 /**
  * 对抗测试 #6 — permission 语义：
- * 纯 Prompt 架构下 dev-lifecycle 作为 primary 编排器直接执行 git/gh 命令（"*": "allow"）；
+ * 纯 Prompt 架构下 dev-lifecycle 作为 primary 编排器直接执行 git/gh 命令（bash "*": allow）；
  * 安全边界由用户审查与模型能力承担。本测试验证 permission 匹配原语本身正确：
- * 最后匹配优先、architect 只读代码只写 docs。
+ * 最后匹配优先、architect 只读代码只写 docs、goal-verify 只读查询。
+ * 资产已迁移至 V2 原生 `permissions: PermissionRule[]`（#162）。
  */
 import { describe, it, expect } from "vitest"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { loadAgents, type AgentEntry } from "../../src/plugin/agents.js"
-import { matchPermission } from "../../src/kernel/permission.js"
+import { loadAgents, type AgentEntry, type AgentRule } from "../../src/plugin/agents.js"
+import { matchPermission, matchPermissionRules } from "../../src/kernel/permission.js"
 
 const AGENTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets/agents")
+
+const rulesOf = (entry: AgentEntry, action: string): AgentRule[] =>
+  (entry.permissions ?? []).filter((rule) => rule.action === action)
 
 describe("adversarial #6 — permission 匹配语义", () => {
   it("最后匹配优先：deny 置尾覆盖前序 allow，规避模型注入规则顺序", () => {
@@ -24,8 +28,8 @@ describe("adversarial #6 — permission 匹配语义", () => {
     const agents = loadAgents(AGENTS_DIR)
     const dev = agents.find((a: AgentEntry) => a.key === "dev-lifecycle")
     expect(dev, "dev-lifecycle agent must exist").toBeDefined()
-    const bash = dev!.permission?.bash as Record<string, string> | undefined
-    expect(bash, "dev-lifecycle must declare bash permission rules").toBeDefined()
+    const bash = rulesOf(dev!, "bash")
+    expect(bash, "dev-lifecycle must declare bash permission rules").not.toEqual([])
     // primary 编排器直接执行 push/PR/merge 等命令，全部 allow
     for (const cmd of [
       "git push origin feat/x",
@@ -34,7 +38,7 @@ describe("adversarial #6 — permission 匹配语义", () => {
       "git worktree add .worktree/x",
       "git checkout -b feat/x",
     ]) {
-      expect(matchPermission(bash!, cmd), `${cmd} 应为 allow`).toBe("allow")
+      expect(matchPermissionRules(bash, cmd, "bash"), `${cmd} 应为 allow`).toBe("allow")
     }
   })
 
@@ -42,27 +46,27 @@ describe("adversarial #6 — permission 匹配语义", () => {
     const agents = loadAgents(AGENTS_DIR)
     const arch = agents.find((a: AgentEntry) => a.key === "architect")
     expect(arch, "architect agent must exist").toBeDefined()
-    const edit = arch!.permission?.edit as Record<string, string> | undefined
-    expect(edit, "architect must declare edit permission rules").toBeDefined()
+    const edit = rulesOf(arch!, "edit")
+    expect(edit, "architect must declare edit permission rules").not.toEqual([])
 
     // 主工作区交付物
-    expect(matchPermission(edit!, "docs/prd/x.md")).toBe("allow")
-    expect(matchPermission(edit!, "docs/dev/specs/x.md")).toBe("allow")
+    expect(matchPermissionRules(edit, "docs/prd/x.md", "edit")).toBe("allow")
+    expect(matchPermissionRules(edit, "docs/dev/specs/x.md", "edit")).toBe("allow")
     // 非 docs 仍拒绝
-    expect(matchPermission(edit!, "src/index.ts")).toBe("deny")
+    expect(matchPermissionRules(edit, "src/index.ts", "edit")).toBe("deny")
   })
 
   it("goal-verify 只读：bash 只放行查询命令", () => {
     const agents = loadAgents(AGENTS_DIR)
     const gv = agents.find((a: AgentEntry) => a.key === "goal-verify")
     expect(gv, "goal-verify agent must exist").toBeDefined()
-    const bash = gv!.permission?.bash as Record<string, string> | undefined
-    expect(bash, "goal-verify must declare bash permission rules").toBeDefined()
+    const bash = rulesOf(gv!, "bash")
+    expect(bash, "goal-verify must declare bash permission rules").not.toEqual([])
     for (const cmd of ["git status", "git diff", "git log --oneline -5"]) {
-      expect(matchPermission(bash!, cmd), `${cmd} 应为 allow`).toBe("allow")
+      expect(matchPermissionRules(bash, cmd, "bash"), `${cmd} 应为 allow`).toBe("allow")
     }
     for (const cmd of ["git push origin main", "gh pr merge 1", "npm publish"]) {
-      expect(matchPermission(bash!, cmd), `${cmd} 不应 allow`).not.toBe("allow")
+      expect(matchPermissionRules(bash, cmd, "bash"), `${cmd} 不应 allow`).not.toBe("allow")
     }
   })
 })

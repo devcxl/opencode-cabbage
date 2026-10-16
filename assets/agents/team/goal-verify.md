@@ -3,25 +3,42 @@ name: goal-verify
 description: Goal verification agent. Verifies completion independently.
 mode: subagent
 color: '#9c27b0'
-tools:
-  read: true
-  bash: true
-  write: false
-  edit: false
-permission:
-  bash:
-    "*": "deny"
-    "<profile-test-command> *": "allow"
-    "<profile-test-command> publish*": "deny"
-    "git status": "allow"
-    "git status *": "allow"
-    "git diff": "allow"
-    "git diff *": "allow"
-    "git log": "allow"
-    "git log *": "allow"
-  edit: "deny"
-  skill:
-    "*": "deny"
+permissions:
+  - action: bash
+    resource: "*"
+    effect: deny
+  - action: bash
+    resource: "<profile-test-command>*"
+    effect: allow                    # 渲染为 "<安全前缀>*"（如 "npm test -- *"）；空 Profile 丢弃
+  - action: bash
+    resource: "<profile-test-command> publish*"
+    effect: deny                     # 退化 Profile（test command 为裸命令）时拦住 publish 子命令
+  - action: bash
+    resource: "git status"
+    effect: allow
+  - action: bash
+    resource: "git status *"
+    effect: allow
+  - action: bash
+    resource: "git diff"
+    effect: allow
+  - action: bash
+    resource: "git diff *"
+    effect: allow
+  - action: bash
+    resource: "git log"
+    effect: allow
+  - action: bash
+    resource: "git log *"
+    effect: allow
+  # ── edit：只读验证者 ──
+  - action: edit
+    resource: "*"
+    effect: deny
+  # ── skill：无归属技能 ──
+  - action: skill
+    resource: "*"
+    effect: deny
 ---
 
 <system-reminder>

@@ -188,38 +188,46 @@ function isReviewerAgent(filePath: string): boolean {
   return filePath.includes("reviewer")
 }
 
-function permissionKeyMatchesCommand(key: string, command: string): boolean {
-  // 复用 kernel/permission.ts 的匹配语义（含 `*` 全匹配、`前缀*` 前缀匹配、glob），避免双实现漂移
-  return permissionPatternMatches(key, command)
+/** V2 原生权限规则（宿主 `permissions: PermissionRule[]` 子集） */
+interface NativePermissionRule {
+  action: string
+  resource: string
+  effect: string
 }
 
-function permissionValueAllowsCommand(
-  permValue: unknown,
+/** 解析 frontmatter 的原生 permissions 数组；缺失/非数组返回 null，结构不完整的条目跳过 */
+function parseNativePermissions(fm: string): NativePermissionRule[] | null {
+  let raw: unknown
+  try {
+    raw = (parseYaml(fm) as Record<string, unknown>)?.permissions
+  } catch {
+    return null
+  }
+  if (!Array.isArray(raw)) return null
+  const rules: NativePermissionRule[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue
+    const { action, resource, effect } = item as Record<string, unknown>
+    if (typeof action !== "string" || typeof resource !== "string" || typeof effect !== "string") continue
+    rules.push({ action, resource, effect })
+  }
+  return rules
+}
+
+/** 规则数组是否可能放行该命令形态（action 匹配 + resource 命中 + 非 deny） */
+function permissionRulesAllowCommand(
+  rules: NativePermissionRule[],
+  action: string,
   commandPattern: string,
 ): boolean {
-  if (typeof permValue === "string") {
-    return permValue !== "deny" && permValue.includes(commandPattern)
-  }
-  if (permValue && typeof permValue === "object") {
-    const rules = permValue as Record<string, unknown>
-    return Object.entries(rules).some(([key, action]) => {
-      if (action === "deny") return false
-      return permissionKeyMatchesCommand(key, commandPattern)
-    })
-  }
-  return false
+  return rules.some(
+    (rule) => rule.action === action && rule.effect !== "deny" && permissionPatternMatches(rule.resource, commandPattern),
+  )
 }
 
-function permissionValueAllowsAny(permValue: unknown): boolean {
-  if (!permValue || permValue === "deny") return false
-  if (typeof permValue === "string") return true
-  if (typeof permValue === "object") {
-    return Object.entries(permValue as Record<string, unknown>).some(([key, v]) => {
-      if (key === "*") return false
-      return v !== "deny"
-    })
-  }
-  return false
+/** 是否存在显式放行的非 "*" bash 规则（bash 可用性的粗判） */
+function bashPermissionsAllowAny(rules: NativePermissionRule[]): boolean {
+  return rules.some((rule) => rule.action === "bash" && rule.resource !== "*" && rule.effect !== "deny")
 }
 
 function checkAgentPermission(content: string, filePath: string): LintFinding[] {
@@ -229,51 +237,41 @@ function checkAgentPermission(content: string, filePath: string): LintFinding[] 
 
   const fm = frontmatterMatch[1]
 
-  const hasPermission = /^permission:/m.test(fm)
-  if (!hasPermission) {
+  if (!/^permissions:/m.test(fm)) {
     findings.push({
       severity: "warn",
       file: filePath,
       rule: "missing-permission",
-      message: "agent frontmatter is missing 'permission' field",
+      message: "agent frontmatter is missing 'permissions' field",
     })
     return findings
   }
 
-  let permissionParsed: Record<string, unknown> | null = null
-  try {
-    const parsed = parseYaml(fm) as Record<string, unknown>
-    permissionParsed = (parsed?.permission as Record<string, unknown>) ?? null
-  } catch {}
+  const rules = parseNativePermissions(fm) ?? []
+  const editRules = rules.filter((rule) => rule.action === "edit")
+  const isEditDenied = editRules.length > 0 && editRules.every((rule) => rule.effect === "deny")
 
-  // Rule: Worker must not have gh pr create|merge in permission.bash
+  // Rule: Worker must not allow gh pr create|merge in bash permissions
   if (isWorkerAgent(content)) {
-    const bashPerm = permissionParsed?.bash
-    if (permissionValueAllowsCommand(bashPerm, "gh pr create") ||
-        permissionValueAllowsCommand(bashPerm, "gh pr merge")) {
+    if (permissionRulesAllowCommand(rules, "bash", "gh pr create") ||
+        permissionRulesAllowCommand(rules, "bash", "gh pr merge")) {
       findings.push({
         severity: "error",
         file: filePath,
         rule: "worker-gh-write-permission",
-        message: "worker agent declares gh pr create/merge in permission.bash",
+        message: "worker agent declares gh pr create/merge allow in bash permissions",
       })
     }
   }
 
-  // Rule: Reviewer must have edit: deny
-  if (isReviewerAgent(filePath)) {
-    const editPerm = permissionParsed?.edit
-    const isEditDenied = editPerm === "deny" ||
-      (typeof editPerm === "object" && editPerm !== null &&
-       Object.values(editPerm as Record<string, unknown>).every(v => v === "deny"))
-    if (!isEditDenied) {
-      findings.push({
-        severity: "error",
-        file: filePath,
-        rule: "reviewer-write-permission",
-        message: `reviewer agent must have edit: "deny"`,
-      })
-    }
+  // Rule: Reviewer must deny edit permissions
+  if (isReviewerAgent(filePath) && !isEditDenied) {
+    findings.push({
+      severity: "error",
+      file: filePath,
+      rule: "reviewer-write-permission",
+      message: `reviewer agent must declare edit permissions with effect "deny"`,
+    })
   }
 
   // Rule: capabilities vs permission consistency
@@ -281,30 +279,30 @@ function checkAgentPermission(content: string, filePath: string): LintFinding[] 
   const runTests = fm.match(/^\s+run_tests:\s*(true|false)/m)
   const pushBranch = fm.match(/^\s+push_branch:\s*(true|false)/m)
 
-  if (modifyFiles?.[1] === "true" && permissionParsed?.edit === "deny") {
+  if (modifyFiles?.[1] === "true" && isEditDenied) {
     findings.push({
       severity: "warn",
       file: filePath,
       rule: "capability-permission-mismatch",
-      message: "capabilities.modify_files is true but permission.edit is deny",
+      message: "capabilities.modify_files is true but edit permissions are deny",
     })
   }
 
-  if (runTests?.[1] === "true" && !permissionValueAllowsAny(permissionParsed?.bash)) {
+  if (runTests?.[1] === "true" && !bashPermissionsAllowAny(rules)) {
     findings.push({
       severity: "warn",
       file: filePath,
       rule: "capability-permission-mismatch",
-      message: "capabilities.run_tests is true but permission.bash is not declared or is deny",
+      message: "capabilities.run_tests is true but bash permissions are not declared or are deny",
     })
   }
 
-  if (pushBranch?.[1] === "true" && !permissionValueAllowsCommand(permissionParsed?.bash, "git push")) {
+  if (pushBranch?.[1] === "true" && !permissionRulesAllowCommand(rules, "bash", "git push")) {
     findings.push({
       severity: "warn",
       file: filePath,
       rule: "capability-permission-mismatch",
-      message: "capabilities.push_branch is true but permission.bash does not include 'git push'",
+      message: "capabilities.push_branch is true but bash permissions do not include 'git push'",
     })
   }
 

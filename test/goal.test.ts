@@ -25,8 +25,8 @@ describe("GoalData 最小化", () => {
   })
 
   it("createGoal 支持 sessionProfile 快照（agent/模型续接防切换）", () => {
-    const goal = createGoal(42, { agent: "dev", model: { providerID: "openai", modelID: "gpt-5.6-sol" } })
-    expect(goal.sessionProfile).toEqual({ agent: "dev", model: { providerID: "openai", modelID: "gpt-5.6-sol" } })
+    const goal = createGoal(42, { agent: "dev", model: { providerID: "openai", id: "gpt-5.6-sol", variant: "fast" } })
+    expect(goal.sessionProfile).toEqual({ agent: "dev", model: { providerID: "openai", id: "gpt-5.6-sol", variant: "fast" } })
   })
 
   it("formatGoal 展示快照 agent", () => {

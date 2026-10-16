@@ -8,11 +8,17 @@ const goalMutex = new KeyedMutex()
 
 export type GoalStatus = "active" | "paused" | "complete"
 
+/** 模型引用：goal 状态持久化与快照统一使用的形状（不接受 V1 遗留模型字段） */
+export interface ModelRef {
+  providerID: string
+  id: string
+  variant?: string
+}
+
 /** 用户最后使用的会话配置快照：续接注入时显式传回，防止回落/切换默认 agent 与模型 */
 export interface GoalSessionProfile {
   agent: string
-  /** V1 存量语义：{providerID, modelID}；V2 新写入为 {providerID, id, variant?}，读取时两种都接受 */
-  model?: { providerID: string; modelID?: string; id?: string; variant?: string }
+  model?: ModelRef
 }
 
 /** 最小化 goal（§10.2）：目标与验收条件从 Flow Record（Parent Issue body）读取 */
@@ -73,14 +79,12 @@ export function formatGoal(goal: GoalData): string {
   ].filter(Boolean).join("\n")
 }
 
-/** 把存储的 profile.model（V1/V2 两种形状）归一为 V2 的 ModelRef；无法识别时返回 null */
+/** 校验持久化读回的 profile.model（metadata JSON 不受类型约束）；形状不完整时返回 null */
 export function normalizeProfileModel(
-  model: { providerID?: string; modelID?: string; id?: string; variant?: string } | undefined,
-): { providerID: string; id: string; variant?: string } | null {
-  if (!model?.providerID) return null
-  const id = model.id ?? model.modelID
-  if (!id) return null
-  return { providerID: model.providerID, id, ...(model.variant ? { variant: model.variant } : {}) }
+  model: ModelRef | undefined,
+): ModelRef | null {
+  if (!model?.providerID || !model.id) return null
+  return { providerID: model.providerID, id: model.id, ...(model.variant ? { variant: model.variant } : {}) }
 }
 
 export const MAX_CONTINUATIONS = 50

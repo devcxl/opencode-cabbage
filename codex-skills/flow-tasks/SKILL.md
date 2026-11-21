@@ -135,7 +135,7 @@ EOF
 - 发布权限：
   - 普通 Flow：`@agent-dev-lifecycle` 检查后自动发布。
   - 高风险 Flow：展示 Task Plan，用户确认后发布。
-  - 用户主动 `/tasks`：展示 Task Plan，等待用户确认后发布。
+  - 用户主动 `/flow-tasks`：展示 Task Plan，等待用户确认后发布。
   - `@agent-architect`：产出并返回 Task Plan 后停止，不执行发布。
 
 ## Output
@@ -146,12 +146,12 @@ EOF
 ## 后续
 
 - `@agent-dev-lifecycle` 检查并发布 GitHub Sub Issues
-- **/code** — 按依赖拓扑进入编码阶段
+- **/flow-code** — 按依赖拓扑进入编码阶段
 
 ## Contract
 
 ### Trigger
-由 `/tasks` 命令或 `@agent-dev-lifecycle` Phase 2 委派 `@agent-architect` 触发。
+由 `/flow-tasks` 命令或 `@agent-dev-lifecycle` Phase 2 委派 `@agent-architect` 触发。
 
 ### Inputs
 - `docs/specs/<slug>.md` — 系统规格与技术方案（含 Testing Decisions）
@@ -159,7 +159,7 @@ EOF
 - Parent Issue 编号
 
 ### Preconditions
-- `/design` 已完成，系统规格和 ADR 存在
+- `/flow-design` 已完成，系统规格和 ADR 存在
 
 ### Procedure
 1. 读取 `docs/specs/` 设计基线与必要的 repository context。

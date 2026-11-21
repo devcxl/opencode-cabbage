@@ -2,7 +2,7 @@
 
 本文档介绍 opencode-cabbage 的核心架构设计。
 
-> **兼容性：**2.0.0 起插件入口使用 `@opencode/plugin` 2.x（OpenCode v2 插件 API），基于 `Plugin.define` setup、域 transform 与轮次结束事件驱动的自动续接，已在 OpenCode v2.0.28 端到端实测。OpenCode v1 使用 1.x 版本线。
+> **兼容性：**要求 OpenCode v2（已在 OpenCode v2.3.0 + `@opencode/plugin@^2.3.2` 端到端实测），基于 `Plugin.define` setup、域 transform、原生 `opencode.goal` RPC 与 `experimental.idle` 钩子。OpenCode v1 使用 1.x 版本线。
 
 ---
 
@@ -36,52 +36,47 @@
 > **内核保护高损失写操作，不管理开发方法论。**
 
 - **流程编排交给模型**：阶段顺序、任务拆解、TDD、审查、合并决策由 agent + skill（Prompt）驱动
+- **连续循环复用 OpenCode 原生 `/goal`**：插件通过 `opencode.goal` RPC 与 `experimental.idle` 感知内置目标状态与后台子任务，不自建冲突续接循环
 - **质量验证交给 CI**：测试通过与否由仓库 GitHub Actions workflow 判定
-- **确定性内核只做**：goal 状态跟踪、Parent Issue 绑定、自动续接、Context 注入、goal-verify 授权、
-  内置 Cabbage 引擎的释放与变更记录工具（tasks/文档/门禁/归档）
+- **确定性引擎只做**：纯 TS `cabbage` 变更记录校验与归档、Context 注入、权限白名单隔离
 
 ## 两层架构
 
-### 1. 加载器层 (`src/plugin/`)
+### 1. 加载器层与纯 TS 引擎 (`src/plugin/` + `src/cabbage/`)
 
-负责将 `assets/` 中的资源加载到 OpenCode 配置，并暴露 goal 与 cabbage 工具：
+负责将 `assets/` 中的资源加载到 OpenCode 配置，对接原生 `/goal` 与 `experimental.idle`，并暴露纯 TS `cabbage` 工具：
 
-| 加载器 | 职责 |
+| 模块 | 职责 |
 |--------|------|
-| `server.ts` | 主工厂：注入 skills/commands/agents、注册 goal 与 cabbage 工具、事件处理 |
-| `goal.ts` | goal 工具：状态机 + goal-verify 授权 |
-| `cabbage-cli.ts` | 释放捆绑的 Cabbage 引擎（按插件版本隔离）、python 探测与子进程执行 |
+| `server.ts` | 主工厂：注入 skills/flow-* commands/agents/cabbage 工具、注册 `context` 与 `experimental.idle` 钩子 |
+| `builtin-goal.ts` | OpenCode v2.3 `opencode.goal` RPC 读取与空闲守卫 |
+| `cabbage/*` | 纯 TS 变更记录与 OpenSpec 文档校验引擎（零 Python 依赖） |
 | `cabbage-tool.ts` | `cabbage` 工具：变更记录 op 映射与 agent 门控（仅 dev-lifecycle） |
-| `install-dir.ts` | 版本化目录安装（锁 + 完整性校验），skills 与引擎共用 |
-| `commands.ts` | 解析 markdown frontmatter，注册 7 个 slash command |
+| `install-dir.ts` | 版本化目录安装（锁 + 完整性校验） |
+| `commands.ts` | 解析 markdown frontmatter，注册 7 个 `/flow-*` slash command |
 | `skills.ts` | 复制 skills 到固定目录 |
-| `agents.ts` | 解析 YAML frontmatter，注册 agent |
+| `agents.ts` | 解析 YAML frontmatter，注册 agent 与原生权限 |
 | `prompts.ts` | 两级加载（项目 > 内置），提供 prompt 内容 |
 | `bootstrap.ts` | 加载启动引导 system prompt |
 | `shell.ts` | Agent shell 环境隔离 |
 | `prompt-lint.ts` | Prompt 资产一致性检查 |
 
-### 2. 最小支撑模块 (`src/kernel/`)
+### 2. 支撑模块 (`src/kernel/`)
 
 | 模块 | 职责 |
 |------|------|
 | `context.ts` | 根 CONTEXT.md 发现/摘要/mtime 缓存刷新 |
 | `profile.ts` | AGENTS.md Project Profile 区块解析 |
-| `session-index.ts` | parentIssue→session 轻量索引（goal 绑定 + 重启恢复） |
 | `permission.ts` | OpenCode permission 匹配语义（最后匹配优先） |
-| `mutex.ts` | 按键异步互斥（session-index 并发安全） |
 
 ## 核心概念
 
-### Goal（唯一工具）
+### Goal（复用 OpenCode 原生 `/goal`）
 
 - 一个 **Flow** = 一个 GitHub Parent Issue，包含目标、验收标准与阶段 checklist（权威源）
-- **goal 工具** 在每个会话存储 `{ parentIssueNumber, status, continuationCount, sessionProfile, tokenBudget, tokensUsed, tokensBaseline, createdAt, statusReason }`
-- 目标/验收 **不** 存在 goal 里，从 Parent Issue body 读取（单一事实源）
-- 状态机：`create → active ⇄ paused → complete（仅 goal-verify）`；paused 还有三个自动入口：`[BLOCKED:]` 报告、`[DONE:]` 完成报告、token 预算达限
-- 进度从 GitHub 实时推导，不持久化 JSON 状态
-- create 支持可选 `token_budget`：达限自动 pause（预算护栏，防长跑成本失控）；记账用快照法（最新完成 assistant 轮的 input+reasoning+cache.read+output − 创建时基线，单调不减）
-- `edit` op：修改 tokenBudget（传 0 移除）或更换 parentIssueNumber（换 Flow，重置记账 + 索引 rebind）；active/paused 可编辑，complete 只读；budget 达限 paused 后可先 edit 提预算再 resume
+- 如需无人值守长跑，直接使用 OpenCode 原生 `/goal` 命令（`/goal pause|resume|clear`）
+- 插件通过 `opencode.goal` RPC 感知内置 `/goal` 是否处于 `active` 并自动注入 bootstrap 与 `CONTEXT.md`
+- 最终验收由 `@goal-verify` 只读子 agent 对照 Parent Issue 与 `docs/specs/` 独立核查并出具证据报告
 
 ### 阶段（Stage）
 

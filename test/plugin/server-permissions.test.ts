@@ -83,19 +83,7 @@ describe("server agent transform — goal 权限装配", () => {
     expect(rules).toContainEqual({ action: "skill", resource: "flow-design", effect: "allow" })
   })
 
-  it("goal 工具授权：仅 dev-lifecycle / goal-verify 得到 allow，其余一律 deny", () => {
-    const goalRule = (id: string) => {
-      const agent = harness.agentEditor.get(id)
-      const rules = (agent?.permissions ?? []) as Array<{ action: string; resource: string; effect: string }>
-      return rules.filter((r) => r.action === "goal")
-    }
-    expect(goalRule("dev-lifecycle")).toEqual([{ action: "goal", resource: "*", effect: "allow" }])
-    expect(goalRule("goal-verify")).toEqual([{ action: "goal", resource: "*", effect: "allow" }])
-    expect(goalRule("architect")).toEqual([{ action: "goal", resource: "*", effect: "deny" }])
-    expect(goalRule("developer")).toEqual([{ action: "goal", resource: "*", effect: "deny" }])
-  })
-
-  it("cabbage 工具授权：仅 dev-lifecycle 得到 allow，其余一律 deny", () => {
+  it("cabbage 工具授权：仅 dev-lifecycle 得到 allow，其余一律 deny（内置 /goal 取代自研 goal 工具）", () => {
     const cabbageRule = (id: string) => {
       const agent = harness.agentEditor.get(id)
       const rules = (agent?.permissions ?? []) as Array<{ action: string; resource: string; effect: string }>
@@ -105,9 +93,10 @@ describe("server agent transform — goal 权限装配", () => {
     expect(cabbageRule("goal-verify")).toEqual([{ action: "cabbage", resource: "*", effect: "deny" }])
     expect(cabbageRule("architect")).toEqual([{ action: "cabbage", resource: "*", effect: "deny" }])
     expect(cabbageRule("developer")).toEqual([{ action: "cabbage", resource: "*", effect: "deny" }])
+    expect(harness.toolAdds.find((t) => t.name === "goal")).toBeUndefined()
   })
 
-  it("用户已存在的 agent 不被覆盖字段，但补齐 goal deny 规则", () => {
+  it("用户已存在的 agent 不被覆盖字段，但补齐 cabbage deny 规则", () => {
     // 通过 editor.update 直接模拟用户级 agent（在 transform 之前已存在）
     const editor = harness.agentEditor
     editor.update("existing-user-agent", (a) => {
@@ -115,7 +104,7 @@ describe("server agent transform — goal 权限装配", () => {
       a.system = "user prompt"
       a.permissions = [{ action: "bash", resource: "*", effect: "allow" }]
     })
-    // 再次触发 transform（重新应用 goal 规则）
+    // 再次触发 transform（重新应用 cabbage 规则）
     const transformCb = (harness.ctx.agent as { transform: { mock: { calls: Array<[unknown]> } } }).transform.mock.calls[0]![0] as (e: unknown) => void
     transformCb(editor)
 
@@ -123,23 +112,23 @@ describe("server agent transform — goal 权限装配", () => {
     expect(agent.system).toBe("user prompt")
     const rules = agent.permissions as Array<{ action: string; resource: string; effect: string }>
     expect(rules).toContainEqual({ action: "bash", resource: "*", effect: "allow" })
-    expect(rules.filter((r) => r.action === "goal")).toEqual([{ action: "goal", resource: "*", effect: "deny" }])
+    expect(rules.filter((r) => r.action === "cabbage")).toEqual([{ action: "cabbage", resource: "*", effect: "deny" }])
   })
 
-  it("重复应用 transform 不重复追加 goal 规则（幂等）", () => {
+  it("重复应用 transform 不重复追加 cabbage 规则（幂等）", () => {
     const editor = harness.agentEditor
     const transformCb = (harness.ctx.agent as { transform: { mock: { calls: Array<[unknown]> } } }).transform.mock.calls[0]![0] as (e: unknown) => void
     transformCb(editor)
     transformCb(editor)
 
     const rules = (editor.get("architect")!.permissions ?? []) as Array<{ action: string }>
-    expect(rules.filter((r) => r.action === "goal")).toHaveLength(1)
+    expect(rules.filter((r) => r.action === "cabbage")).toHaveLength(1)
   })
 
-  it("注册的 goal 工具带 permission 选项与 JSON Schema 输入", () => {
-    const goalTool = harness.toolAdds.find((t) => t.name === "goal")!
-    expect((goalTool.options as { permission?: string }).permission).toBe("goal")
-    const input = goalTool.input as { type?: string; required?: string[] }
+  it("注册的 cabbage 工具带 permission 选项与 JSON Schema 输入", () => {
+    const cabbageTool = harness.toolAdds.find((t) => t.name === "cabbage")!
+    expect((cabbageTool.options as { permission?: string }).permission).toBe("cabbage")
+    const input = cabbageTool.input as { type?: string; required?: string[] }
     expect(input.type).toBe("object")
     expect(input.required).toEqual(["op"])
   })

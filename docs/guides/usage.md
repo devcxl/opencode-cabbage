@@ -11,14 +11,12 @@
 按顺序逐一执行命令，适合需要精细控制的场景：
 
 ```
-/setup → /requirements → /design → /tasks → /code → /review → /release
+/flow-setup → /flow-requirements → /flow-design → /flow-tasks → /flow-code → /flow-review → /flow-release
 ```
 
 ### 自动模式
 
-需求确认后，输入 `@dev-lifecycle` 即可全自动完成剩余流程（终点为自动合并，不包含 release）。
-
-> **提示**：自动续接依赖一个保持连接的客户端会话（如 TUI）。以 `opencode run` 一次性执行时，轮次结束后的续接会先入队暂存，需要重新附着该会话（TUI 或 `opencode run --session <id>`）才会继续执行。
+需求确认后，输入 `@dev-lifecycle`（配合 OpenCode 内置 `/goal` 命令可开启自动续跑，终点为自动合并，不包含 release）。
 
 ---
 
@@ -226,18 +224,13 @@ Complete: goal 验证 + 完成
 | Continuation 耗尽 | Pause，用户介入 |
 | 上下文压力大 | 自动写 handoff 文档，恢复时先读它 |
 
-### Goal 状态管理
+### Goal 状态管理（复用 OpenCode 原生 `/goal`）
 
-Flow 状态通过 `goal` tool 管理：
+连续无人值守执行直接使用 OpenCode v2.3 内置 `/goal` 命令：
 
-- `goal({op:"create", parent_issue_number:<Parent Issue 编号>})` — 开始 flow（目标/验收从 Parent Issue body 读取）
-- `goal({op:"get"})` — 查看当前 flow 状态
-- `goal({op:"pause"})` — 暂停 flow
-- `goal({op:"resume"})` — 恢复 flow
-- `goal({op:"cancel"})` — 取消 flow
-- `goal({op:"complete"})` — 完成 flow（需 goal-verify 子 agent 调用）
-
-> 只有 `@goal-verify` 子 agent 可以调用 `goal({op:"complete"})`，主 agent 和其他子 agent 调用会被 BLOCKED。
+- `/goal <目标>` — 开启自动续跑循环（例如 `/goal 完成 Flow #42 全流程开发`）
+- `/goal pause` / `/goal resume` / `/goal clear` — 暂停 / 恢复 / 清除内置目标
+- 最终完成后由 `@dev-lifecycle` 派发只读 `@goal-verify` 对照 Parent Issue 与 `docs/specs/` 独立验证並输出证据报告
 
 ---
 

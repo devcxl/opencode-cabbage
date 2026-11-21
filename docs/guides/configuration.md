@@ -47,17 +47,17 @@ opencode plugin add @devcxl/opencode-cabbage
 
 ## 插件自动注入的配置
 
-### 7 个 Slash Command
+### 7 个 Slash Command（`/flow-*` 前缀避让 OpenCode 内置命令）
 
 | 命令 | 触发 agent | 说明 |
 |------|-----------|------|
-| `/setup` | — | 初始化：探测环境、确认 Project Profile |
-| `/requirements` | — | 需求访谈 → PRD → Parent Issue |
-| `/design` | `@architect` | 技术方案 + 必要 ADR → 设计 PR |
-| `/tasks` | `@architect` | DAG 任务拆解 → Sub Issues |
-| `/code` | `@developer` | Task 编码 + TDD → PR |
-| `/review` | `@reviewer` | 双轴审查 → 合并 |
-| `/release` | — | 版本提议 → Release PR → tag push → workflow 监控 |
+| `/flow-setup` | — | 初始化：探测环境、确认 Project Profile |
+| `/flow-requirements` | — | 需求访谈 → PRD → Parent Issue |
+| `/flow-design` | `@architect` | 系统规格 + 必要 ADR → 设计 PR |
+| `/flow-tasks` | `@architect` | 垂直切片拆解 → GitHub Sub Issues |
+| `/flow-code` | `@developer` | Task 编码 + TDD → PR |
+| `/flow-review` | `@reviewer` | 双轴审查 → 合并（OpenCode 原生 `/review` 保留给日常快速看 diff） |
+| `/flow-release` | — | 版本提议 → Release PR → tag push → workflow 监控 |
 
 每个 command 对应一个 `flow-*` skill，定义在 `assets/skills/` 目录中；阶段契约（阶段顺序、完成权威、门禁规则）内嵌在 `assets/agents/dev-lifecycle.md` 的《阶段契约》章节。
 
@@ -91,35 +91,24 @@ opencode plugin add @devcxl/opencode-cabbage
 
 Skills 安装到固定目录（`~/.config/opencode/cabbage/skills@<version>/`，按插件版本隔离），并通过 V2 原生 skill 注册（references 相对路径随目录解析），不会污染项目目录。
 
-### 2 个工具：goal 与 cabbage
+### 变更记录工具：`cabbage`（纯 TypeScript，零 Python 依赖）
 
-插件注册两个工具。`goal` 用于会话级 Flow 状态跟踪：
-
-| op | 说明 |
-|----|------|
-| `create` | 建立 goal（绑定 Parent Issue 编号） |
-| `get` | 读取当前 goal 状态 |
-| `pause` / `resume` | 暂停 / 恢复 goal |
-| `cancel` | 取消 goal |
-| `complete` | 标记完成（仅 `goal-verify` 可调用） |
-
-目标与验收标准从 Parent Issue body 读取，不存储在 goal 中。
-
-`cabbage` 用于变更记录（内置 Cabbage 引擎，需机器具备 Python 3.10+），仅 `dev-lifecycle` 可调用：
+连续自主循环直接复用 OpenCode v2.3 原生 `/goal` 命令（`/goal pause|resume|clear`），插件不再提供重复的 `goal` 工具。
+`cabbage` 用于可选的变更记录留痕（内置纯 TS 引擎），仅 `dev-lifecycle` 可调用：
 
 | op | 说明 |
 |----|------|
-| `init` | 初始化 `.cabbage/`（工作流、CI 模板、vendored CLI） |
-| `adopt` | 盘点 docs 树之外的 Markdown → `.cabbage/adoption-report.md`（只读盘点，迁移手动） |
+| `init` | 初始化 `.cabbage/` 与统一 `docs/` 目录（`specs`/`adr`/`prd`） |
+| `adopt` | 盘点 `docs/` 规范目录之外的 Markdown → `.cabbage/adoption-report.md` |
 | `new` | 创建记录（`type`: change / incident） |
 | `status` / `next` | 记录列表 / 阶段就绪与阻塞 |
-| `impact` | 声明风险标记（design/rfc/adr/api/database/security/deployment） |
+| `impact` | 声明风险标记（design/rfc/architecture/api/database/security/deployment） |
 | `verify` / `gate` | 阶段验证 / 门禁（阶段 ID、merge、archive） |
 | `validate` | 结构校验 |
-| `sync` / `archive` | 同步当前文档 / 收尾归档 |
+| `sync` / `archive` | 同步文档 / 收尾归档 |
 | `tasks` / `discard` | 任务清单视图 / 废弃记录 |
 
-`archive` 不检查 Git 合并状态，须人工确认合并后执行；`change.yaml` 与 `state.json` 由 CLI 管理，不得手工编辑。
+`archive` 不检查 Git 合并状态，须人工确认合并后执行；`change.yaml` 与 `state.json` 由引擎管理，不得手工编辑。
 
 ## 阶段契约
 

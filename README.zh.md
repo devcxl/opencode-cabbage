@@ -1,6 +1,6 @@
 <div align="center">
   <h1>@devcxl/opencode-cabbage</h1>
-  <p>全流程开发 OpenCode 插件 — 覆盖需求、设计、任务、编码、测试、审查和发布完整开发生命周期，支持自动编排与并行 Subagent。</p>
+  <p>面向 OpenCode v2.3+ 的全流程开发插件 — 融合 OpenSpec 活规格沉淀与 Matt Pocock 工程工作流，原生对接 OpenCode 内置 <code>/goal</code>，纯 TypeScript 零 Python 依赖。</p>
   <p>
     <a href="https://github.com/devcxl/opencode-cabbage/actions/workflows/ci.yml"><img src="https://github.com/devcxl/opencode-cabbage/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/devcxl/opencode-cabbage/actions/workflows/release-draft.yml"><img src="https://github.com/devcxl/opencode-cabbage/actions/workflows/release-draft.yml/badge.svg" alt="Release"></a>
@@ -16,7 +16,7 @@
 
 ## OpenCode 兼容性
 
-> **要求 OpenCode v2（已在 v2.0.28 实测）。** 2.0.0 为 V2-only 版本线，基于 `@opencode/plugin` 2.x（`Plugin.define` 入口、域 transform、轮次结束事件驱动的自动续接）。OpenCode v1 用户请继续使用 `1.x` 版本线。
+> **要求 OpenCode v2（已在 OpenCode v2.3.0 + `@opencode/plugin@^2.3.2` 端到端实测）。** 基于 V2 `Plugin.define` 入口、原生 `opencode.goal` RPC、`experimental.idle` 后台任务感知钩子与域 transform。OpenCode v1 用户请继续使用 `1.x` 版本线。
 
 ## 安装
 
@@ -26,29 +26,30 @@ opencode plugin add @devcxl/opencode-cabbage
 
 该命令会安装插件并写入全局配置（`plugins: ["@devcxl/opencode-cabbage"]`）。重启 OpenCode 或执行 `opencode reload` 后生效。
 
-插件启动后自动注入 7 个 slash command、12 个 flow skill、6 个 agent 与 2 个工具（`goal` 管流程状态、`cabbage` 管变更记录）。
+插件启动后自动注入 7 个 `/flow-*` 命令（避让 OpenCode v2.3 内置 `/review`、`/goal`、`/init`）、12 个 flow skill、6 个 agent 与纯 TS 版 `cabbage` 变更记录工具：
 
-> **⚠️ 插件冲突——不要与其他 goal 插件同时安装。** cabbage 自带 `goal` 工具与轮次结束事件驱动的自动续接循环。若与其他 goal / 自动续接类插件（如 `@prevalentware/opencode-goal-plugin`、`opencode-goal-mode`）同时安装，存在双方同时响应会话活动并注入续接 prompt 的风险：任务被重复续接、续接计数与 token 预算互不同步、abort 处理互相干扰。同一会话只能保留一个 goal 引擎——若使用外部 goal 插件，请勿触发 cabbage 的 goal 工具（仅 `dev-lifecycle` / `goal-verify` agent 可调用）。
+- **复用内置 `/goal`**：需要无人值守连续推进时，直接使用 OpenCode 原生 `/goal`（支持 `/goal pause|resume|clear`）。插件通过 `opencode.goal` RPC 与 `experimental.idle` 钩子识别状态并自动注入上下文，不再自建冲突的续接循环。
+- **保留内置 `/review`**：日常快速查看本地未提交改动或分支继续用原生 `/review`；Cabbage 的双轴 PR 审查与自动合并走 `/flow-review`。
 
-## 内置变更记录（Cabbage 引擎）
+## 内置变更记录（纯 TypeScript Cabbage 引擎）
 
-插件捆绑 Cabbage 引擎（`vendor/cabbage`，由 `scripts/sync-cabbage.mjs` 固定版本生成），并注入 `flow-change` 技能与 `cabbage` 工具：创建变更记录、声明风险标记、验证阶段、通过门禁、同步当前文档、合并确认后归档。一份记录 = `.cabbage/changes/<id>/` 一个目录：默认只有 `tasks.md`；专项文档（`design` / `rfc` / `adr` / `api` / `database` / `security` / `release`）仅在声明风险时展开。
+插件内置纯 TS 变更记录与文档校验引擎（`src/cabbage/`），**不再需要 Python 3.10+ 或 PyYAML**：
 
-- **运行要求**：机器需 Python 3.10+。CLI 按插件版本释放到 `~/.config/opencode/cabbage/cli@<version>/`；缺 Python 时工具返回明确错误，其余功能不受影响。
-- **项目接入**：`cabbage({op:"init"})` 生成 `.cabbage/`、docs 骨架、CI 模板与供 GitHub Actions 使用的 vendored CLI。
-- **轻量路径**：`new` → 填写 `tasks.md` → `verify` → `gate merge` → 合并确认后 `archive`。工具仅 `dev-lifecycle` 编排器可用。
+- **快车道与留痕路径分流**：单 Task 小修、局部重构、文档小改直接走快车道；跨模块或高风险改动（`api`、`database`、`security`、`deployment`）才启用 `.cabbage/changes/<id>/` 进行分阶段验证、合并门禁与 OpenSpec 语义同步。
+- **单一任务账本**：大功能流只认 GitHub Parent/Sub Issues，不再生成或回写本地 task Markdown 与 `DAG.md`。
+- **统一活规格目录**：系统当前行为统一沉淀在 `docs/specs/`（含 `Testing Decisions`），重大决策记入 `docs/adr/`。
 
 ## 命令一览
 
 | 命令 | 阶段 | 产出 |
 |------|------|------|
-| `/setup` | 初始化 | `docs/` 目录结构、Project Profile、CI/release workflow 校验 |
-| `/requirements` | 需求 | PRD → `docs/prd/` + Draft Parent Issue |
-| `/design` | 设计 | 技术方案 + 必要 ADR → `docs/dev/specs/` + `docs/adr/` |
-| `/tasks` | 任务拆解 | DAG 任务 + Sub Issues（GitHub 权威源） |
-| `/code` | 编码 | Task + PR（TDD 由 CI 把关） |
-| `/review` | 审查 | 双轴审查 + 自动合并 |
-| `/release` | ⚠️ 手动发布 | 版本提议 → Release PR → tag push → workflow 监控 |
+| `/flow-setup` | 初始化 | `AGENTS.md` Project Profile、环境就绪检查 |
+| `/flow-requirements` | 需求 | PRD → `docs/prd/` + GitHub Parent Issue |
+| `/flow-design` | 设计 | 系统规格（`docs/specs/`）+ `Testing Decisions` + 必要 ADR（`docs/adr/`） |
+| `/flow-tasks` | 任务拆解 | 垂直切片 Task Plan → GitHub Sub Issues（单一任务账本） |
+| `/flow-code` | 编码 | Worktree + 行为 TDD + PR |
+| `/flow-review` | 审查 | 双轴审查（规格轴 + 规范轴）+ 自动合并 |
+| `/flow-release` | ⚠️ 手动发布 | 版本提议 → Release PR → tag push → GitHub Actions 发布 |
 
 ## 快速开始
 
@@ -57,45 +58,41 @@ opencode plugin add @devcxl/opencode-cabbage
 opencode plugin add @devcxl/opencode-cabbage
 
 # 2. 在 OpenCode 中执行
-# /setup → /requirements → @dev-lifecycle
+# /flow-setup → /flow-requirements → @dev-lifecycle（可配合 /goal 自动续跑）
 ```
-
-## 两种模式
-
-- **手动模式** — 按顺序逐一执行命令，适合精细控制
-- **自动模式** — 需求确认后输入 `@dev-lifecycle`，全自动完成剩余流程
 
 ## 架构
 
 ```
-src/                          # TypeScript 薄层
+src/                          # 纯 TypeScript OpenCode v2.3+ 插件
 ├── index.ts                  # 插件入口
 ├── plugin.ts                 # 包路径解析
-├── plugin/                   # 加载器 + 内置工具
-│   ├── server.ts             # 主工厂：注入 skills/commands/agents/tools、Context、自动续接
-│   ├── goal.ts               # goal 工具（状态管理 + goal-verify 授权）
-│   ├── cabbage-cli.ts        # 释放捆绑 Cabbage 引擎（按版本隔离）+ python 探测与执行
-│   ├── cabbage-tool.ts       # `cabbage` 工具：变更记录全流程（agent 门控）
-│   ├── install-dir.ts        # 版本化目录安装（锁 + 完整性校验，skills 与引擎共用）
-│   ├── commands.ts           # Command 加载器
+├── cabbage/                  # 纯 TS 变更记录与活规格校验引擎（零 Python 依赖）
+│   ├── engine.ts             # init/new/impact/verify/gate/validate/sync/archive/adopt
+│   ├── validate.ts           # 标题/占位符/Mermaid 围栏/相对链接与锚点校验
+│   └── workflows.ts          # change/incident 工作流定义与统一文档映射
+├── plugin/                   # 加载器 + 原生钩子 + 内置工具
+│   ├── server.ts             # 主工厂：skills/commands/agents/tools、context 与 experimental.idle 钩子
+│   ├── builtin-goal.ts       # OpenCode v2.3 opencode.goal RPC 读取器与空闲守卫
+│   ├── cabbage-tool.ts       # `cabbage` 工具（agent 门控）
+│   ├── install-dir.ts        # 版本化目录安装
+│   ├── commands.ts           # /flow-* Command 加载器
 │   ├── skills.ts             # Skill 加载器
 │   ├── prompts.ts            # Prompt 加载器
 │   ├── bootstrap.ts          # 启动引导
-│   ├── agents.ts             # Agent 注入
+│   ├── agents.ts             # Agent 注入与原生权限渲染
 │   ├── shell.ts              # Agent shell 环境隔离
 │   └── prompt-lint.ts        # Prompt 资产一致性检查
-└── kernel/                   # 最小支撑模块
+└── kernel/                   # 支撑模块
     ├── context.ts            # 根 CONTEXT.md 发现/注入
     ├── profile.ts            # AGENTS.md Project Profile 解析
-    ├── session-index.ts      # Flow→session 索引（goal 绑定 + 重启恢复）
-    ├── permission.ts         # 权限匹配语义
-    └── mutex.ts              # 按键异步互斥
+    └── permission.ts         # 权限匹配语义
 
-assets/                       # 运行时资源（纯 Prompt 流程）
-├── commands/                 # 7 个 slash command
-├── skills/                   # 12 个 flow-* skill（Prompt 驱动，直接 git/gh）
+assets/                       # 运行时资源
+├── commands/                 # 7 个 /flow-* slash command
+├── skills/                   # 12 个 flow-* skill
 ├── agents/                   # 6 个 agent 定义
-└── prompts/                  # 引导提示词 + 模板
+└── prompts/                  # 引导提示词
 ```
 
 ## 文档

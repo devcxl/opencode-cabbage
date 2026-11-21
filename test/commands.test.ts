@@ -93,9 +93,9 @@ describe("loadCommands", () => {
 })
 
 describe("command convergence (R12, §6.4)", () => {
-  const EXPECTED_COMMANDS = ["setup", "requirements", "design", "tasks", "code", "review", "release"]
+  const EXPECTED_COMMANDS = ["flow-setup", "flow-requirements", "flow-design", "flow-tasks", "flow-code", "flow-review", "flow-release"]
 
-  it("exactly 7 commands exist, no test / handoff", () => {
+  it("exactly 7 flow-* commands exist (avoiding collision with built-in /review & /goal)", () => {
     const files = fs.readdirSync(ASSETS_COMMANDS_DIR)
       .filter(f => f.endsWith(".md"))
       .map(f => f.replace(/\.md$/, ""))
@@ -106,7 +106,7 @@ describe("command convergence (R12, §6.4)", () => {
     for (const name of EXPECTED_COMMANDS) {
       const content = fs.readFileSync(path.join(ASSETS_COMMANDS_DIR, `${name}.md`), "utf8")
       // 命令引用对应 skill（不复制流程）
-      expect(content).toContain(`flow-${name}`)
+      expect(content).toContain(name)
       expect(content).not.toContain("flow-handoff")
       expect(content).not.toContain("flow-test")
       expect(content).not.toContain("/handoff")

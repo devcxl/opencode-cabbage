@@ -47,28 +47,25 @@ cabbage({op:"archive", change:"fix-label"})                        # 确认合�
 - `change.yaml` 与 `state.json` 由 CLI 管理，不要手工编辑；验证后修改产物会让阶段 `stale`。
 - 只声明真实风险；不为省文档隐瞒影响，也不为凑文档虚报标记。
 - `archive` 不检查 Git 合并状态：必须人工确认合并后再归档。
-- 记录描述单次改动；系统当前行为写入 `docs/` 编号目录（sync 只按映射复制，不做语义合并）。
-- CLI 不可用（缺 Python 3.10+）时工具会返回明确错误：告知用户安装 Python，不要伪造验证结果。
+- 记录描述单次改动；系统当前行为写入 `docs/specs/`（`sync` 只按映射复制，合并后需语义合入活规格）。
+- 插件内置纯 TypeScript 引擎直接执行所有校验与归档，无需 Python 或额外外部运行时。
 
 ## 常用操作
 
 | 操作 | 用途 |
 | --- | --- |
-| `init` | 初始化 `.cabbage/`（工作流、CI 模板、vendored CLI），每项目一次 |
+| `init` | 初始化 `.cabbage/`（工作流、配置）与统一 `docs/` 目录（`specs`/`adr`/`prd`），每项目一次 |
 | `status` / `next` | 记录列表与阶段就绪/阻塞（不猜阶段 ID，以 `next` 为准） |
 | `verify` / `gate` | 阶段验证与门禁（`target`：阶段 ID / `merge` / `archive`） |
 | `validate` | 结构校验（省略 `change` 校验全部） |
-| `sync` / `archive` | 同步当前文档 / 收尾归档 |
+| `sync` / `archive` | 同步文档 / 收尾归档 |
 | `tasks` / `discard` | 任务清单只读视图 / 废弃记录 |
-
-> 无本插件工具的环境（如 Codex）：以上操作对应 `python3 -m cabbage_cli <操作>` 直跑 CLI
-> （CLI 需本地可用），语义与参数一致。
 
 ## Contract
 
 ### Trigger
-由 `@dev-lifecycle` 分诊（Bug 修复、重构、业务调整、紧急修复等轻量路径）或用户要求建立变更记录时触发；
-大流程的代码改动也可在实现阶段引用本 skill。
+由 `@dev-lifecycle` 分诊（需留痕/高风险的跨模块调整、API/数据库/安全/发布变更）或用户要求建立变更记录时触发；
+单 Task 小修、局部重构与文档小修优先走快车道，不强制建记录。
 
 ### Inputs
 - 变更描述（问题/目标、影响范围）
@@ -77,24 +74,23 @@ cabbage({op:"archive", change:"fix-label"})                        # 确认合�
 
 ### Preconditions
 - 项目已初始化（无 `.cabbage/` 时先 `init`）
-- 插件内置引擎可用（缺 Python 3.10+ 时停止并告知用户）
 
 ### Procedure
 1. 创建记录并填写 `tasks.md` 的 Goal 与 Design
 2. 实现前声明真实风险标记（必要时）
 3. 实现并完成 Tasks 清单，记录真实验证命令与结果
 4. 逐一 `verify` 已启用阶段（专项在前、`tasks` 在后）
-5. `gate merge` 通过后交回编排器提交；合并确认后 `archive`
+5. `gate merge` 通过后交回编排器提交；合并确认后语义同步 `docs/specs/` 并 `archive`
 
 ### Outputs
 - `.cabbage/changes/<id>/`：tasks.md 与按需专项文档（验证后签名写入 state.json）
-- 归档：`.cabbage/archive/<year>/<id>/` 与 `docs/` 的同步文档
+- 归档：`.cabbage/archive/<year>/<id>/` 与 `docs/specs/` / `docs/adr/` 同步文档
 
 ### Failure
 - `gate` BLOCKED → 用 `next` 找到未完成的已启用前置阶段并验证
 - `placeholder content remains` / `unchecked tasks remain` → 清除模板提示、勾选任务后再验证
 - 阶段 `stale` → 对照上游变化重新审阅并重新验证
-- CLI 不可用 → 告知用户安装 Python 3.10+，不得伪造记录或验证结果
+- `init` 缺失 → 先执行 `cabbage({op:"init"})`，不得伪造记录或验证结果
 
 ### Idempotency
 - 同名记录已存在 → 复用并更新（`new` 报错说明已存在）

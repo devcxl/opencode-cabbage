@@ -59,7 +59,7 @@ description: 初始化 — 探测环境 → 确认 Profile
 ## Contract
 
 ### Trigger
-由 `/setup` 命令触发。首次使用插件或切换新项目时执行。
+由 `/flow-setup` 命令触发。首次使用插件或切换新项目时执行。
 
 ### Inputs
 - 用户对 readiness 报告 / Profile 覆盖项的确认

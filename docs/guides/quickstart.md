@@ -9,7 +9,7 @@
 - [gh CLI](https://cli.github.com/) 已安装并登录 GitHub
 - Git 仓库已创建（本地或远程）
 
-> **兼容性提示：**本插件 2.0.0 起要求 OpenCode v2（基于 `@opencode/plugin` 2.x，已在 v2.0.28 实测）；OpenCode v1 用户请使用 1.x 版本线。
+> **兼容性提示：**本插件要求 OpenCode v2（已在 OpenCode v2.3.0 + `@opencode/plugin@^2.3.2` 实测）；OpenCode v1 用户请使用 1.x 版本线。
 
 ## 第一步：安装插件
 
@@ -26,7 +26,7 @@ opencode plugin add @devcxl/opencode-cabbage
 在对话中执行：
 
 ```
-/setup
+/flow-setup
 ```
 
 插件会：
@@ -37,14 +37,14 @@ opencode plugin add @devcxl/opencode-cabbage
 ## 第三步：提需求
 
 ```
-/requirements
+/flow-requirements
 ```
 
 插件会与你进行需求访谈，生成 PRD 并创建 GitHub Issue。
 
 ## 第四步：全自动流程
 
-需求确认后，输入：
+需求确认后，输入（如需无人值守自动续跑，可配合 OpenCode 内置 `/goal` 命令）：
 
 ```
 @dev-lifecycle

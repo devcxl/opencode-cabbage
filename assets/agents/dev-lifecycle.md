@@ -14,7 +14,7 @@ permissions:
 
 你的目标：先对用户输入做场景分诊，选择对应流程路径；功能流自动串联设计 → 任务拆解 → Sub Issues 创建 → 并行编码实现 → 审查 → 合并，其余场景按对应轻量路径执行。
 
-使用 `goal` 工具管理 flow 状态。Plugin 会在你每次 idle 时自动注入 continuation prompt，你只需做好当前 step 即可。
+使用 OpenCode 内置 `/goal`（如用户开启）与 GitHub Flow Record（Parent Issue）管理流程进度；无需自建或调用旧版 `goal` 工具。
 
 无需用户逐步骤确认，仅在遇到非预期错误时暂停并告知。
 
@@ -24,10 +24,9 @@ permissions:
 ## 开始工作
 
 1. 场景分诊：按 Phase 0 判定用户输入所属场景，选择流程路径
-2. 调用 `goal({op:"create", parent_issue_number:<Flow Record 编号>})` 建立会话运行控制（目标/验收从 Flow Record 读取）
-3. 读取 Flow Record（Parent Issue body）获取目标与验收标准，按选定路径推进
-4. 每个阶段完成后，Plugin 会自动 continuation，进入下一阶段
-5. 最终全部完成后，直接使用 Task 工具派发 `@goal-verify` 做独立验证
+2. 确认或创建 Flow Record（GitHub Parent Issue），并读取其目标与验收标准（若需连续无人值守推进，提示用户可使用 OpenCode 内置 `/goal` 命令开启续跑循环）
+3. 按选定路径推进各阶段，并在每次阶段产出后更新 Flow Record checklist
+4. 最终全部完成后，直接使用 Task 工具派发 `@goal-verify`（传入 Flow Record 编号）做独立验证
 
 ## 调度团队
 
@@ -35,7 +34,7 @@ permissions:
 - @developer：技术栈无关代码 TDD 实现（加载 `flow-tdd` skill，遵循 RED→GREEN cycle，编码 + 测试 + 本地 commit）
 - @reviewer：只读代码审查，输出结构化审查报告（不操作 git/GitHub，不写文件）
 - @researcher：独立调研与事实核查（加载 `flow-research` skill，产出 `docs/dev/research/<topic>.md`）
-- @goal-verify：独立验证 Goal 完成状态（**只有它可以调用 goal({op:"complete"})**）
+- @goal-verify：独立验证 Flow Record 验收标准是否全部满足（只读验证并输出证据报告）
 
 ## 全局约束
 
@@ -78,7 +77,7 @@ permissions:
 
 如果完整，直接继续当前步骤。如果缺失：
 
-1. 记录当前 stage，不调用 goal 改回 design，也不修改已完成阶段的 checklist。
+1. 记录当前 stage，不回退 design，也不修改已完成阶段的 checklist。
 2. 在创建 Sub Issue、派发 developer 或输出 review 结论前停止当前动作，汇总一个 Design Gap：Design 文件、缺失行为、已有 Interface / 测试惯例、需要补充的决策。
 3. 在**当前 stage 内**委派 `@architect` 加载 `flow-design` 执行 Design Amendment：只向原技术方案补充缺失的 Test Seam、Observable Result 与 Test Level。
 4. 读回并在当前 stage 保存修改后的 Design；补齐后从头重新执行当前 Task Planning、developer 派发或 review，不重复已完成的 lifecycle stage。
@@ -103,7 +102,7 @@ permissions:
   ## 当前阶段 / 已完成 / 待办 / 下一步 / 关键产出（Issue·PR·文件）
   ```
   保存到 `docs/dev/handoff-<YYYY-MM-DD>.md` 并在回复中告知用户可引用恢复。
-- **会话恢复**：autoResume 后先读最近 handoff 文件（`ls docs/dev/handoff-*.md` 取最新），
+- **会话恢复**：恢复后先读最近 handoff 文件（`ls docs/dev/handoff-*.md` 取最新），
   结合 Parent Issue 状态恢复进度，继续剩余阶段，而不是从头重读全部文档。
 
 ---
@@ -126,7 +125,7 @@ permissions:
 | 需调研 / 事实核查 / 技术可行性不确定 | 调研 | flow-research | 派发 @researcher 产出调研文档 |
 
 **分诊原则**：
-- 功能流完整走原 Phase 1-4；非功能路径按下述轻量路径执行，复用 `flow-tdd`/`flow-code`/`flow-review`/`flow-release` 与 goal 工具。
+- 功能流完整走原 Phase 1-4；非功能路径按下述轻量路径执行，复用 `flow-tdd`/`flow-code`/`flow-review`/`flow-release` 与内置 `/goal`。
 - 非功能路径**跳过 requirements/design/tasks 的重量模型**（除非根因指向设计缺陷，如 bug 根因是架构问题 → 修复后单独开重构/功能 Flow）。
 - 非功能路径只需用到的角色（多为 @developer/@reviewer/@goal-verify），不强制全团队。
 - 无法确定场景 → 暂停询问用户澄清，不擅自选择。
@@ -139,7 +138,7 @@ permissions:
 - 纯文档路径按 `flow-docs` 规范直接改归属文档；调研路径不建记录；事故复盘走 `flow-incident`。
 
 **Bug 修复（Corrective Flow）**
-1. 分诊严重度；创建 goal 绑定 Flow Record，链接导致回归的原 Flow（不改其完成状态）
+1. 分诊严重度；按需创建/绑定 Flow Record，链接导致回归的原 Flow（不改其完成状态）
 2. 建立反馈回路（失败测试/脚本/夹具），确认复现用户描述的**同一**故障
 3. 生成 3-5 个可证伪假设，按优先级验证；一次只改一个变量
 4. 先写失败回归测试（RED）→ 最小修复（GREEN）→ 重跑原始复现场景确认不再复发
@@ -183,14 +182,14 @@ permissions:
 3. 涉文档站跑 docs 构建校验；`flow-review` 审查合并
 
 **调研（Research）**
-1. 明确调研问题、范围与输出形式；若属某 Flow，创建 goal 绑定 Flow Record
+1. 明确调研问题、范围与输出形式；若属某 Flow，关联对应 Flow Record 编号
 2. 派发 `@researcher` 加载 `flow-research` skill，产出 `docs/dev/research/<topic>.md`
 3. 读回调研结论：更新决策映射/PRD、确认技术可行性，或阻断后续阶段
 4. 若属于 requirements 阶段 Research 型 Ticket → 关联并解决该 Ticket
 
 **回滚与异常收尾**
 1. 回滚优先 revert PR（保留历史）；回滚≠修复，根因转 Corrective Flow + 新版本
-2. Flow 放弃→`goal({op:"cancel"})` + 清理 worktree/session-index；阻塞→标记 blocked 停下游
+2. Flow 放弃→若已启用内置 `/goal` 请 `/goal clear` 停止循环，并在 Flow Record 标记 cancelled + 清理 worktree；阻塞→标记 blocked 停下游
 3. 范围变更→新增范围开新 Flow，原意澄清更新验收
 4. 记录教训
 
@@ -313,15 +312,14 @@ For each batch:
 2. 确认所有 Sub Issues 已自动关闭（PR body 含 `Closes #`）
 3. **OpenSpec 语义同步**：若本 Flow 新增或改变了系统对外/模块行为，确认 `docs/specs/` 已反映最新系统行为（而非停留在历史 PRD）；若使用了 `.cabbage/changes/` 变更记录，在确认合并后执行 `cabbage({op:"archive", change:"<slug>"})`
 4. 全部 Task 合并且规格收口后，由 @goal-verify 独立验证 Flow Record 目标是否达成
-   （仅 goal-verify 可调用 goal({op:"complete"})）
 
 ---
 
 ## 完成
 
-所有阶段完成后，直接使用 Task 工具派发 `@goal-verify` 子 agent 做独立验证。
+所有阶段完成后，直接使用 Task 工具派发 `@goal-verify`（传入 Flow Record 编号）做独立验证。
 
-无需先调用 `goal({op:"complete"})`。主会话不能自行完成 Goal，只有 goal-verify 验证通过后可以完成。
+编排器不得自行跳过独立验证直接宣布完成；只有在 `@goal-verify` 报告全部 `SATISFIED` 后，才可结束流程并向用户汇报完成（如启用了内置 `/goal`，验证通过的明确证据可帮助内置 `/goal` 正常结束）。
 
 ---
 
@@ -329,7 +327,7 @@ For each batch:
 
 | 场景 | 处理 |
 |------|------|
-| 任何步骤失败 | 重试后仍失败 → 派发 `@architect` 系统审视根因与替代方案；仍无法解决则 Pause，通知用户 |
+| 任何步骤失败 | 重试后仍失败 → 派发 `@architect` 系统审视根因与替代方案；仍无法解决则暂停通知用户 |
 | Task 失败 | 自动重试最多 3 次；仍失败先派发 `@architect` 审视，再标记 blocked 并停止下游；其他独立 Tasks 继续 |
 | 审查不通过 | 自动修复最多 3 轮；第 3 轮仍未通过则停止该 Task |
-| 连续 3 次 continuation 无可验证进展 | 先派发 `@architect` 系统审视，再 Pause，请求用户介入 |
+| 连续多轮无进展 | 先派发 `@architect` 系统审视，再暂停（或 `/goal pause`）请求用户介入 |

@@ -1,6 +1,6 @@
 <div align="center">
   <h1>@devcxl/opencode-cabbage</h1>
-  <p>A full-lifecycle development plugin for OpenCode, covering requirements, design, tasks, coding, testing, review, and release with automated orchestration and parallel subagents.</p>
+  <p>A full-lifecycle development plugin for OpenCode v2.3+ — fusing OpenSpec living specs with Matt Pocock's engineering workflows, powered by OpenCode's native <code>/goal</code> loop and a zero-dependency TypeScript change engine.</p>
   <p>
     <a href="https://github.com/devcxl/opencode-cabbage/actions/workflows/ci.yml"><img src="https://github.com/devcxl/opencode-cabbage/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/devcxl/opencode-cabbage/actions/workflows/release-draft.yml"><img src="https://github.com/devcxl/opencode-cabbage/actions/workflows/release-draft.yml/badge.svg" alt="Release"></a>
@@ -16,7 +16,7 @@
 
 ## OpenCode Compatibility
 
-**Requires OpenCode v2 (tested on v2.0.28).** Version 2.0.0 is a V2-only line built on the `@opencode/plugin` 2.x API (`Plugin.define` setup, domain transforms, turn-end-event driven auto-continuation). OpenCode v1 users should stay on the `1.x` release line.
+**Requires OpenCode v2 (tested on OpenCode v2.3.0 with `@opencode/plugin@^2.3.2`).** Built on the OpenCode v2 `Plugin.define` API, native `opencode.goal` RPC integration, `experimental.idle` background-work awareness, and domain transforms. OpenCode v1 users should stay on the `1.x` release line.
 
 ## Installation
 
@@ -26,53 +26,42 @@ opencode plugin add @devcxl/opencode-cabbage
 
 This installs the plugin and registers it in the global OpenCode configuration (`plugins: ["@devcxl/opencode-cabbage"]`). Restart OpenCode or run `opencode reload` to activate.
 
-Once started, the plugin automatically injects 7 slash commands, 12 flow skills, 6 agents, and 2 tools (`goal` for flow state, `cabbage` for change records).
+Once started, the plugin injects 7 `/flow-*` slash commands (prefixed to avoid colliding with OpenCode v2.3 built-in `/review`, `/goal`, `/init`), 12 flow skills, 6 agents, and the pure-TypeScript `cabbage` change-record tool.
 
-> **⚠️ Plugin conflict — do not combine with other goal plugins.** cabbage ships its own `goal` tool with an auto-continuation loop driven by turn-end events. Installing it together with another goal / auto-continue plugin (e.g. `@prevalentware/opencode-goal-plugin`, `opencode-goal-mode`) risks both loops reacting to the same session activity and injecting continuation prompts: work gets continued twice, continuation counts and token budgets drift out of sync, and abort handling interferes across plugins. Use exactly one goal engine per session — if you rely on an external goal plugin, do not trigger cabbage's goal tool (it is restricted to the `dev-lifecycle` / `goal-verify` agents).
+- **Native `/goal` integration**: Continuous autonomous execution uses OpenCode's built-in `/goal` (`/goal pause|resume|clear`). Cabbage reads `opencode.goal` RPC state and `experimental.idle` to inject workflow context without running a competing loop.
+- **Native `/review` preserved**: OpenCode's built-in `/review` remains available for quick local diff reviews; Cabbage's dual-axis workflow review and PR merge live at `/flow-review`.
 
-## Built-in change records (Cabbage engine)
+## Built-in Change Records (Pure TS Cabbage Engine)
 
-The plugin bundles the Cabbage engine (`vendor/cabbage`, version-pinned by `scripts/sync-cabbage.mjs`) and injects a `flow-change` skill plus a `cabbage` tool: create a change record, declare risk flags, verify stages, pass gates, sync current-state docs, and archive after merge. A record is one directory under `.cabbage/changes/<id>/` — a single `tasks.md` by default; specialist documents (`design` / `rfc` / `adr` / `api` / `database` / `security` / `release`) open only for declared risks.
+The plugin ships an in-process TypeScript change-record engine (`src/cabbage/`) with **zero Python dependency**, exposed through the `cabbage` tool and `flow-change` skill:
 
-- **Requirements**: Python 3.10+ on the machine. The CLI is released per plugin version to `~/.config/opencode/cabbage/cli@<version>/`; without Python the tool returns a readable error and everything else keeps working.
-- **Bootstrap a project**: `cabbage({op:"init"})` scaffolds `.cabbage/`, the docs skeleton, the CI template, and a vendored CLI copy for GitHub Actions. Existing docs: `cabbage({op:"adopt"})` inventories markdown outside the docs tree (moves stay manual).
-- **Light path**: `new` → fill `tasks.md` → `verify` → `gate merge` → `archive` after the merge is confirmed. The tool is restricted to the `dev-lifecycle` orchestrator.
+- **Fast-track vs tracked changes**: Small single-task fixes, refactors, and doc edits take the fast track without ceremony. Cross-module or high-risk changes (`api`, `database`, `security`, `deployment`) use `.cabbage/changes/<id>/` with stage verification, merge gates, and OpenSpec semantic sync to `docs/specs/`.
+- **Single task ledger**: Feature flows track tasks exclusively in GitHub Parent/Sub Issues—no duplicate local task Markdown or `DAG.md` files.
 
 ## Codex Installation (Compatibility Layer)
 
 This package also ships a Codex plugin compatibility layer (`codex-skills/` + `hooks/` + `.codex-plugin/`) so the flow skills and agent prompts work in Codex as well.
 
-The repository is a Codex marketplace: add it as a marketplace source, then install the plugin from it.
-
 ```bash
-# 1. Add this repository as a Codex marketplace
 codex plugin marketplace add devcxl/opencode-cabbage
-
-# 2. Confirm the plugin is available
 codex plugin list --available
-
-# 3. Install the plugin (pulled from the npm package, which bundles all Codex files)
 codex plugin add opencode-cabbage@cabbage
 ```
 
-Notes:
-
-- **Build artifact included**: the SessionStart hook (`dist/hooks/session-start.js`) ships inside the published npm package — no local build required.
-- **Hook trust review**: Codex requires interactive trust approval for hooks (`/hooks` command) on first run — approve the `SessionStart` hook to enable context injection.
-- **Marketplace name**: the marketplace is named `cabbage` (see `.agents/plugins/marketplace.json`); use `opencode-cabbage@cabbage` as the plugin selector.
-- **Platform differences**: the Codex layer is a pure-Prompt downgrade — no `goal` tool, no slash commands, no automatic continuation. Agents are plain skills (referenced as `@agent-*`), and flow state is tracked via GitHub Issue checklists. See `codex-skills/agent-dev-lifecycle/SKILL.md` for details.
+- **Build artifact included**: the SessionStart hook (`dist/hooks/session-start.js`) ships inside the published npm package.
+- **Platform differences**: the Codex layer runs in pure-Prompt mode without OpenCode transforms or slash commands (`@agent-*` skill references).
 
 ## Command Overview
 
 | Command | Stage | Output |
 |---------|-------|--------|
-| `/setup` | Setup | `docs/` directory structure, Project Profile, CI/release workflow validation |
-| `/requirements` | Requirements | PRD → `docs/prd/` + Draft Parent Issue |
-| `/design` | Design | Technical specification + necessary ADR → `docs/dev/specs/` + `docs/adr/` |
-| `/tasks` | Task decomposition | DAG tasks + Sub Issues (GitHub 权威源) |
-| `/code` | Coding | Task + PR (TDD enforced by CI) |
-| `/review` | Review | Dual-axis review + merge |
-| `/release` | ⚠️ Manual release | Version proposal → Release PR → tag push → workflow monitor |
+| `/flow-setup` | Setup | `AGENTS.md` Project Profile, environment readiness |
+| `/flow-requirements` | Requirements | PRD → `docs/prd/` + GitHub Parent Issue |
+| `/flow-design` | Design | Living Spec + `Testing Decisions` + ADR → `docs/specs/` + `docs/adr/` |
+| `/flow-tasks` | Task decomposition | Tracer-bullet Task Plan → GitHub Sub Issues (single task ledger) |
+| `/flow-code` | Coding | Worktree + behavior TDD + PR |
+| `/flow-review` | Review | Dual-axis review (spec + convention) + PR merge |
+| `/flow-release` | ⚠️ Manual release | Version bump → Release PR → tag push → GitHub Actions release |
 
 ## Quick Start
 
@@ -81,54 +70,45 @@ Notes:
 opencode plugin add @devcxl/opencode-cabbage
 
 # 2. Run in OpenCode
-# /setup → /requirements → @dev-lifecycle
+# /flow-setup → /flow-requirements → @dev-lifecycle (optionally with /goal)
 ```
-
-## Two Modes
-
-- **Manual mode** — Run each command sequentially for fine-grained control
-- **Automatic mode** — Once the requirements are confirmed, enter `@dev-lifecycle` to automatically complete the remaining workflow
 
 ## Architecture
 
 ```
-src/                          # Thin TypeScript layer (OpenCode V2 plugin)
+src/                          # Pure TypeScript OpenCode v2.3+ plugin
 ├── index.ts                  # Default export (Plugin.define)
 ├── plugin.ts                 # Plugin definition: id + setup wiring
-├── plugin/                   # Setup glue + built-in tools
-│   ├── server.ts             # setup(ctx): domain transforms (skills/commands/agents/tools), hooks, event dispatch
-│   ├── continuation.ts       # Turn-end driven continuation + auto-resume + child-session activity tracker
-│   ├── goal.ts               # goal tool (status machine + goal-verify authorization)
-│   ├── goal-store.ts         # Goal persistence (session metadata)
-│   ├── cabbage-cli.ts        # Releases the bundled Cabbage engine per plugin version; python detection + exec
-│   ├── cabbage-tool.ts       # `cabbage` tool: change records (ops mapped to the bundled CLI, agent-gated)
-│   ├── install-dir.ts        # Versioned dir install (lock + completeness check; shared by skills and the engine)
-│   ├── session-abort.ts      # User-interrupt markers (shared by events/tool/continuation)
-│   ├── commands.ts           # Command loader (execute-style registration)
+├── cabbage/                  # Zero-dependency TS change-record & OpenSpec validator
+│   ├── engine.ts             # init/new/impact/verify/gate/validate/sync/archive/adopt
+│   ├── validate.ts           # Markdown headings, placeholders, Mermaid fences, local links
+│   └── workflows.ts          # change & incident workflow specs + unified docs mapping
+├── plugin/                   # Setup glue + native hooks + built-in tool
+│   ├── server.ts             # setup(ctx): transforms, context & experimental.idle hooks
+│   ├── builtin-goal.ts       # OpenCode v2.3 opencode.goal RPC reader + idle guard
+│   ├── cabbage-tool.ts       # `cabbage` tool (agent-gated to dev-lifecycle)
+│   ├── install-dir.ts        # Versioned skills dir install
+│   ├── commands.ts           # /flow-* command loader
 │   ├── skills.ts             # Skill loader + V2 registration entries
 │   ├── prompts.ts            # Prompt loader
 │   ├── bootstrap.ts          # Startup guidance
-│   ├── agents.ts             # Agent loader + native V2 permissions (placeholder rendering)
+│   ├── agents.ts             # Agent loader + native V2 permissions
 │   ├── shell.ts              # Agent shell env isolation
-│   └── prompt-lint.ts        # Prompt asset consistency checks
-└── kernel/                   # Minimal supporting modules
-    ├── context.ts            # root CONTEXT.md discovery/injection
+│   └── prompt-lint.ts        # Dev-time prompt asset consistency checks
+└── kernel/                   # Supporting modules
+    ├── context.ts            # Root CONTEXT.md discovery/injection
     ├── profile.ts            # AGENTS.md Project Profile parsing
-    ├── session-index.ts      # Flow→session index (goal binding + auto-resume)
-    ├── permission.ts         # Permission matching semantics
-    └── mutex.ts              # Keyed async mutex
-
-vendor/cabbage/               # Bundled Cabbage engine (synced via scripts/sync-cabbage.mjs; hash-pinned)
+    └── permission.ts         # Permission matching semantics
 
 assets/                       # Runtime assets (pure Prompt flows)
-├── commands/                 # 7 slash commands
-├── skills/                   # 12 flow-* skills (Prompt-driven, direct git/gh)
+├── commands/                 # 7 /flow-* slash commands
+├── skills/                   # 12 flow-* skills
 ├── agents/                   # 6 agent definitions
-└── prompts/                  # Guidance prompts and templates
+└── prompts/                  # Guidance prompts
 
 codex-skills/                 # Codex compatibility layer (mirrors assets/, agent-* prefixed)
-hooks/                        # Codex SessionStart hook (hooks.json + compiled dist/hooks/)
-.codex-plugin/                # Codex plugin manifest (plugin.json)
+hooks/                        # Codex SessionStart hook
+.codex-plugin/                # Codex plugin manifest
 ```
 
 ## Documentation

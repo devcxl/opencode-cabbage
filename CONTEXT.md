@@ -1,6 +1,6 @@
 # opencode-cabbage
 
-opencode-cabbage 提供一套从需求澄清到交付的软件开发流程，由 agent + skill（Prompt）编排全流程，仅用 goal 工具跟踪 Flow 状态。
+opencode-cabbage 提供一套融合 OpenSpec 活规格与 Matt Pocock 工程工作流的开发流程，由 agent + skill（Prompt）编排全流程，复用 OpenCode v2.3 原生 `/goal` 循环并用纯 TS `cabbage` 工具管理可选留痕变更记录。
 
 ## Language
 
@@ -13,8 +13,8 @@ Flow 中目标和完成条件明确的一个逻辑环节。
 _Avoid_: 将 Stage 限定为 slash command
 
 **Goal（目标）**:
-会话级 Flow 状态跟踪（唯一工具），绑定 Flow Record 编号并管理 active/paused/complete 状态。
-_Avoid_: 在 Goal 中存储目标文本或验收标准
+OpenCode v2.3 原生 `/goal` 会话目标循环（通过 `opencode.goal` RPC 读取状态），配合 GitHub Flow Record 驱动全流程推进；不再在插件内重复自建 `goal` 工具与续接状态机。
+_Avoid_: 在本地 JSON 或 session metadata 中自建第二套 goal 状态循环
 
 **Project Context（项目上下文）**:
 目标项目持续维护的规范领域术语及术语关系。
@@ -57,7 +57,7 @@ _Avoid_: Flow Stage
 ## Relationships
 
 - 一个 **Flow** 包含多个有序 **Stage**
-- **Goal** 绑定一个 **Flow Record**，驱动会话自动续接直至完成
+- OpenCode 原生 `/goal` 配合 **Flow Record**（Parent Issue）驱动长流程自动推进，完成后由 `@goal-verify` 独立验证
 - 每个 **Stage** 读取 **Project Context**；确认的新术语和关系即时写回
 - **Project Profile** 为流程提供项目特定的测试与发布约定，确立测试执行的命令基线
 - 每个 **Flow** 只有一个 **Flow Record**
@@ -79,5 +79,5 @@ _Avoid_: Flow Stage
 
 - “Context”曾同时表示会话上下文、插件内置术语表和目标项目领域词汇表；本流程中的 **Project Context** 专指目标项目维护的领域语言。
 - “Stage”曾被限定为 slash command；现统一为逻辑环节，命令只是可能的触发方式。
-- “Thin Kernel”曾表示用生命周期工具约束高风险动作；现回归纯 Prompt 编排，仅保留 **Goal** 工具与最小支撑模块。
+- - “Thin Kernel”曾表示用生命周期工具约束高风险动作；现回归纯 Prompt 编排 + OpenCode v2.3 原生 `/goal` + 纯 TS `cabbage` 校验引擎。
 - “Agent Permission”曾依赖多层转译与宽松通配；现统一与 **Project Profile** 的测试命令基线精确对齐。

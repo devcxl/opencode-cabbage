@@ -55,7 +55,7 @@ description: 版本 → Release PR → GitHub Actions 发布（仅人工）
 ## Contract
 
 ### Trigger
-由 `/release` 命令触发。**仅手动触发**，不包含在自动流程中。
+由 `/flow-release` 命令触发。**仅手动触发**，不包含在自动流程中。
 
 ### Inputs
 - 用户对提议版本/Release 的确认

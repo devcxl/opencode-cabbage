@@ -20,11 +20,10 @@ description: 全流程开发编排器 — 按输入场景分诊并编排（功�
 本 skill 是 OpenCode 版 dev-lifecycle agent 的 Codex 兼容降级版，按纯 Prompt 模式工作：
 
 - **无 goal 工具**：没有 goal 工具（OpenCode 内核的 op: create / complete / cancel 语义）。流程状态一律用 Flow Record（Parent Issue body 的 checklist）维护。
-- **无 slash commands**：`/setup`、`/design`、`/tasks`、`/code`、`/review`、`/release` 等命令不存在，直接按下方流程执行对应步骤。
+- **无 slash commands**：`/flow-setup`、`/flow-design`、`/flow-tasks`、`/flow-code`、`/flow-review`、`/flow-release` 等命令不存在，直接按下方流程执行对应步骤。
 - **无自动续接**：没有 idle 自动续接与会话自动恢复钩子。每个阶段完成后主动更新 Issue checklist 并继续下一步；会话恢复时读最新 handoff 文件 + Issue 状态恢复进度。
 - **agent 即 skill**：`@agent-architect`、`@agent-developer` 等是 skill 而非子 agent，派发即加载对应 skill 执行，无权限隔离，靠 prompt 约定约束行为。
-- **变更记录（Cabbage 引擎）**：无插件工具时直跑本地 CLI（`python3 -m cabbage_cli ...`，需本地可用）；
-  代码级改动先建记录（`change` / `incident`），随实现更新 `tasks.md`，合并确认后归档并同步 `docs/`。
+- **变更记录（Cabbage 引擎）**：需留痕/高风险的代码级改动先建记录（`change` / `incident`），随实现更新 `tasks.md`，合并确认后语义同步回 `docs/specs/` 并归档；单 Task 小修可走快车道。
 
 ## 开始工作
 

@@ -50,12 +50,12 @@ gh issue create --title "<英文功能标题>" --body "<目标 + 验收标准>"
 - Parent Issue（Flow Record）
 
 ## 下一阶段
-- **/design** — 基于 PRD 进行技术设计
+- **/flow-design** — 基于 PRD 进行技术设计
 
 ## Contract
 
 ### Trigger
-由 `/requirements` 命令或 `@agent-dev-lifecycle` 触发。
+由 `/flow-requirements` 命令或 `@agent-dev-lifecycle` 触发。
 
 ### Inputs
 - 用户提供的功能描述（来自消息文本）

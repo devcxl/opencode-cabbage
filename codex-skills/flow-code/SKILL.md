@@ -35,18 +35,18 @@ worktree 创建、PR 提交由 primary 编排器执行，本 skill 定义编码�
 - 本地 commit 就绪（分支推送与 PR 由编排器完成）
 
 ## 后续
-- **/review** — 审查 PR
+- **/flow-review** — 审查 PR
 
 ## Contract
 
 ### Trigger
-由 `/code` 命令或 `@agent-dev-lifecycle` Phase 3 触发。
+由 `/flow-code` 命令或 `@agent-dev-lifecycle` Phase 3 触发。
 
 ### Inputs
-- Task Record（Sub Issue 编号与标题，来源：`/tasks` 产出）
+- Task Record（Sub Issue 编号与标题，来源：`/flow-tasks` 产出）
 
 ### Preconditions
-- `/tasks` 已完成 → Sub Issues 就绪
+- `/flow-tasks` 已完成 → Sub Issues 就绪
 - 设计基线已合入；前置依赖任务已合并
 
 ### Procedure

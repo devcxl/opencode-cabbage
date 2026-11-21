@@ -170,7 +170,9 @@ describe("prompt-lint: skill/command convergence (R12)", () => {
     "flow-incident", "flow-release", "flow-requirements", "flow-research",
     "flow-review", "flow-setup", "flow-tasks", "flow-tdd",
   ]
-  const EXPECTED_COMMANDS = ["setup", "requirements", "design", "tasks", "code", "review", "release"]
+  const EXPECTED_COMMANDS = [
+    "flow-setup", "flow-requirements", "flow-design", "flow-tasks", "flow-code", "flow-review", "flow-release",
+  ]
 
   function writeSkill(root: string, name: string, body: string) {
     const dir = path.join(root, "assets", "skills", name)

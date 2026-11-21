@@ -111,12 +111,12 @@ Design Amendment 是兼容子流程，覆盖本 skill 的普通发布流程：�
 - Planning PR（合入后 = 设计基线）
 
 ## 后续
-- **/tasks** — 基于设计方案拆解为垂直切片任务并发布 GitHub Sub Issues
+- **/flow-tasks** — 基于设计方案拆解为垂直切片任务并发布 GitHub Sub Issues
 
 ## Contract
 
 ### Trigger
-由 `/design` 命令、`@agent-dev-lifecycle` Phase 1，或存量 Flow 的 Testing Decisions 兼容门触发。
+由 `/flow-design` 命令、`@agent-dev-lifecycle` Phase 1，或存量 Flow 的 Testing Decisions 兼容门触发。
 
 ### Inputs
 - `docs/prd/<title>.md` — 上游 PRD（来源：requirements 阶段产出）
@@ -124,7 +124,7 @@ Design Amendment 是兼容子流程，覆盖本 skill 的普通发布流程：�
 - Parent Issue 编号（来源：requirements 阶段产出）
 
 ### Preconditions
-- `/requirements` 已完成 → PRD 与 Parent Issue 存在
+- `/flow-requirements` 已完成 → PRD 与 Parent Issue 存在
 - requirements 基线已用户确认
 
 ### Procedure

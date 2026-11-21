@@ -1,11 +1,11 @@
 ---
 name: flow-research
-description: 调研/事实核查 — 迭代深化 + 一手来源评分 + 反方搜索 + 置信度 → 调研文档（由 @researcher 加载）
+description: 调研/事实核查 — 迭代深化 + 一手来源评分 + 反方搜索 + 置信度 → 调研文档（由 @agent-researcher 加载）
 ---
 
 # flow-research
 
-针对调研问题系统性收集资料、验证来源、交叉对比，产出仅事实、带引用的调研文档。由独立子 agent `@researcher` 加载执行，可作为 Flow 的阶段，也可作为独立轻量路径。
+针对调研问题系统性收集资料、验证来源、交叉对比，产出仅事实、带引用的调研文档。由独立子 agent `@agent-researcher` 加载执行，可作为 Flow 的阶段，也可作为独立轻量路径。
 
 ## 核心流程
 
@@ -52,7 +52,7 @@ gh api repos/"$REPO"/issues/<issue-number>/comments --jq '.[].body'
 ## Contract
 
 ### Trigger
-由 `@dev-lifecycle` Phase 0 调研场景派发 `@researcher` 触发。
+由 `@agent-dev-lifecycle` Phase 0 调研场景派发 `@agent-researcher` 触发。
 
 ### Inputs
 - 用户的调研问题 / 需求（含范围与输出形式）

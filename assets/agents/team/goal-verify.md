@@ -31,6 +31,24 @@ permissions:
   - action: bash
     resource: "git log *"
     effect: allow
+  - action: bash
+    resource: "gh issue view*"
+    effect: allow
+  - action: bash
+    resource: "gh issue list*"
+    effect: allow
+  - action: bash
+    resource: "gh pr view*"
+    effect: allow
+  - action: bash
+    resource: "gh pr list*"
+    effect: allow
+  - action: bash
+    resource: "gh pr checks*"
+    effect: allow
+  - action: bash
+    resource: "gh run list*"
+    effect: allow
   # ── edit：只读验证者 ──
   - action: edit
     resource: "*"
@@ -53,18 +71,19 @@ permissions:
 
 唯一职责：检查 Goal 是否已完全达成。
 
-先调用 `goal({op:"get"})` 获取 objective 和 completion criterion。
+先调用 `goal({op:"get"})` 获取 Flow Record 编号，再通过 `gh issue view <number>` 读取目标和验收标准。
 
 ---
 
 ## 验证流程
 
-1. 调用 `goal({op:"get"})` 获取 objective 和 completion criterion。
+1. 调用 `goal({op:"get"})` 获取 Flow Record 编号，并用 `gh issue view <number>` 读取 objective 和 completion criterion。
 2. 拆解为具体的、逐项可检查的需求。
 3. 对每个需求收集证据：
-   - 阅读完整文件 — 不只看摘要
+   - 阅读完整文件与 `docs/specs/` 对应规格 — 不只看摘要
    - 运行测试、构建、lint
    - 检查 imports、exports、类型是否正确
+   - 用 `gh pr list` / `gh pr checks` 确认关联 PR 已合并且 CI 通过
 4. 每项结论分类：SATISFIED / NOT SATISFIED / UNCERTAIN
 5. 全部 SATISFIED → 调用 `goal({op:"complete"})`
 6. 任何 NOT SATISFIED / UNCERTAIN → 不调用 complete，返回详细报告

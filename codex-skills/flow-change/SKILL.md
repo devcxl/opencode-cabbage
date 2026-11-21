@@ -11,11 +11,9 @@ description: Maintain a Cabbage change record (tasks + documents) through the bu
 
 ## 何时启用
 
-- 任何需要留痕的代码改动：bug 修复、重构、小功能、紧急修复、业务调整。
-- 大流程（requirements/design/code/...）中的具体代码改动：在对应阶段用记录承载
-  Goal/Design/Tasks/Verification 与验收证据。
-- **不启用**：纯文档小修（直接改归属文档，用 `flow-docs` 约定）、一次性问答、纯调研
-  （见 `flow-research`，调研本身不建记录）。
+- **启用（留痕路径）**：跨模块调整、高风险改动（涉及 API 契约、数据库迁移、安全、发布链路），或团队明确要求审计记录与影响文档时。
+- **不启用（走快车道）**：单 Task 小 Bug 修复、局部重构、死代码清理、小配置修改、纯文档小修（直接改归属文档，用 `flow-docs` 约定）、纯调研（见 `flow-research`）。
+- 大流程（requirements/design/code/...）以 GitHub Parent/Sub Issues 为唯一任务账本，合并后按 `flow-docs` 语义同步更新 `docs/specs/`。
 
 ## 默认路径：一次变更一份记录
 
@@ -32,7 +30,7 @@ description: Maintain a Cabbage change record (tasks + documents) through the bu
 5. 逐级验证与门禁：
    - `cabbage({op:"verify", change:"fix-label", stage:"tasks"})`（有专项阶段先逐一验证）
    - `cabbage({op:"gate", change:"fix-label", target:"merge"})` → 应输出 ALLOWED。
-6. 合并后收尾：确认合并 → `cabbage({op:"archive", change:"fix-label"})`（自动 sync + 归档）。
+6. 合并后收尾：确认合并 → 按 `flow-docs` 语义同步行为变更进 `docs/specs/` → `cabbage({op:"archive", change:"fix-label"})`。
 
 速查（亮路径全链路）：
 
@@ -69,7 +67,7 @@ cabbage({op:"archive", change:"fix-label"})                        # 确认合�
 ## Contract
 
 ### Trigger
-由 `@dev-lifecycle` 分诊（Bug 修复、重构、业务调整、紧急修复等轻量路径）或用户要求建立变更记录时触发；
+由 `@agent-dev-lifecycle` 分诊（Bug 修复、重构、业务调整、紧急修复等轻量路径）或用户要求建立变更记录时触发；
 大流程的代码改动也可在实现阶段引用本 skill。
 
 ### Inputs

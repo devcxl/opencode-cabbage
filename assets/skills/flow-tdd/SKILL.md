@@ -103,7 +103,7 @@ Agent 自行遵循 TDD 流程并 self-report 状态。测试质量由仓库 CI �
 - 测试必须有明确的 fail/pass 边界
 - 测试名称描述行为，且只通过 cycle-start 声明的 Test Seam 触发和观察结果
 - RED 必须因目标行为尚未实现而失败，不能把环境、语法或夹具错误当作证据
-- 测试运行命令必须与 Task 的 `test_commands` 中定义的一致
+- 测试运行命令必须与 `AGENTS.md` Project Profile 中定义的 `test command` 一致
 - 记录测试失败输出作为 RED evidence
 
 **self-report 格式：**
@@ -159,7 +159,7 @@ Agent 自行遵循 TDD 流程并 self-report 状态。测试质量由仓库 CI �
 所有 cycle 完成后，运行项目全部测试套件，确认无回归。
 
 **约束：**
-- 必须运行 Task `test_commands` 中定义的全部命令
+- 必须运行 `AGENTS.md` Project Profile 定义的回归测试命令（`regression command`）
 - 所有测试必须通过
 - 如有失败 → 修复（不要求新 cycle，但需记录修复内容）
 
@@ -189,18 +189,18 @@ Agent 自行遵循 TDD 流程并 self-report 状态。测试质量由仓库 CI �
 由编码阶段（`flow-code`）自动触发。Agent 在开始编码任务时加载 `flow-tdd` skill 获取 TDD 流程约束。
 
 ### Inputs
-- Task 文件中的 `Builds` 与 `Acceptance Criteria`（来源：`flow-tasks`）
-- Task frontmatter 中的 `test_commands` 与 `verify_commands`
-- Design `Testing Decisions` 中约定的 Test Seam 与 Observable Result
+- Task Record（GitHub Sub Issue）中的 `Builds` 与 `Acceptance Criteria`（来源：`flow-tasks`）
+- 根 `AGENTS.md` Project Profile 中的 `test command` 与 `regression command`
+- `docs/specs/` 设计规格中 `Testing Decisions` 约定的 Test Seam 与 Observable Result
 
 ### Preconditions
-- Task 文件存在，包含 `Builds`、`Acceptance Criteria`、`test_commands`
+- Task Record（GitHub Sub Issue）存在，包含 `Builds` 与 `Acceptance Criteria`
 - Design 已为目标行为定义公共 Test Seam；存量 Design 缺失时先向 primary 返回 Design Gap，由兼容门在当前 stage 补齐
 - 测试运行环境就绪（worktree 内依赖已安装）
 
 ### Procedure
-1. 读取 Task 的 `Builds`、`Acceptance Criteria`、`test_commands`、`verify_commands`。
-2. 读取 Design `Testing Decisions`，确认目标行为的 Test Seam 与 Observable Result。
+1. 读取 Task Record（GitHub Sub Issue）的 `Builds`、`Acceptance Criteria` 与 Project Profile 测试命令。
+2. 读取 `docs/specs/` 的 `Testing Decisions`，确认目标行为的 Test Seam 与 Observable Result。
 3. 选择一个尚未满足的行为，执行 `cycle-start` 声明 behavior、test_seam 与 test。
 4. 执行 `red` → 只写该行为测试，验证因行为缺失而失败，记录 self-report。
 5. 执行 `green` → 编写最小实现，验证通过，记录 self-report。

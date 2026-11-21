@@ -12,11 +12,12 @@
 
 推荐流程：
 - 新功能/需求：setup → requirements → design → tasks → code → review → release
-- 非功能场景（Bug 修复/紧急修复/业务调整/重构/技术债/基础设施/文档/回滚）：输入 @dev-lifecycle，自动分诊并按对应轻量路径执行
+- 非功能场景（Bug 修复/紧急修复/业务调整/重构/技术债/基础设施/文档/回滚）：输入 @dev-lifecycle，自动分诊并选择快车道或留痕路径
 
-变更记录：任何代码改动先经内置 `cabbage` 工具建立/更新变更记录（flow-change 技能）——
-默认一份 tasks.md（Goal/Design/Tasks/Verification），高风险经 impact 标记展开专项文档，
-验证通过、合并确认后归档并同步 docs/。
+文档与账本（OpenSpec + Matt Pocock 融合原则）：
+- 任务进度唯一权威：GitHub Parent Issue（Flow Record）与 Sub Issues（Task Record），不建本地 task Markdown
+- 系统当前规格（Living Specs）：`docs/specs/`（含接口契约与 Testing Decisions）；重大决策记入 `docs/adr/`
+- 需留痕/高风险代码变更：经内置 `cabbage` 工具建记录（flow-change 技能），合并后语义同步回 `docs/specs/` 并归档
 
 阶段契约：每个 stage 的完成权威是 Parent Issue body checklist（`- [x] <stage>`）。
 

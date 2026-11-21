@@ -56,17 +56,68 @@ describe("adversarial #6 — permission 匹配语义", () => {
     expect(matchPermissionRules(edit, "src/index.ts", "edit")).toBe("deny")
   })
 
-  it("goal-verify 只读：bash 只放行查询命令", () => {
+  it("goal-verify 只读：bash 放行 git 查询与只读 gh 查询，写操作仍拒绝", () => {
     const agents = loadAgents(AGENTS_DIR)
     const gv = agents.find((a: AgentEntry) => a.key === "goal-verify")
     expect(gv, "goal-verify agent must exist").toBeDefined()
     const bash = rulesOf(gv!, "bash")
     expect(bash, "goal-verify must declare bash permission rules").not.toEqual([])
-    for (const cmd of ["git status", "git diff", "git log --oneline -5"]) {
+    for (const cmd of [
+      "git status",
+      "git diff",
+      "git log --oneline -5",
+      "gh issue view 42",
+      "gh issue list --state open",
+      "gh pr view 10",
+      "gh pr list --state merged",
+      "gh pr checks 10",
+      "gh run list --limit 5",
+    ]) {
       expect(matchPermissionRules(bash, cmd, "bash"), `${cmd} 应为 allow`).toBe("allow")
     }
-    for (const cmd of ["git push origin main", "gh pr merge 1", "npm publish"]) {
+    for (const cmd of [
+      "git push origin main",
+      "gh pr merge 1",
+      "gh pr review 1 --approve",
+      "gh issue edit 1 --body x",
+      "gh issue close 1",
+      "npm publish",
+    ]) {
       expect(matchPermissionRules(bash, cmd, "bash"), `${cmd} 不应 allow`).not.toBe("allow")
     }
+  })
+
+  it("reviewer 只读：放行只读 git/gh 查询命令，拒绝切分支/写操作与任意文件编辑", () => {
+    const agents = loadAgents(AGENTS_DIR)
+    const rv = agents.find((a: AgentEntry) => a.key === "reviewer")
+    expect(rv, "reviewer agent must exist").toBeDefined()
+    const bash = rulesOf(rv!, "bash")
+    const edit = rulesOf(rv!, "edit")
+
+    for (const cmd of [
+      "git status",
+      "git diff HEAD~1",
+      "git log --oneline -5",
+      "git show abc123",
+      "git rev-parse HEAD",
+      "git ls-files",
+      "gh pr view 10",
+      "gh pr diff 10",
+      "gh pr checks 10",
+    ]) {
+      expect(matchPermissionRules(bash, cmd, "bash"), `${cmd} 应为 allow`).toBe("allow")
+    }
+
+    for (const cmd of [
+      "git checkout feat/x",
+      "git push origin feat/x",
+      "gh pr merge 10",
+      "gh pr review 10 --approve",
+    ]) {
+      expect(matchPermissionRules(bash, cmd, "bash"), `${cmd} 应被拒绝`).toBe("deny")
+    }
+
+    expect(matchPermissionRules(edit, "src/index.ts", "edit")).toBe("deny")
+    expect(matchPermissionRules(edit, ".worktree/task-a/src/index.ts", "edit")).toBe("deny")
   })
 })

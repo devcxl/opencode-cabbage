@@ -176,7 +176,7 @@ setup → requirements → design → tasks → code → review → release（�
 6. goal-verify 验证通过 → goal({op:"complete"})
 
 调研等非功能场景：派发 `@researcher` 加载 `flow-research` 产出 `docs/dev/research/<topic>.md`；
-异常处理在重试后先派发 `@deep-think`（更强模型）系统审视，再 Pause 求助。
+异常处理在重试后先派发 `@architect` 系统审视，再 Pause 求助。
 ```
 
 关键机制：
@@ -194,7 +194,7 @@ setup → requirements → design → tasks → code → review → release（�
 | `developer` | 只读查询 | 全权（worktree 内） | flow-code, flow-tdd | TDD 实现 |
 | `reviewer` | 只读查询 | 只读 | flow-review | 双轴审查 |
 | `researcher` | 只读 + 网络读取(curl) | 只写 docs/dev/research | flow-research | 调研、事实核查 |
-| `goal-verify` | 查询 + 测试，deny publish | 只读 | 无 | 独立验证 + goal complete |
+| `goal-verify` | 查询 + 只读 gh + 测试，deny publish | 只读 | 无 | 独立验证 + goal complete |
 
 ## 事件驱动
 

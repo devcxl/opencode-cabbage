@@ -24,7 +24,7 @@ worktree 创建、PR 提交由 primary 编排器执行，本 skill 定义编码�
 
 - 只改 Task 相关的文件；遵循项目现有代码规范与分层结构
 - 遵循工程原则（KISS/YAGNI/DRY/SRP/最小变更，单份引用仓库 AGENTS.md）
-- 文档同步：涉及 guides/api/db 变更时随代码同 PR 更新
+- 文档同步：涉及系统行为或用户指南变更时随代码同 PR 更新 `docs/specs/` 与 `docs/guides/`
 
 ## TDD 引用
 
@@ -40,7 +40,7 @@ worktree 创建、PR 提交由 primary 编排器执行，本 skill 定义编码�
 ## Contract
 
 ### Trigger
-由 `/code` 命令或 `@dev-lifecycle` Phase 3 触发。
+由 `/code` 命令或 `@agent-dev-lifecycle` Phase 3 触发。
 
 ### Inputs
 - Task Record（Sub Issue 编号与标题，来源：`/tasks` 产出）

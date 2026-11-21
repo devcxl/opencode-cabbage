@@ -68,55 +68,40 @@
 
 ### `/design` — 技术设计
 
-**用途**：基于 PRD 输出技术方案和架构决策。
+**用途**：基于 PRD 输出系统规格、技术方案和架构决策。
 
 **流程**：
-1. 委派 `@architect` 阅读 PRD
-2. 输出技术方案 → `docs/dev/specs/<title>.md`
+1. 委派 `@architect` 阅读 PRD 与既有 `docs/specs/`
+2. 输出/更新系统规格与技术方案 → `docs/specs/<slug>.md`
 3. 记录关键 ADR → `docs/adr/<date>-<slug>.md`
 4. 在 Parent Issue 发布评论
 
 **产出**：
-- `docs/dev/specs/<title>.md` — 完整技术方案（技术栈、架构、模块、接口、数据模型）
+- `docs/specs/<slug>.md` — 系统规格与技术方案（含架构、接口、`Testing Decisions`）
 - `docs/adr/<date>-<slug>.md` — 架构决策记录
 - Issue comment — 方案摘要
 
 **ADR 结构**：
 - 标题、状态、日期
-- 背景
-- 决策
-- 备选方案（含未采纳原因）
-- 后果（正面 + 负面）
+- 背景（Context）
+- 决策（Decision）与备选方案
+- 后果（Consequences：正面 + 负面）
 
 ---
 
 ### `/tasks` — 任务拆解
 
-**用途**：将技术方案拆解为 DAG 任务并创建 Sub Issues。
+**用途**：将技术方案拆解为垂直切片 Task Plan 并创建 GitHub Sub Issues（单一任务账本）。
 
 **流程**：
-1. 委派 `@architect` 分析技术方案
-2. 拆解为独立可执行的任务，标注依赖关系
-3. 每个任务创建 task markdown 文件 → `docs/dev/tasks/<task-name>.md`
-4. 为每个任务创建 GitHub Sub Issue，关联 Parent Issue
+1. 委派 `@architect` 分析系统规格（`docs/specs/`）
+2. 拆解为独立可执行的垂直切片任务，标注真实阻塞关系（`Blocked By`）并返回结构化 Task Plan
+3. 为每个任务创建 GitHub Sub Issue，关联 Parent Issue（不写本地 task Markdown 或 `DAG.md`）
 
-**任务定义格式**（frontmatter）：
-
-```yaml
----
-name: 实现用户注册接口
-dependsOn: []           # 依赖的任务 ID
-area: developer        # developer | common
-parallelSafe: true      # 是否可以与其他任务并行
-expectedFiles:
-  - src/controllers/AuthController.ts
-  - src/services/AuthService.ts
-  - src/repositories/UserRepository.ts
-testCommands:
-  - npm run test:auth
-acceptance: 用户可以通过邮箱+密码注册，收到验证邮件
----
-```
+**Sub Issue 内容**：
+- `Builds`：这个 Task 完成后哪条端到端行为可以工作
+- `Acceptance Criteria`：对应 Design `Testing Decisions` 的可观察行为列表
+- `Blocked By`：前置 Sub Issue 编号或 `None`
 
 **DAG 原则**：
 - 每个任务应是垂直切片，单人 2-4 小时可完成
@@ -272,11 +257,13 @@ Flow 状态通过 `goal` tool 管理：
 
 ### 文档规范
 
+- 领域术语 → 根 `CONTEXT.md`
 - PRD → `docs/prd/`
+- 系统当前规格（Living Specs）→ `docs/specs/`
 - ADR → `docs/adr/`
-- 技术方案 → `docs/dev/specs/`
-- 任务定义 → `docs/dev/tasks/`
-- 开发文档 → `docs/dev/{api,db,guides}/`
+- 调研报告 → `docs/dev/research/`
+- 使用指南 → `docs/guides/`
+- 任务与进度 → GitHub Parent/Sub Issues（单一任务账本，不再新建本地 task Markdown）
 
 ### 分支命名
 

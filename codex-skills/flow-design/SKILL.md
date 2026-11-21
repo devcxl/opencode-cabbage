@@ -18,7 +18,7 @@ description: 技术方案设计 → 方案文档 + ADR → Planning PR
 2. **产出文档**：
    - 根 `CONTEXT.md` 术语更新（如发现新领域术语）
    - `docs/prd/<title>.md`（PRD 确认版）
-   - `docs/dev/specs/<title>.md`（技术方案）
+   - `docs/specs/<slug>.md`（系统规格与技术方案；若该模块已有 Living Spec，则在其基础上更新行为与接口变化）
    - `docs/adr/<date>-<slug>.md`（ADR 决议）
 3. **提交并创建 Planning PR**
    ```bash
@@ -88,7 +88,7 @@ Test Seam 应描述公共行为边界，例如 Session API，而不是 `SessionR
 
 ## 存量 Design Amendment
 
-当 tasks、code 或 review 阶段发现旧技术方案缺少 `Testing Decisions` 时，调用方可以在**保持当前 lifecycle stage 不变**的前提下委派 `@architect` 补齐设计：
+当 tasks、code 或 review 阶段发现旧技术方案缺少 `Testing Decisions` 时，调用方可以在**保持当前 lifecycle stage 不变**的前提下委派 `@agent-architect` 补齐设计：
 
 1. 读取 Design Gap、原技术方案、相关 PRD / ADR 与 repository context。
 2. 优先识别仓库已有的公共 Interface 和测试惯例，不为了补字段创建新 Seam。
@@ -97,7 +97,7 @@ Test Seam 应描述公共行为边界，例如 Session API，而不是 `SessionR
 
 如果补齐过程暴露新的架构取舍或多个无法直接判断的 Seam 方案，停止 amendment 并把决策交给用户；不得静默扩大设计。Design Amendment 不回退 goal stage、不重复勾选阶段，也不单独创建新的 lifecycle 状态。
 
-Design Amendment 是兼容子流程，覆盖本 skill 的普通发布流程：不创建 design 分支、Planning PR 或新 ADR。`@architect` 只修改技术方案，primary 负责在当前 stage 保存变更并把补充内容传给后续 agent。
+Design Amendment 是兼容子流程，覆盖本 skill 的普通发布流程：不创建 design 分支、Planning PR 或新 ADR。`@agent-architect` 只修改技术方案，primary 负责在当前 stage 保存变更并把补充内容传给后续 agent。
 
 ## CONTEXT.md 术语
 
@@ -105,21 +105,22 @@ Design Amendment 是兼容子流程，覆盖本 skill 的普通发布流程：�
 设计中发现的新术语经用户确认后写入根 CONTEXT.md。
 
 ## Output
-- `docs/dev/specs/<title>.md` — 技术方案（包含 Module / Interface 设计与 Testing Decisions）
+- `docs/specs/<slug>.md` — 系统规格与技术方案（包含 Module / Interface 设计与 Testing Decisions）
 - `docs/adr/<date>-<slug>.md` — ADR 决议
 - 根 CONTEXT.md 术语更新（如发现新术语）
 - Planning PR（合入后 = 设计基线）
 
 ## 后续
-- **/tasks** — 基于设计方案拆解为 DAG 任务
+- **/tasks** — 基于设计方案拆解为垂直切片任务并发布 GitHub Sub Issues
 
 ## Contract
 
 ### Trigger
-由 `/design` 命令、`@dev-lifecycle` Phase 1，或存量 Flow 的 Testing Decisions 兼容门触发。
+由 `/design` 命令、`@agent-dev-lifecycle` Phase 1，或存量 Flow 的 Testing Decisions 兼容门触发。
 
 ### Inputs
 - `docs/prd/<title>.md` — 上游 PRD（来源：requirements 阶段产出）
+- `docs/specs/` — 系统既有 Living Specs（了解现状）
 - Parent Issue 编号（来源：requirements 阶段产出）
 
 ### Preconditions
@@ -130,10 +131,10 @@ Design Amendment 是兼容子流程，覆盖本 skill 的普通发布流程：�
 普通 design 流程：
 
 1. 基于默认分支创建工作分支
-2. 阅读 PRD、已有 ADR、根 CONTEXT.md 术语
+2. 阅读 PRD、既有 `docs/specs/`、已有 ADR、根 CONTEXT.md 术语
 3. 识别 Module、Interface 与真实 Seam，检查深度、局部性和抽象必要性
 4. 为关键行为定义 Testing Decisions，明确公共 Test Seam 与可观察结果
-5. 输出技术方案到 `docs/dev/specs/<title>.md`
+5. 输出/更新系统规格与技术方案到 `docs/specs/<slug>.md`
 6. 记录 ADR 到 `docs/adr/<YYYY-MM-DD>-<slug>.md`
 7. 提交并创建 Planning PR
 

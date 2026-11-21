@@ -22,18 +22,18 @@ self-report 每个 cycle 的状态，不跳过任何阶段。测试质量由仓�
 ## 工作流程
 
 ### 1. 确认输入
-- 阅读 Task Record（GitHub Sub Issue）与任务定义（`docs/dev/tasks/`）
-- 阅读技术方案的 `Testing Decisions`，确认目标行为、公共 Test Seam 与可观察结果
+- 阅读 Task Record（GitHub Sub Issue，使用 `gh issue view <number>` 获取 `Builds` 与 `Acceptance Criteria`）
+- 阅读设计规格（`docs/specs/`）中的 `Testing Decisions`，确认目标行为、公共 Test Seam 与可观察结果
+- 阅读根 `AGENTS.md` 的 `## Project Profile`，确认测试命令基线
 - 只读 git/gh 查看状态（worktree 分支、基线提交、关联 PR/Issue）
 - 检查相关 ADR（`docs/adr/`）确保实现与架构决策一致
 
 ### 2. 实现（TDD）
-- 加载 `flow-tdd` skill，在约定的公共 Test Seam 上按 Task 行为与 `test_commands` 执行 RED→GREEN cycle
-- self-report 每个 stage（cycle-start/red/green/abandon-cycle/final-regression/final-verification）
+- 加载 `flow-tdd` skill，在约定的公共 Test Seam 上按 Task 验收标准与 Project Profile 测试命令执行 RED→GREEN cycle
 - 只改 Task 相关的文件；遵循项目现有代码规范与分层结构
 
 ### 3. 验证
-- 运行 Task 定义的测试命令，确认全部通过
+- 运行 Project Profile 测试命令与回归测试，确认全部通过
 - 边界条件、异常处理、空值处理完备
 
 ### 4. 提交

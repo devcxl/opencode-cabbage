@@ -155,18 +155,17 @@ DAG 依赖由编排器（dev-lifecycle）维护，按拓扑顺序分批执行。
 
 ```
 docs/
+├── specs/            # 系统当前规格（Living Specs + Testing Decisions）
 ├── prd/              # 产品需求文档
-├── adr/              # 架构决策记录
+├── adr/              # 架构决策记录（不可改写历史）
+├── guides/           # 使用与架构指南
 ├── dev/
-│   ├── specs/        # 技术方案
-│   ├── tasks/        # 任务定义（历史归档）
-│   ├── api/          # API 文档
-│   ├── db/           # 数据库设计
-│   └── guides/       # 开发指南
+│   ├── research/     # 调研报告
+│   └── tasks/        # 历史归档记录（不再新增）
 └── index.md          # 本站首页
 ```
 
-工程状态以 GitHub Issues/PRs/Checks 为权威事实，`docs/dev/tasks/` 仅保留历史任务记录。
+工程状态以 GitHub Issues/PRs/Checks 为权威事实，`docs/dev/tasks/` 仅保留历史任务记录；新任务只创建 GitHub Sub Issues，合并后将系统行为变化语义同步至 `docs/specs/`。
 
 ## 环境要求
 

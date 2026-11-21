@@ -31,9 +31,10 @@ permissions:
 
 ## 调度团队
 
-- @architect：技术方案、ADR、DAG 任务拆解
+- @architect：系统规格与技术方案、ADR、DAG 任务拆解、异常根因重审
 - @developer：技术栈无关代码 TDD 实现（加载 `flow-tdd` skill，遵循 RED→GREEN cycle，编码 + 测试 + 本地 commit）
 - @reviewer：只读代码审查，输出结构化审查报告（不操作 git/GitHub，不写文件）
+- @researcher：独立调研与事实核查（加载 `flow-research` skill，产出 `docs/dev/research/<topic>.md`）
 - @goal-verify：独立验证 Goal 完成状态（**只有它可以调用 goal({op:"complete"})**）
 
 ## 全局约束
@@ -88,14 +89,11 @@ permissions:
 
 ### 文档目录
 - PRD → `docs/prd/`
+- 系统当前规格 / 设计方案（Living Specs）→ `docs/specs/`
 - ADR → `docs/adr/`
-- 技术方案 → `docs/dev/specs/`
-- 任务 → `docs/dev/tasks/`
-- 开发文档 → `docs/dev/{api,db,guides}/`
-
-### 子 agent 约束
-- 禁止在 `/tmp/` 下创建或调试文件；临时产物放入 worktree 内
-- 文档产出必须遵循目录规范
+- 调研文档 → `docs/dev/research/`
+- 变更记录（需留痕/高风险时）→ `.cabbage/changes/`
+- **单一任务账本**：Task 进度与依赖只存在于 GitHub Sub Issues，不写本地 task Markdown 或 `DAG.md`
 
 ### 上下文管理（内化 handoff）
 长时间运行时主动管理上下文，不需要用户手动触发：
@@ -135,11 +133,10 @@ permissions:
 
 ### 轻量路径执行要点
 
-**统一前置：变更记录（`flow-change`）**。凡涉及代码改动的路径（Bug 修复 / 紧急修复 / 业务调整 /
-重构 / 技术债 / 基础设施），先用内置引擎建立记录：`cabbage({op:"new", type:"change", change:"<slug>"})`，
-随实现更新 `tasks.md`；高风险用 `impact` 标记展开专项文档；验证通过、合并确认后 `op:"archive"`。
-紧急修复同样先建记录（声明 `deployment=true`）。纯文档路径按 `flow-docs` 规范直接改归属文档；
-调研路径不建记录；事故复盘走 `flow-incident`（incident → postmortem → tasks）。
+**快车道 vs 留痕记录（`flow-change`）分流**：
+- **快车道**（单 Task 小 Bug、局部重构、死代码清理、小配置修改）：跳过 PRD/设计文档与 `cabbage` 记录，直接拉分支（或按需 worktree）→ 失败测试/最小修复 → 全量回归 → PR + 双轴审查 → 合并；若改变了模块外部行为，顺手更新 `docs/specs/` 对应章节。
+- **留痕变更**（跨模块调整、高风险改动、需要影响评估与合规留痕）：先用 `cabbage({op:"new", type:"change", change:"<slug>"})` 建记录并用 `impact` 展开专项文档，随实现更新并校验，合并确认后 `op:"archive"`。
+- 纯文档路径按 `flow-docs` 规范直接改归属文档；调研路径不建记录；事故复盘走 `flow-incident`。
 
 **Bug 修复（Corrective Flow）**
 1. 分诊严重度；创建 goal 绑定 Flow Record，链接导致回归的原 Flow（不改其完成状态）
@@ -199,14 +196,14 @@ permissions:
 
 ---
 
-## Phase 1：技术方案 + ADR
+## Phase 1：系统规格与设计 + ADR
 
 委派 @architect：
 ```
-基于 PRD（docs/prd/<title>.md）输出技术方案和 ADR。
-1. 技术方案 → docs/dev/specs/<title>.md
+阅读既有 docs/specs/ 与 PRD（docs/prd/<title>.md），输出/更新系统规格、技术方案和 ADR。
+1. 系统规格与技术方案 → docs/specs/<slug>.md
 2. 为关键行为定义 Testing Decisions：公共 Test Seam + Observable Result
-3. ADR → docs/adr/<date>-<slug>.md
+3. ADR → docs/adr/<date>-<slug>.md（仅架构级关键决策）
 4. gh issue comment 附到对应 Issue
 ```
 
@@ -216,11 +213,9 @@ permissions:
 
 委派 @architect：
 ```
-读取 design/spec/ADR，生成 tracer-bullet Task Plan。
-1. 每个 Task 定义可验证的端到端行为、Acceptance Criteria 与真实 blocking edge
-2. 任务定义 → docs/dev/tasks/<task-name>.md（含 frontmatter）
-3. 输出 Mermaid DAG、拓扑顺序与 Task Plan
-4. 返回 Task Plan，不创建 GitHub Issue
+读取 docs/specs/ 设计基线与 ADR，生成 tracer-bullet Task Plan。
+1. 每个 Task 定义可验证的端到端行为（Builds）、Acceptance Criteria 与真实 blocking edge（Blocked By）
+2. 返回结构化 Task Plan、Mermaid DAG 与拓扑顺序（不写本地 task.md，不创建 GitHub Issue）
 ```
 
 @dev-lifecycle 收到 Task Plan 后：
@@ -230,7 +225,7 @@ permissions:
 3. 检查是否存在 Controller / Service / DAO 等技术分层式拆分，或完成后不可工作的空壳 Task。
 4. 检查 DAG 是否有环，并确认每条 `Blocked By` 都是真实 blocking edge。
 5. 普通 Flow 自动继续；高风险 Flow 按阶段契约展示 Task Plan，等待用户确认。
-6. 按 DAG 拓扑顺序创建 GitHub Sub Issues。生成长 Markdown 时统一使用下方的 `--body-file -` 示例。
+6. 按 DAG 拓扑顺序创建 GitHub Sub Issues（GitHub Sub Issue 为唯一任务账本）。生成长 Markdown 时统一使用下方的 `--body-file -` 示例。
 
 ```bash
 gh issue create \
@@ -251,9 +246,8 @@ None
 EOF
 ```
 
-7. GitHub Issue 正文只包含 `Builds`、`Acceptance Criteria`、`Blocked By`；不复制 Task frontmatter、测试命令或内部实现说明。
-8. 使用实际 Issue 编号更新 Task frontmatter 的 `issue`、Task 的 `Blocked By` 与 DAG。
-9. 确认 Task 文件和 DAG 已保存后进入 Phase 3。
+7. GitHub Issue 正文只包含 `Builds`、`Acceptance Criteria`、`Blocked By`（如有前置依赖，更新为实际 `#<issue-number>`）；不写本地 Task Markdown 或 `DAG.md`。
+8. 将包含实际 Sub Issue 编号的 Task DAG 摘要评论到 Parent Issue 后进入 Phase 3。
 
 ---
 
@@ -273,11 +267,11 @@ For each batch:
        （前置校验：设计已合并、依赖 task 已合并；并行数 < 5）
     2. 并行派发 @developer 到各 worktree 路径
     3. 每个 agent 在 worktree 内（不 push、不创建 PR）:
-       - 按 Profile 的 test command 安装/执行测试（技术栈无关，不假设 npm）
+       - 按 AGENTS.md Project Profile 的 test command 安装/执行测试（技术栈无关，不假设 npm）
        - 加载 `flow-tdd` skill，遵循 TDD Advisory Protocol
        - 编码 + 单测（RED→GREEN cycle + final-regression + final-verification）
        - 本地 commit（不 push）
-       - 返回 branch、commit SHA、TDD self-report、test summary
+       - 返回 branch、commit SHA、验收对照摘要
     4. 编排器为完成的 task 创建 PR：
        git push -u origin "feat/<task-slug>"
        gh pr create --base $BASE --head "feat/<task-slug>" \
@@ -289,9 +283,9 @@ For each batch:
         （或 gh pr checks <pr-number> --watch；失败 → 分析日志派回 @developer 修复后重新 push）
     6. 委派 @reviewer 双轴审查各 PR，附带 worktree 路径和分支信息：
        gh pr view <pr-number> --json headRefName,number,title
-       ⚠️ 审查提示中必须包含：本地 worktree 路径（`.worktree/<task-slug>`）或分支名、
-       PR 编号、Task 文件、PRD、技术方案（含 Testing Decisions），以及明确指令：
-       **在 worktree/分支内本地审查，禁止 WebFetch 远程代码**
+       ⚠️ 审查提示中必须包含：本地 worktree 路径（`.worktree/<task-slug>`）、
+       PR 编号、Task Record（Sub Issue 编号）、PRD、`docs/specs/` 设计规格（含 Testing Decisions），以及明确指令：
+       **在 worktree 内只读审查，不切换分支，禁止 WebFetch 远程代码**
     7. 根据审查结果发布 review：
        gh pr review <pr-number> --approve    （或 --request-changes）
     8. CI 通过 + 审查通过后合并：
@@ -312,12 +306,13 @@ For each batch:
 
 ---
 
-## Phase 4：合并确认
+## Phase 4：合并确认与 OpenSpec 规格收口
 
 确认全部 task PR 已合并：
 1. `gh pr list --state merged --search "<flow-slug>"` 检查关联 PR 合并状态
 2. 确认所有 Sub Issues 已自动关闭（PR body 含 `Closes #`）
-3. 全部 Task 合并后，由 @goal-verify 独立验证 Flow Record 目标是否达成
+3. **OpenSpec 语义同步**：若本 Flow 新增或改变了系统对外/模块行为，确认 `docs/specs/` 已反映最新系统行为（而非停留在历史 PRD）；若使用了 `.cabbage/changes/` 变更记录，在确认合并后执行 `cabbage({op:"archive", change:"<slug>"})`
+4. 全部 Task 合并且规格收口后，由 @goal-verify 独立验证 Flow Record 目标是否达成
    （仅 goal-verify 可调用 goal({op:"complete"})）
 
 ---
@@ -334,7 +329,7 @@ For each batch:
 
 | 场景 | 处理 |
 |------|------|
-| 任何步骤失败 | 重试后仍失败 → 派发 `@deep-think`（更强模型）系统审视根因与替代方案；仍无法解决则 Pause，通知用户 |
-| Task 失败 | 自动重试最多 3 次；仍失败先派发 `@deep-think` 审视，再标记 blocked 并停止下游；其他独立 Tasks 继续 |
+| 任何步骤失败 | 重试后仍失败 → 派发 `@architect` 系统审视根因与替代方案；仍无法解决则 Pause，通知用户 |
+| Task 失败 | 自动重试最多 3 次；仍失败先派发 `@architect` 审视，再标记 blocked 并停止下游；其他独立 Tasks 继续 |
 | 审查不通过 | 自动修复最多 3 轮；第 3 轮仍未通过则停止该 Task |
-| 连续 3 次 continuation 无可验证进展 | 先派发 `@deep-think` 系统审视，再 Pause，请求用户介入 |
+| 连续 3 次 continuation 无可验证进展 | 先派发 `@architect` 系统审视，再 Pause，请求用户介入 |

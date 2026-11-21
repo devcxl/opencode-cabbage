@@ -124,6 +124,29 @@ describe("dev-lifecycle prompt", () => {
     expect(agent?.prompt).not.toContain("如果被 BLOCKED")
     expect(agent?.prompt).not.toContain("最终全部完成后调用 `goal({op:\"complete\"})`")
   })
+
+  it("does not reference missing @deep-think agent and lists @researcher in team", () => {
+    const agentsDir = path.resolve(import.meta.dirname || __dirname, "..", "assets", "agents")
+    const agent = loadAgents(agentsDir).find(entry => entry.key === "dev-lifecycle")
+
+    expect(agent?.prompt).not.toContain("@deep-think")
+    expect(agent?.prompt).toContain("@researcher")
+  })
+
+  it("uses GitHub Sub Issues as single task ledger and docs/specs as living specs", () => {
+    const agentsDir = path.resolve(import.meta.dirname || __dirname, "..", "assets", "agents")
+    const devLifecycle = loadAgents(agentsDir).find(entry => entry.key === "dev-lifecycle")
+    const architect = loadAgents(agentsDir).find(entry => entry.key === "architect")
+    const developer = loadAgents(agentsDir).find(entry => entry.key === "developer")
+    const reviewer = loadAgents(agentsDir).find(entry => entry.key === "reviewer")
+
+    expect(devLifecycle?.prompt).not.toContain("docs/dev/tasks/")
+    expect(devLifecycle?.prompt).toContain("docs/specs/")
+    expect(architect?.prompt).not.toContain("docs/dev/tasks/")
+    expect(architect?.prompt).toContain("docs/specs/")
+    expect(developer?.prompt).not.toContain("docs/dev/tasks/")
+    expect(reviewer?.prompt).not.toContain("git checkout")
+  })
 })
 
 describe("developer agent（backend+frontend 合并，§6.1）", () => {
@@ -154,11 +177,17 @@ describe("developer agent（backend+frontend 合并，§6.1）", () => {
     expect(bash).toContainEqual({ action: "bash", resource: "gh pr merge*", effect: "deny" })
     expect(bash).toContainEqual({ action: "bash", resource: "gh issue create*", effect: "deny" })
 
-    // 单一基准：仅 worktree 内可编辑（避免仓库根双基准）
-    expect(rules.filter(r => r.action === "edit")).toEqual([
+    // 单一基准：仅 worktree 内可编辑（同时兼容相对路径与绝对路径，避免宿主路径形式差异误拦截）
+    const editRules = rules.filter(r => r.action === "edit")
+    expect(editRules).toEqual([
       { action: "edit", resource: "*", effect: "deny" },
       { action: "edit", resource: ".worktree/**", effect: "allow" },
+      { action: "edit", resource: "**/.worktree/**", effect: "allow" },
     ])
+    expect(matchPermissionRules(editRules, ".worktree/task-a/src/a.ts", "edit")).toBe("allow")
+    expect(matchPermissionRules(editRules, "/repo/.worktree/task-a/src/a.ts", "edit")).toBe("allow")
+    expect(matchPermissionRules(editRules, "src/a.ts", "edit")).toBe("deny")
+    expect(matchPermissionRules(editRules, "/repo/src/a.ts", "edit")).toBe("deny")
   })
 
   it("body 技术栈无关：加载 flow-tdd、不内嵌三份工程原则拷贝、无 backend/frontend 残留", () => {

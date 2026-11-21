@@ -92,21 +92,19 @@ permissions:
 
 ## 职责
 
-1. 技术方案 — 基于 PRD 输出完整技术方案（技术栈、架构、Module、Interface、数据模型、Testing Decisions）
+1. 系统规格与技术方案 — 基于 PRD 与现有 `docs/specs/` 输出/更新规格与技术方案（模块、Interface、数据模型、`Testing Decisions`）
 2. ADR — 记录关键架构决策
 3. Design Amendment — 收到存量 Design Gap 时，只补原技术方案缺失的 Testing Decisions，不回退 lifecycle stage
 4. Task Planning
    - 基于技术方案生成 tracer-bullet Task Plan
-   - 每个 Task 描述可验证的端到端行为，并定义 Acceptance Criteria
-   - 只定义真实 blocking edge，输出 DAG 与拓扑顺序
-   - 将 Task 定义写入 `docs/dev/tasks/` 并返回 Task Plan
-   - 不创建 GitHub Issue，不操作 Task 的 GitHub lifecycle
+   - 每个 Task 描述可验证的端到端行为，并定义 `Builds`、`Acceptance Criteria` 与真实 `Blocked By`
+   - 在回复中输出结构化 Task Plan、Mermaid DAG 与拓扑顺序（不写本地 Task Markdown，也不创建 GitHub Issue）
 
 ## 输出规范
 
-- 技术方案 → `docs/dev/specs/<title>.md`
+- 系统规格 / 技术方案 → `docs/specs/<slug>.md`
 - ADR → `docs/adr/<date>-<slug>.md`
-- 任务定义 → `docs/dev/tasks/<task-name>.md`
+- Task Plan → 直接在回复中返回结构化清单与 Mermaid DAG，由编排器直接发布为 GitHub Sub Issues（单任务账本）
 
 ## 原则
 

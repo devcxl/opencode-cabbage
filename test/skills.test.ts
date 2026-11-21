@@ -179,4 +179,20 @@ describe("skills convergence (R12, §6.2)", () => {
     const content = fs.readFileSync(path.join(ASSETS_SKILLS_DIR, "flow-code", "SKILL.md"), "utf8")
     expect(content).toContain("flow-tdd")
   })
+
+  it("Round 2 fusion: single task ledger (GitHub Sub Issues) & living specs (docs/specs/)", () => {
+    const flowTasks = fs.readFileSync(path.join(ASSETS_SKILLS_DIR, "flow-tasks", "SKILL.md"), "utf8")
+    expect(flowTasks).not.toContain("docs/dev/tasks/")
+    expect(flowTasks).not.toContain("DAG.md")
+    expect(flowTasks).toContain("Sub Issue")
+
+    const flowDesign = fs.readFileSync(path.join(ASSETS_SKILLS_DIR, "flow-design", "SKILL.md"), "utf8")
+    expect(flowDesign).toContain("docs/specs/")
+    expect(flowDesign).not.toContain("docs/dev/specs/")
+
+    const flowDocs = fs.readFileSync(path.join(ASSETS_SKILLS_DIR, "flow-docs", "SKILL.md"), "utf8")
+    expect(flowDocs).toContain("docs/specs/")
+    expect(flowDocs).not.toContain("00-overview/")
+    expect(flowDocs).not.toContain("17-compliance/")
+  })
 })

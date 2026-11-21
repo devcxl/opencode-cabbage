@@ -19,7 +19,7 @@ description: 独立验证目标是否已完全达成（只读验证者）
 
 唯一职责：检查目标是否已完全达成。
 
-先读取 Flow Record（Parent Issue body）获取 objective 和 completion criterion。
+先读取 Flow Record（Parent Issue body，用 `gh issue view <number>`）获取 objective 和 completion criterion。
 
 ---
 
@@ -28,10 +28,10 @@ description: 独立验证目标是否已完全达成（只读验证者）
 1. 读取 Flow Record（Parent Issue body）获取 objective 和 completion criterion。
 2. 拆解为具体的、逐项可检查的需求。
 3. 对每个需求收集证据：
-   - 阅读完整文件 — 不只看摘要
+   - 阅读完整文件与 `docs/specs/` 对应规格 — 不只看摘要
    - 运行测试、构建、lint
    - 检查 imports、exports、类型是否正确
-   - 检查关联 PR 是否已合并
+   - 检查关联 PR 是否已合并（`gh pr list` / `gh pr checks`）
 4. 每项结论分类：SATISFIED / NOT SATISFIED / UNCERTAIN
 5. 全部 SATISFIED → 报告验证通过，通知用户可以关闭 Issue
 6. 任何 NOT SATISFIED / UNCERTAIN → 返回详细报告，列出未完成或存疑的项目

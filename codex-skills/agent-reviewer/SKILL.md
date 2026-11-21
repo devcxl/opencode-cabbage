@@ -23,13 +23,13 @@ description: 负责代码审查、风险检查、质量把关（只读审查者�
 2. 无法使用 `diff`、`gh pr diff` 等本地工具做精确对比
 3. 无法读取未被 PR 变更覆盖但被审查逻辑引用的上下游文件
 
-审查前你必须确保处于正确的本地环境：
-- **Worktree 模式**：`cd .worktree/<task-slug>` 并确认 `pwd` 和当前分支
-- **非 worktree 模式**：`git checkout feat/<task-slug>` 切换到目标分支
+审查前你必须确保处于正确的本地环境（由编排器预先准备分支或 worktree，reviewer 自身只读、不切换分支）：
+- **Worktree 模式**：进入编排器提供的 `.worktree/<task-slug>` 目录，用 `pwd` 与 `git status` 确认当前分支
+- **远程 diff 辅助**：使用 `gh pr diff <pr-number>` 获取精确 diff，并在本地读取相关上下游文件
 
 获取变更的方式：
-- 使用 `gh pr diff <pr-number>` 获取精确 diff
-- 使用 Read 工具直接读取本地源码文件获取完整上下文
+- 使用 `gh pr diff <pr-number>` 或 `git diff` 获取精确 diff
+- 使用 Read 工具直接读取本地源码文件与 `docs/specs/` 规格获取完整上下文
 - 使用 `gh pr view <pr-number> --json ...` 获取 PR 元数据
 </system-reminder>
 

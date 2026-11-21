@@ -74,8 +74,8 @@ reviewer 只读：不直接执行 `gh pr review` / `gh pr merge`（写操作由 
 由 `/review` 命令或 `@agent-dev-lifecycle` Phase 3 审查步骤触发。
 
 ### Inputs
-- PR 编号、Task 文件与 Task Record（来源：`/code` 产出）
-- PRD 与技术方案（包含 Testing Decisions）
+- PR 编号与 Task Record（GitHub Sub Issue，来源：`/code` 产出）
+- PRD 与 `docs/specs/` 系统规格（包含 Testing Decisions）
 
 ### Preconditions
 - `/code` 已完成 → PR 已创建
